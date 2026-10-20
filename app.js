@@ -94,7 +94,8 @@ function alerts() {
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
   const n = alerts().count;
-  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['alerts', 'התראות', 'bell'], ['more', 'עוד', 'menu']];
+  // Manager-only screens stay out of sight until manager mode is on.
+  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ...(store.isManager() ? [['alerts', 'התראות', 'bell']] : []), ['more', 'עוד', 'menu']];
   document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && ['hours', 'tasks', 'admin', 'display'].includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
 function render() {
@@ -113,9 +114,10 @@ function render() {
   const me = cur();
   hdr.innerHTML = brand + `
     <div class="top-actions">
-      ${manager ? `<button class="chip mgr" data-action="lock">${ic('unlock', 'sm')}מנהל · נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
+      ${manager ? `<button class="chip mgr" data-action="lock">${ic('unlock', 'sm')}מנהל · נעל</button>` : ''}
       <button class="chip" data-action="account"><span class="av">${esc((me.name || '?')[0])}</span>${esc(first(me.name))}</button>
     </div>`;
+  if (!manager) { if (['alerts', 'hours', 'tasks', 'admin'].includes(view)) view = 'clock'; invTab = 'drinks'; }
   const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, display: vDisplay };
   main.innerHTML = `<div class="view">${(V[view] || vClock)()}</div>`;
   renderNav(); tick();
@@ -203,7 +205,7 @@ const img = id => (S.images && S.images[id] && S.images[id].data) || '';
 const note = id => (S.notes && S.notes[id]) || null;
 function sortItems(a) { const s = [...a]; if (DS.invSort === 'qty') s.sort((x, y) => x.qty - y.qty); else if (DS.invSort === 'low') s.sort((x, y) => (x.qty - x.min) - (y.qty - y.min)); else s.sort((x, y) => x.name.localeCompare(y.name, 'he')); return s; }
 function vInv() {
-  const segs = Object.entries(CATS).map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}${k !== 'drinks' && !manager ? ic('lock', 'sm') : ''}</button>`).join('');
+  const segs = Object.entries(CATS).filter(([k]) => manager || k === 'drinks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}${k !== 'drinks' && !manager ? ic('lock', 'sm') : ''}</button>`).join('');
   let body;
   if (invTab !== 'drinks' && !manager) body = locked(`מלאי ${CATS[invTab]} נעול`, 'צפייה ועדכון של המחלקה הזו דורשים סיסמת מנהל.');
   else {
@@ -221,7 +223,7 @@ function vInv() {
   }
   const low = S.inventory.filter(i => (manager || i.cat === 'drinks') && i.qty <= i.min).length;
   return `<h2 class="vt">מלאי</h2>
-  <div class="seg-wrap">${segs}</div>
+  ${manager ? `<div class="seg-wrap">${segs}</div>` : ''}
   ${invTab === 'drinks' ? `<p class="lead">${manager ? 'כמנהל, עדכון שלך נכנס לתוקף מיד.' : 'כל עובד יכול לעדכן כמות שתייה. העדכון נכנס לתוקף אחרי אישור מנהל.'}</p>` : ''}
   ${low && DS.lowHi ? `<div class="banner info">${ic('box')}<span>${low} פריטים מתחת לכמות המינימום.</span></div>` : ''}
   ${body}
@@ -281,9 +283,9 @@ function vAlerts() {
 function vMore() {
   const it = (v, i, l, lockd) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${lockd && !manager ? ic('lock', 'sm') : ''}${ic('chev', 'sm chev')}</button>`;
   return `<h2 class="vt">תפריט</h2>
-  <div class="list">${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>
+  ${manager ? `<div class="list">${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
   <div class="list">${it('display', 'eye', 'הגדרות תצוגה', 0)}
-  ${manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה כמנהל</span></button>`}
+  ${manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
   <p class="lead">${local() ? 'גרסת דמו: הנתונים נשמרים בטלפון הזה בלבד.' : 'הנתונים נשמרים בענן ומשותפים לכל הטלפונים של העובדים.'}</p>`;
 }
