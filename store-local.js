@@ -65,6 +65,7 @@ export function createLocalStore() {
   const load = () => {
     try { const raw = localStorage.getItem(LS); S = raw ? JSON.parse(raw) : seed(); } catch (e) { S = seed(); }
     S.settings = S.settings || { pin: '0000' };
+    S.notes = S.notes || {}; S.images = S.images || {};
     try { session = localStorage.getItem(LS_SESSION); } catch (e) { session = null; }
     if (session && !S.employees.some(e => e.id === session)) session = null;
     S.currentUser = session; persist();
