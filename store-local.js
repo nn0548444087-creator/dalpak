@@ -70,6 +70,7 @@ export function createLocalStore() {
     S.currentUser = session; persist();
   };
   load();
+  mgr = !!(S.employees.find(e => e.id === session) || {}).admin;
   const store = {
     mode: 'local',
     get S() { return S; },
@@ -77,6 +78,7 @@ export function createLocalStore() {
     needsSetup: () => false,
     session: () => session,
     isManager: () => mgr,
+    isPermAdmin: () => !!(S.employees.find(e => e.id === session) || {}).admin,
     loaded: () => true,
     pinLength: () => S.settings.pin.length,
     onChange: cb => listeners.push(cb),
@@ -86,10 +88,10 @@ export function createLocalStore() {
       const p = normPhone(phone), n = String(num).trim();
       const e = S.employees.find(x => normPhone(x.phone) === p && String(x.num) === n);
       if (!e) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
-      setSession(e.id); mgr = false; persist(); return { ok: true };
+      setSession(e.id); mgr = !!e.admin; persist(); return { ok: true };
     },
     async logout() { setSession(null); mgr = false; persist(); },
-    async enterManager(pin) { if (pin === S.settings.pin) { mgr = true; return true; } return false; },
+    async enterManager(pin) { if (store.isPermAdmin() || pin === S.settings.pin) { mgr = true; return true; } return false; },
     async exitManager() { mgr = false; },
     async changePin(old, next) {
       if (old !== S.settings.pin) return { error: 'הסיסמה הנוכחית שגויה' };
