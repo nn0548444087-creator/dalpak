@@ -96,7 +96,7 @@ function render() {
   renderPending = false;
   if (!store) return;
   S = store.S; manager = store.isManager();
-  const brand = `<div class="brand"><span class="mark">ד</span><div><b>דלפק</b><small>ניהול חנות${local() ? ' · גרסת דמו' : ''}</small></div></div>`;
+  const brand = `<div class="brand"><img class="mark" src="./logo.png" alt=""><div><b>שאבעס מרקט</b><small>ניהול חנות${local() ? ' · גרסת דמו' : ''}</small></div></div>`;
   const hdr = document.getElementById('hdr'), main = document.getElementById('main');
   if (booting) { hdr.innerHTML = brand; main.innerHTML = `<div class="view"><div class="lock"><p class="muted">טוען נתונים…</p></div></div>`; renderNav(); return; }
   if (!session()) {
@@ -130,8 +130,8 @@ const back = () => `<button class="link-btn" data-action="nav" data-view="${sess
 /* ---------- login & first-time setup ---------- */
 function vLogin() {
   return `<div class="login">
-    <span class="mark">ד</span>
-    <h2>ברוכים הבאים לדלפק</h2>
+    <img class="mark" src="./logo.png" alt="שאבעס מרקט">
+    <h2>ברוכים הבאים לשאבעס מרקט</h2>
     <p class="lead">מתחברים עם מספר הטלפון ומספר העובד שמנהל החנות רשם עבורכם.</p>
     <form class="form" data-form="login">
       <div class="field"><label for="lg-p">מספר טלפון</label><input id="lg-p" class="phone-in" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="050-000-0000" required></div>
@@ -142,7 +142,7 @@ function vLogin() {
 }
 function vSetup() {
   return `<div class="login">
-    <span class="mark">ד</span>
+    <img class="mark" src="./logo.png" alt="שאבעס מרקט">
     <h2>הגדרה ראשונית של החנות</h2>
     <p class="lead">המסך הזה מופיע פעם אחת בלבד. הפרטים שלך יירשמו כעובד הראשון, והסיסמה תהיה סיסמת המנהל לכל האזורים הנעולים.</p>
     <form class="form" data-form="setup">
