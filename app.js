@@ -114,7 +114,7 @@ function render() {
   const me = cur();
   hdr.innerHTML = brand + `
     <div class="top-actions">
-      ${manager ? `<button class="chip mgr" data-action="lock">${ic('unlock', 'sm')}מנהל · נעל</button>` : ''}
+      ${manager ? `<button class="chip mgr" data-action="lock">${ic('unlock', 'sm')}מנהל · נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
       <button class="chip" data-action="account"><span class="av">${esc((me.name || '?')[0])}</span>${esc(first(me.name))}</button>
     </div>`;
   if (!manager) { if (['alerts', 'hours', 'tasks', 'admin'].includes(view)) view = 'clock'; invTab = 'drinks'; }
