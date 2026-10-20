@@ -223,3 +223,8 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surfa
 .hint{font-size:.8125rem;color:var(--muted)}
 .no-motion *,.no-motion *::before,.no-motion *::after{animation:none!important;transition:none!important}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.check-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid var(--line);border-radius:var(--rb);background:var(--surface);cursor:pointer}
+.check-row input{width:1.2rem;height:1.2rem;margin-top:2px;accent-color:var(--accent);flex:none}
+.check-row b{display:block;font-size:.95rem}
+.check-row small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px;line-height:1.4}
