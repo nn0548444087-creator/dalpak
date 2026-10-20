@@ -2,5 +2,9 @@
   "appId": "com.dalpak.store",
   "appName": "דלפק",
   "webDir": "dist",
+  "server": {
+    "url": "https://nn0548444087-creator.github.io/dalpak/",
+    "errorPath": "offline.html"
+  },
   "android": { "allowMixedContent": false }
 }
