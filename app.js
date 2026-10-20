@@ -6,7 +6,7 @@ const ROOT = document.documentElement; ROOT.lang = 'he'; ROOT.dir = 'rtl';
 const LS_DISPLAY = 'dalpak-display';
 const SUBS = ['שתייה', 'שתייה אמריקאי', 'בירות', 'שתייה גדולה'];
 const CATS = { drinks: 'שתייה', snacks: 'חטיפים', salads: 'סלטים' };
-let store, S, manager = false, view = 'clock', invTab = 'drinks', hoursRange = 'week', pinBuf = '', pinNext = null, pinBusy = false, toastT, booting = true, busy = false, monthChecked = false, renderPending = false;
+let store, S, manager = false, view = 'clock', invTab = 'drinks', hoursRange = 'week', pinBuf = '', pinNext = null, pinBusy = false, pinFails = 0, toastT, booting = true, busy = false, monthChecked = false, renderPending = false;
 
 /* ---------- display settings (per device) ---------- */
 const ACC = {
@@ -52,6 +52,7 @@ new MutationObserver(() => {
 }).observe(ROOT, { attributes: true, attributeFilter: ['data-theme'] });
 
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
+P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
 P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
 P.note = '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4M8 9h8M8 13h5"/>';
 const ic = (n, c = '') => `<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
@@ -87,7 +88,8 @@ function alerts() {
   const long = S.shifts.filter(s => s.status === 'open' && now - s.start > 12 * H && !(s.allowUntil && now < s.allowUntil));
   const reqs = S.shifts.filter(s => s.status === 'pending');
   const drinks = S.drinkUpdates.filter(u => u.status === 'pending');
-  return { long, reqs, drinks, count: manager ? long.length + reqs.length + drinks.length : 0 };
+  const pins = S.notifications.filter(n => n.kind === 'pin' && !n.seen);
+  return { long, reqs, drinks, pins, count: manager ? long.length + reqs.length + drinks.length + pins.length : 0 };
 }
 
 /* ---------- shell ---------- */
@@ -96,7 +98,7 @@ function renderNav() {
   const n = alerts().count;
   // Manager-only screens stay out of sight until manager mode is on.
   const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ...(store.isManager() ? [['alerts', 'התראות', 'bell']] : []), ['more', 'עוד', 'menu']];
-  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && ['hours', 'tasks', 'admin', 'display'].includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
+  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && ['hours', 'tasks', 'admin', 'staff', 'display'].includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
 function render() {
   renderPending = false;
@@ -114,11 +116,11 @@ function render() {
   const me = cur();
   hdr.innerHTML = brand + `
     <div class="top-actions">
-      ${manager ? `<button class="chip mgr" data-action="lock">${ic('unlock', 'sm')}מנהל · נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
+      ${manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
       <button class="chip" data-action="account"><span class="av">${esc((me.name || '?')[0])}</span>${esc(first(me.name))}</button>
     </div>`;
-  if (!manager) { if (['alerts', 'hours', 'tasks', 'admin'].includes(view)) view = 'clock'; invTab = 'drinks'; }
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, display: vDisplay };
+  if (!manager) { if (['alerts', 'hours', 'tasks', 'admin', 'staff'].includes(view)) view = 'clock'; invTab = 'drinks'; }
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay };
   main.innerHTML = `<div class="view">${(V[view] || vClock)()}</div>`;
   renderNav(); tick();
 }
@@ -132,7 +134,7 @@ function softRender() {
 document.addEventListener('focusout', () => setTimeout(() => { if (renderPending && !document.querySelector('.sheet')) { const a = document.activeElement; if (!a || !/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) render(); } }, 50));
 
 const locked = (t, s) => `<div class="lock"><div class="lk">${ic('lock')}</div><h4>${t}</h4><p class="muted">${s || 'האזור הזה פתוח למנהל המערכת בלבד.'}</p><button class="btn brass" data-action="pin">הזנת סיסמת מנהל</button></div>`;
-const back = () => `<button class="link-btn" data-action="nav" data-view="${session() ? 'more' : 'login'}">${ic('chev', 'sm')}<span>${session() ? 'חזרה לתפריט' : 'חזרה להתחברות'}</span></button>`;
+const back = (to, label) => `<button class="link-btn" data-action="back" data-view="${to || (session() ? 'more' : 'login')}">${ic('chev', 'sm')}<span>${label || (session() ? 'חזרה לתפריט' : 'חזרה להתחברות')}</span></button>`;
 
 /* ---------- login & first-time setup ---------- */
 function vLogin() {
@@ -212,7 +214,7 @@ function vInv() {
     const items = S.inventory.filter(i => i.cat === invTab);
     const row = i => {
       const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending'), low = i.qty <= i.min; return `
-      <div class="row">${img(i.id) ? `<button class="thumb" data-action="img-view" data-id="${i.id}" aria-label="תמונה של ${esc(i.name)}"><img src="${img(i.id)}" alt=""></button>` : ''}<div class="row-main"><div class="row-title">${esc(i.name)}</div><div class="row-sub">
+      <div class="row tap" data-action="inv-update" data-id="${i.id}">${img(i.id) ? `<button class="thumb" data-action="img-view" data-id="${i.id}" aria-label="תמונה של ${esc(i.name)}"><img src="${img(i.id)}" alt=""></button>` : ''}<div class="row-main"><div class="row-title">${esc(i.name)}</div><div class="row-sub">
         ${low && DS.lowHi ? '<span class="pill warn">מלאי נמוך</span>' : `<span>מינימום ${i.min}</span>`}
         ${manager && note(i.id) ? `<span class="pill acc">${ic('note', 'sm')}הערה</span>` : ''}
         ${p ? `<span class="pill pend">ממתין לאישור: ${p.to}</span>` : ''}</div></div>
@@ -227,7 +229,7 @@ function vInv() {
   ${invTab === 'drinks' ? `<p class="lead">${manager ? 'כמנהל, עדכון שלך נכנס לתוקף מיד.' : 'כל עובד יכול לעדכן כמות שתייה. העדכון נכנס לתוקף אחרי אישור מנהל.'}</p>` : ''}
   ${low && DS.lowHi ? `<div class="banner info">${ic('box')}<span>${low} פריטים מתחת לכמות המינימום.</span></div>` : ''}
   ${body}
-  ${manager ? `<button class="btn" data-action="nav" data-view="admin">${ic('plus', 'sm')}הוספת פריט חדש למלאי</button>` : ''}`;
+  ${manager ? `<button class="btn" data-action="item-new" data-cat="${invTab}">${ic('plus', 'sm')}הוספת פריט חדש למלאי</button>` : ''}`;
 }
 
 function vDeliv() {
@@ -251,12 +253,15 @@ function vDeliv() {
 
 function vAlerts() {
   if (!manager) return `<h2 class="vt">התראות</h2>` + locked('התראות מנהל', 'אישורי שעות, עדכוני מלאי וסיכומי שכר מוצגים כאן למנהל המערכת.');
-  const { long, reqs, drinks, count } = alerts();
+  const { long, reqs, drinks, pins, count } = alerts();
   const sums = S.notifications.filter(n => n.type === 'summary').sort((a, b) => b.key.localeCompare(a.key));
-  const info = S.notifications.filter(n => n.type === 'info' || n.type === 'note').sort((a, b) => b.ts - a.ts).slice(0, 12);
+  const info = S.notifications.filter(n => (n.type === 'info' && n.kind !== 'pin') || n.type === 'note').sort((a, b) => b.ts - a.ts).slice(0, 12);
   const L = long.map(s => `<div class="card edge-bad"><div class="card-head"><span class="pill bad">משמרת לא נסגרה</span><time>${ago(s.start + 12 * H)}</time></div>
       <p><b>${esc(emp(s.empId).name)}</b> פתח/ה משמרת ב-${fmtD(s.start)} בשעה ${fmtT(s.start)} ולא סגר/ה אותה. עברו <b class="num">${fmtH(dur(s))}</b> שעות.</p>
       <div class="actions"><button class="btn" data-action="allow" data-id="${s.id}">אפשר המשך עבודה</button><button class="btn primary" data-action="shorten" data-id="${s.id}">קצר ואשר שעות</button></div></div>`).join('');
+  const PF = pins.sort((a, b) => b.ts - a.ts).map(n => `<div class="card edge-bad"><div class="card-head"><span class="pill bad">${ic('lock', 'sm')}ניסיונות כושלים לסיסמת מנהל</span><time>${ago(n.ts)}</time></div>
+      <p><b>${esc(emp(n.empId).name)}</b> הקיש/ה סיסמת מנהל שגויה ${n.count || 3} פעמים ברצף, ב-${fmtD(n.ts)} בשעה ${fmtT(n.ts)}.</p>
+      <div class="actions"><button class="btn" data-action="pin-seen" data-id="${n.id}">ראיתי</button></div></div>`).join('');
   const R = reqs.map(s => `<div class="card edge-pend"><div class="card-head"><span class="pill pend">בקשת אישור שעות</span><time>${fmtD(s.start)}</time></div>
       <p><b>${esc(emp(s.empId).name)}</b> מבקש/ת לאשר <span class="num">${fmtT(s.start)}–${fmtT(s.end)}</span> (${fmtH(dur(s))} ש׳, ${money(dur(s) * emp(s.empId).wage)}).</p>
       ${s.note ? `<p class="muted">״${esc(s.note)}״</p>` : ''}
@@ -274,7 +279,7 @@ function vAlerts() {
       <tr class="tot"><td></td><td>סה״כ</td><td>${sum(n.rows.map(r => r.count))}</td><td>${fmtH(n.hours)}</td><td></td><td class="l">${money(n.total)}</td></tr></tbody></table></div></details></div>`).join('');
   return `<h2 class="vt">התראות</h2>
   <h3 class="sec">דורש טיפול · ${count}</h3>
-  ${count ? L + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
+  ${count ? PF + L + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
   <h3 class="sec">סיכומי שכר · נוצרים אוטומטית מה-1 לחודש</h3>
   ${SUM || '<div class="list"><div class="row muted">עדיין לא הופק סיכום חודשי.</div></div>'}
   ${info.length ? `<h3 class="sec">עדכונים</h3><div class="list">${info.map(n => `<div class="row"><div class="row-main"><div>${n.type === 'note' ? `<span class="pill acc">${ic('note', 'sm')}הערה על פריט</span> ` : ''}${esc(n.text)}</div><div class="row-sub">${ago(n.ts)}</div></div>${n.type === 'note' && n.itemId && byId(S.inventory, n.itemId) ? `<button class="btn sm" data-action="inv-update" data-id="${n.itemId}">לפריט</button>` : ''}</div>`).join('')}</div>` : ''}`;
@@ -352,29 +357,40 @@ function validateEmp(f, id) {
   return null;
 }
 
-function vAdmin() {
-  if (!manager) return back() + `<h2 class="vt">ניהול חנות</h2>` + locked('ניהול חנות', 'הוספת פריטים, עובדים ואספקה, שינוי שכר וסיסמת מנהל דורשים סיסמת מנהל.');
-  return back() + `<h2 class="vt">ניהול חנות</h2>
-  <h3 class="sec">עובדים · ${S.employees.length}</h3>
-  <div class="list">${S.employees.map(e => `<div class="row"><span class="av lg">${esc((e.name || '?')[0])}</span><div class="row-main"><div class="row-title">${esc(e.name)}</div>
-    <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
-    <button class="btn sm" data-action="emp-edit" data-id="${e.id}">עריכה</button></div>`).join('')}</div>
-  <form class="card form" data-form="emp"><b>הוספת עובד</b>${empFields({}, 'em')}<button class="btn primary">הוספת עובד</button></form>
-  <form class="card form" data-form="item"><b>הוספת פריט למלאי</b>
-    <div class="field"><label for="it-c">מחלקה</label><select id="it-c" name="cat">${SUBS.map(s => `<option value="drinks|${s}">שתייה › ${s}</option>`).join('')}<option value="snacks|">חטיפים</option><option value="salads|">סלטים</option></select></div>
+const catOpts = (cat, sub) => SUBS.map(s => `<option value="drinks|${s}" ${cat === 'drinks' && sub === s ? 'selected' : ''}>שתייה › ${s}</option>`).join('')
+  + `<option value="snacks|" ${cat === 'snacks' ? 'selected' : ''}>חטיפים</option><option value="salads|" ${cat === 'salads' ? 'selected' : ''}>סלטים</option>`;
+const itemForm = cat => `<form class="form" data-form="item" style="margin-top:12px">
+    <div class="field"><label for="it-c">מחלקה</label><select id="it-c" name="cat">${catOpts(cat || 'drinks', cat && cat !== 'drinks' ? null : SUBS[0])}</select></div>
     <div class="field"><label for="it-n">שם הפריט</label><input id="it-n" name="name" required placeholder="למשל: פריגת ענבים"></div>
     <div class="two"><div class="field"><label for="it-q">כמות במלאי</label><input id="it-q" name="qty" type="number" min="0" value="0" required></div>
     <div class="field"><label for="it-m">התראה מתחת ל-</label><input id="it-m" name="min" type="number" min="0" value="5" required></div></div>
-    <button class="btn primary">הוספה למלאי</button></form>
-  <div class="card"><b>אספקה חדשה</b>${delivForm()}</div>
-  <form class="card form" data-form="pin-change"><b>שינוי סיסמת מנהל</b>
+    <button class="btn primary block">הוספה למלאי</button></form>`;
+const pinForm = () => `<form class="form" data-form="pin-change" style="margin-top:8px">
     <p class="muted" style="font-size:.875rem">הסיסמה החדשה תחול על כל האזורים הנעולים ובכל הטלפונים. 4 עד 6 ספרות.</p>
     <div class="field"><label for="pc-o">סיסמה נוכחית</label><input id="pc-o" name="old" type="password" inputmode="numeric" autocomplete="current-password" required></div>
     <div class="two"><div class="field"><label for="pc-n">סיסמה חדשה</label><input id="pc-n" name="next" type="password" inputmode="numeric" autocomplete="new-password" required></div>
     <div class="field"><label for="pc-c">אימות סיסמה</label><input id="pc-c" name="confirm" type="password" inputmode="numeric" autocomplete="new-password" required></div></div>
-    <button class="btn brass">שמירת סיסמה חדשה</button></form>
+    <button class="btn brass block">שמירת סיסמה חדשה</button></form>`;
+function vAdmin() {
+  if (!manager) return back() + `<h2 class="vt">ניהול חנות</h2>` + locked('ניהול חנות', 'הוספת פריטים, עובדים ואספקה, שינוי שכר וסיסמת מנהל דורשים סיסמת מנהל.');
+  const row = (act, i, l, sub, extra = '') => `<button class="menu-item" data-action="${act}" ${extra}>${ic(i)}<span class="grow">${l}${sub ? `<small class="mi-sub">${sub}</small>` : ''}</span>${ic('chev', 'sm chev')}</button>`;
+  return back() + `<h2 class="vt">ניהול חנות</h2>
+  <div class="list">
+    ${row('nav', 'user', 'עובדים', `${S.employees.length} עובדים · הוספה, עריכה ושכר`, 'data-view="staff"')}
+    ${row('item-new', 'box', 'הוספת פריט למלאי', 'שתייה, חטיפים וסלטים')}
+    ${row('new-deliv', 'truck', 'אספקה חדשה', 'פריטים שאמורים להגיע')}
+    ${row('pin-sheet', 'lock', 'שינוי סיסמת מנהל', 'חלה על כל הטלפונים')}
+  </div>
   ${local() ? `<h3 class="sec">כלים לגרסת הדמו</h3>
   <div class="actions"><button class="btn" data-action="regen">הפקת סיכום ${monthName(prevMonthKey())} מחדש</button><button class="btn danger" data-action="reset">איפוס נתוני הדמו</button></div>` : ''}`;
+}
+function vStaff() {
+  if (!manager) return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים</h2>` + locked('עובדים');
+  return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים · ${S.employees.length}</h2>
+  <div class="list">${S.employees.map(e => `<div class="row tap" data-action="emp-edit" data-id="${e.id}"><span class="av lg">${esc((e.name || '?')[0])}</span><div class="row-main"><div class="row-title">${esc(e.name)}</div>
+    <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
+    <span class="btn sm">עריכה</span></div>`).join('')}</div>
+  <button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>`;
 }
 
 /* ---------- display settings view ---------- */
@@ -409,8 +425,35 @@ function vDisplay() {
 }
 
 /* ---------- sheets, pin, toast ---------- */
-function sheet(html) { document.getElementById('layer').innerHTML = `<div class="sheet-wrap"><div class="backdrop" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; }
-function closeSheet() { document.getElementById('layer').innerHTML = ''; pinNext = null; if (renderPending) render(); }
+// Screens and pop-up sheets are recorded in the browser history, so the phone's back button
+// closes the open sheet first and then steps back through the screens.
+let popSkip = 0;
+const layerOpen = () => !!document.getElementById('layer').innerHTML;
+function go(v, replace) {
+  if (v === view && !replace) { render(); window.scrollTo(0, 0); return; }
+  view = v;
+  const d = ((history.state && history.state.d) || 0) + (replace ? 0 : 1);
+  try { replace ? history.replaceState({ view, d: Math.max(0, d) }, '') : history.pushState({ view, d }, ''); } catch (e) { }
+  render(); window.scrollTo(0, 0);
+}
+window.addEventListener('popstate', e => {
+  if (popSkip) { popSkip--; if (layerOpen()) try { history.pushState({ ...(history.state || {}), sheet: 1 }, ''); } catch (er) { } return; }
+  if (layerOpen()) { document.getElementById('layer').innerHTML = ''; pinNext = null; if (renderPending) render(); return; }
+  const st = e.state || {};
+  if (st.sheet) { try { history.back(); } catch (er) { } return; }
+  view = st.view || 'clock'; render(); window.scrollTo(0, 0);
+});
+function sheet(html) {
+  const wasOpen = layerOpen();
+  document.getElementById('layer').innerHTML = `<div class="sheet-wrap"><div class="backdrop" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true"><button class="sheet-x" data-action="close" aria-label="סגירה">${ic('x', 'sm')}</button>${html}</div></div>`;
+  if (!wasOpen && !popSkip) try { history.pushState({ ...(history.state || {}), sheet: 1 }, ''); } catch (e) { }
+}
+function closeSheet() {
+  const wasOpen = layerOpen();
+  document.getElementById('layer').innerHTML = ''; pinNext = null;
+  if (wasOpen && history.state && history.state.sheet) { popSkip++; try { history.back(); } catch (e) { popSkip--; } }
+  if (renderPending) render();
+}
 function toast(t) { let el = document.querySelector('.toast'); if (!el) { el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3000); }
 function openPin(next) { pinBuf = ''; sheet('<div class="pin" id="pin"></div>'); pinNext = next || null; drawPin(); }
 function drawPin(err) {
@@ -429,8 +472,14 @@ async function pinKey(k) {
     pinBusy = true; drawPin();
     const ok = await store.enterManager(pinBuf);
     pinBusy = false;
-    if (ok) { const n = pinNext; pinNext = null; closeSheet(); toast('מצב מנהל פעיל'); render(); if (n) n(); }
-    else { pinBuf = ''; drawPin(true); }
+    if (ok) { pinFails = 0; const n = pinNext; pinNext = null; closeSheet(); toast('מצב מנהל פעיל'); render(); if (n) n(); }
+    else {
+      pinBuf = ''; drawPin(true); pinFails++;
+      if (pinFails >= 3 && session()) {
+        S.notifications.push({ id: uid(), type: 'info', kind: 'pin', empId: session(), count: pinFails, ts: Date.now(), text: `${cur().name} הקיש/ה סיסמת מנהל שגויה ${pinFails} פעמים ברצף` });
+        pinFails = 0; save();
+      }
+    }
   }
 }
 const needMgr = fn => store.isManager() ? fn() : store.isPermAdmin?.() ? store.enterManager().then(ok => { render(); if (ok) fn(); }) : openPin(fn);
@@ -438,7 +487,12 @@ const needMgr = fn => store.isManager() ? fn() : store.isPermAdmin?.() ? store.e
 /* ---------- actions ---------- */
 const byId = (arr, id) => arr.find(x => x.id === id);
 const ACT = {
-  nav: d => { view = d.view === 'login' ? 'clock' : d.view; render(); window.scrollTo(0, 0); },
+  nav: d => go(d.view === 'login' ? 'clock' : d.view),
+  back: d => { if (history.state && history.state.d > 0) history.back(); else go(d.view === 'login' ? 'clock' : d.view, true); },
+  'item-new': d => needMgr(() => sheet(`<h3>פריט חדש</h3>${itemForm(d.cat)}`)),
+  'emp-new': () => needMgr(() => sheet(`<h3>עובד חדש</h3><form class="form" data-form="emp" style="margin-top:12px">${empFields({}, 'em')}<button class="btn primary block">הוספת עובד</button></form>`)),
+  'pin-sheet': () => needMgr(() => sheet(`<h3>שינוי סיסמת מנהל</h3>${pinForm()}`)),
+  'pin-seen': d => { const n = byId(S.notifications, d.id); if (n) { n.seen = true; save(); } render(); },
   pin: async () => { if (store.isPermAdmin?.() && await store.enterManager()) { toast('מצב מנהל פעיל'); render(); } else openPin(); },
   key: d => pinKey(d.k),
   lock: async () => { await store.exitManager(); toast('יצאת ממצב מנהל'); render(); },
@@ -469,6 +523,10 @@ const ACT = {
     <form class="form" data-form="inv" data-id="${i.id}"><div class="stepper"><button type="button" data-action="step" data-d="-1" aria-label="פחות">−</button><input id="iq" name="qty" type="number" min="0" value="${p ? p.to : i.qty}" aria-label="כמות חדשה"><button type="button" data-action="step" data-d="1" aria-label="יותר">+</button></div>
     <button class="btn primary block">${manager ? 'שמירה' : 'שליחה לאישור מנהל'}</button></form>
     ${manager ? `<div class="mgr-box"><div class="mgr-h">${ic('lock', 'sm')}למנהל בלבד</div>
+      <form class="form" data-form="item-edit" data-id="${i.id}"><div class="field"><label for="ie-n">שם הפריט</label><input id="ie-n" name="name" required value="${esc(i.name)}"></div>
+      <div class="two"><div class="field"><label for="ie-c">מחלקה</label><select id="ie-c" name="cat">${catOpts(i.cat, i.sub)}</select></div>
+      <div class="field"><label for="ie-m">התראה מתחת ל-</label><input id="ie-m" name="min" type="number" min="0" value="${i.min}" required></div></div>
+      <button class="btn block">שמירת פרטי הפריט</button></form>
       <div class="actions"><label class="btn sm">${ic('camera', 'sm')}${img(i.id) ? 'החלפת תמונה' : 'הוספת תמונה'}<input type="file" accept="image/*" data-img-for="${i.id}" hidden></label>
       ${img(i.id) ? `<button class="btn sm" data-action="img-del" data-id="${i.id}">הסרת התמונה</button>` : ''}</div>
       <form class="form" data-form="note" data-id="${i.id}"><div class="field"><label for="nt">הערות על הפריט</label><textarea id="nt" name="text" placeholder="למשל: ספק, מחיר קנייה, מתי להזמין">${esc(n ? n.text : '')}</textarea>
@@ -569,11 +627,18 @@ const FORMS = {
     s.end = e; s.status = 'approved'; delete s.allowUntil; save(); closeSheet(); render(); toast(`אושרו ${fmtH(dur(s))} שעות`);
   },
   deliv: f => { S.deliveries.push({ id: uid(), date: f.date, name: f.name.trim(), qty: f.qty.trim(), supplier: f.supplier.trim(), arrived: false }); save(); closeSheet(); render(); toast('האספקה נוספה'); },
-  item: f => { const [cat, sub] = f.cat.split('|'); S.inventory.push({ id: uid(), cat, sub: sub || null, name: f.name.trim(), qty: +f.qty || 0, min: +f.min || 0 }); save(); render(); toast('הפריט נוסף למלאי'); },
+  item: f => { const [cat, sub] = f.cat.split('|'); S.inventory.push({ id: uid(), cat, sub: sub || null, name: f.name.trim(), qty: +f.qty || 0, min: +f.min || 0 }); save(); closeSheet(); render(); toast('הפריט נוסף למלאי'); },
+  'item-edit': (f, el) => {
+    if (!manager) return openPin(); const i = byId(S.inventory, el.dataset.id); if (!i) return; const [cat, sub] = f.cat.split('|');
+    if (!f.name.trim()) return toast('צריך למלא שם');
+    Object.assign(i, { name: f.name.trim(), cat, sub: sub || null, min: Math.max(0, parseInt(f.min) || 0) });
+    if (S.images[i.id]) S.images[i.id].cat = cat;
+    save(); closeSheet(); render(); toast('פרטי הפריט נשמרו');
+  },
   emp: f => {
     if (!manager) return openPin(); const err = validateEmp(f, null); if (err) return toast(err);
     S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage), ...(f.admin ? { admin: true } : {}) });
-    save(); render(); toast(`${f.name.trim()} נוסף/ה. התחברות: ${fmtPhone(f.phone)} + מספר עובד ${String(f.num).trim()}`);
+    save(); closeSheet(); render(); toast(`${f.name.trim()} נוסף/ה. התחברות: ${fmtPhone(f.phone)} + מספר עובד ${String(f.num).trim()}`);
   },
   'emp-edit': (f, el) => {
     if (!manager) return openPin(); const e = byId(S.employees, el.dataset.id), err = validateEmp(f, e.id); if (err) return toast(err);
@@ -588,7 +653,7 @@ const FORMS = {
     if (f.next !== f.confirm) return toast('הסיסמה החדשה ואימות הסיסמה לא תואמים');
     const r = await store.changePin(f.old, f.next);
     if (r.error) return toast(r.error);
-    render(); toast('סיסמת המנהל עודכנה');
+    closeSheet(); render(); toast('סיסמת המנהל עודכנה');
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false }); save(); render(); toast('המשימה נוספה'); }
 };
@@ -642,6 +707,7 @@ function tick() {
   await store.ready;
   booting = false;
   if (session()) view = DS.home || 'clock';
+  try { history.replaceState({ view, d: 0 }, ''); } catch (e) { }
   render();
   let lastCount = alerts().count;
   setInterval(() => { tick(); if (!session()) return; const c = alerts().count; if (c !== lastCount) { lastCount = c; renderNav(); } }, 1000);
