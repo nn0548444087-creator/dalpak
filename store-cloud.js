@@ -9,7 +9,9 @@ import {
 } from 'firebase/firestore';
 import { uid as newId, normPhone } from './util.js';
 
-const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins'];
+const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages'];
+// Collections kept in S as plain objects keyed by document id.
+const MAPS = { itemNotes: 'notes', itemImages: 'images' };
 const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications'];
 
 const stable = v => {
@@ -31,7 +33,7 @@ export function createCloudStore(config) {
   const auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
   const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
-  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, currentUser: null };
+  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
   let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, setupDone = true, pinLen = 4;
   const changeCbs = [], errorCbs = [];
@@ -43,6 +45,7 @@ export function createCloudStore(config) {
     const m = new Map();
     if (ARRAYS.includes(col)) S[col].forEach(x => { const { id, ...rest } = x; m.set(id, clean(rest)); });
     else if (col === 'grades') Object.entries(S.grades).forEach(([k, v]) => m.set(k, { v }));
+    else if (MAPS[col]) Object.entries(S[MAPS[col]]).forEach(([k, v]) => m.set(k, clean(v)));
     else if (col === 'logins') S.employees.forEach(e => { if (e.phone) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), ...(e.admin ? { admin: true } : {}) }); });
     return m;
   }
@@ -52,12 +55,13 @@ export function createCloudStore(config) {
     synced[col] = m;
     if (ARRAYS.includes(col)) S[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     else if (col === 'grades') { S.grades = {}; snap.docs.forEach(d => S.grades[d.id] = d.data().v); }
+    else if (MAPS[col]) { const o = {}; snap.docs.forEach(d => o[d.id] = d.data()); S[MAPS[col]] = o; }
     loadedCols.add(col);
   }
 
   function resetState() {
     unsubs.forEach(u => u()); unsubs = [];
-    ARRAYS.forEach(c => S[c] = []); S.grades = {};
+    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {};
     synced = {}; loadedCols = new Set();
     COLS.forEach(c => synced[c] = new Map());
   }
@@ -71,7 +75,8 @@ export function createCloudStore(config) {
         ['shifts', query(c('shifts'), where('empId', '==', empId))],
         ['inventory', query(c('inventory'), where('cat', '==', 'drinks'))],
         ['drinkUpdates', c('drinkUpdates')],
-        ['deliveries', c('deliveries')]];
+        ['deliveries', c('deliveries')],
+        ['itemImages', query(c('itemImages'), where('cat', '==', 'drinks'))]];
     specs.forEach(([name, q]) => {
       unsubs.push(onSnapshot(q, snap => { apply(name, snap); emit(); }, e => fail(e)));
     });
@@ -81,7 +86,7 @@ export function createCloudStore(config) {
   // ---- writes ----
   function save() {
     const sets = [], dels = [];
-    const cols = mgr ? COLS : COLS.filter(c => c !== 'logins');
+    const cols = mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages'].includes(c));
     for (const col of cols) {
       const want = desired(col), have = synced[col] || new Map();
       for (const [id, data] of want) { const s = stable(data); if (have.get(id) !== s) { sets.push([col, id, data]); have.set(id, s); } }
