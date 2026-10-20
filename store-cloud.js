@@ -33,7 +33,7 @@ export function createCloudStore(config) {
 
   const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
-  let empId = null, myPhone = null, myNum = null, mgr = false, setupDone = true, pinLen = 4;
+  let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, setupDone = true, pinLen = 4;
   const changeCbs = [], errorCbs = [];
   const emit = () => changeCbs.forEach(f => f());
   const fail = e => { console.error(e); errorCbs.forEach(f => f(errText(e))); };
@@ -43,7 +43,7 @@ export function createCloudStore(config) {
     const m = new Map();
     if (ARRAYS.includes(col)) S[col].forEach(x => { const { id, ...rest } = x; m.set(id, clean(rest)); });
     else if (col === 'grades') Object.entries(S.grades).forEach(([k, v]) => m.set(k, { v }));
-    else if (col === 'logins') S.employees.forEach(e => { if (e.phone) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num) }); });
+    else if (col === 'logins') S.employees.forEach(e => { if (e.phone) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), ...(e.admin ? { admin: true } : {}) }); });
     return m;
   }
   function apply(col, snap) {
@@ -120,6 +120,7 @@ export function createCloudStore(config) {
       const l = await getDoc(doc(db, 'logins', phone));
       if (!l.exists() || String(l.data().num) !== String(num)) { await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { }); return false; }
       empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId;
+      permAdmin = l.data().admin === true;
       return true;
     } catch (e) { return false; }
   }
@@ -129,8 +130,9 @@ export function createCloudStore(config) {
     await auth.authStateReady();
     await readPublic();
     if (await linkSession()) {
-      // Manager mode never survives an app restart.
+      // PIN manager mode never survives an app restart; a permanent manager starts in manager mode.
       await deleteDoc(doc(db, 'managerSessions', auth.currentUser.uid)).catch(() => { });
+      mgr = permAdmin;
       subscribe();
     }
   })();
@@ -141,6 +143,7 @@ export function createCloudStore(config) {
     needsSetup: () => !setupDone,
     session: () => empId,
     isManager: () => mgr,
+    isPermAdmin: () => permAdmin,
     loaded: (...names) => names.every(n => loadedCols.has(n)),
     pinLength: () => pinLen,
     onChange: cb => changeCbs.push(cb),
@@ -158,7 +161,7 @@ export function createCloudStore(config) {
         b.set(doc(db, 'sessions', u), { phone: p, num: n, at: Date.now() });
         b.set(doc(db, 'managerSessions', u), { pin });
         await withTimeout(b.commit());
-        setupDone = true; pinLen = pin.length; empId = id; myPhone = p; myNum = n; S.currentUser = id; mgr = true;
+        setupDone = true; pinLen = pin.length; permAdmin = false; empId = id; myPhone = p; myNum = n; S.currentUser = id; mgr = true;
         subscribe(); return { ok: true };
       } catch (e) { return { error: errText(e) }; }
     },
@@ -173,7 +176,7 @@ export function createCloudStore(config) {
         return { error: errText(e) };
       }
       if (!(await linkSession())) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
-      mgr = false; subscribe(); return { ok: true };
+      mgr = permAdmin; subscribe(); return { ok: true };
     },
 
     async logout() {
@@ -183,12 +186,13 @@ export function createCloudStore(config) {
         await deleteDoc(doc(db, 'managerSessions', u.uid)).catch(() => { });
         await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
       }
-      empId = null; mgr = false; S.currentUser = null;
+      empId = null; mgr = false; permAdmin = false; S.currentUser = null;
       await signOut(auth).catch(() => { });
       emit();
     },
 
     async enterManager(pin) {
+      if (permAdmin) { mgr = true; subscribe(); return true; }
       try {
         await withTimeout(setDoc(doc(db, 'managerSessions', auth.currentUser.uid), { pin }));
         mgr = true; subscribe(); return true;
