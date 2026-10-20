@@ -1,0 +1,112 @@
+rules_version = '2';
+// Security rules for Dalpak.
+// Every phone signs in anonymously. A phone counts as an employee only after it writes
+// sessions/{uid} with a phone number + employee number that match logins/{phone}.
+// It counts as a manager only while managerSessions/{uid} holds the current manager PIN.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function sessDoc() { return /databases/$(database)/documents/sessions/$(request.auth.uid); }
+    function mgrDoc() { return /databases/$(database)/documents/managerSessions/$(request.auth.uid); }
+    function loginDoc(phone) { return /databases/$(database)/documents/logins/$(phone); }
+    function adminDoc() { return /databases/$(database)/documents/config/admin; }
+    function signedIn() { return request.auth != null; }
+    function sess() { return get(sessDoc()).data; }
+    function isEmp() {
+      return signedIn()
+        && exists(sessDoc())
+        && exists(loginDoc(sess().phone))
+        && get(loginDoc(sess().phone)).data.num == sess().num;
+    }
+    function myEmpId() { return get(loginDoc(sess().phone)).data.empId; }
+    function isMgr() {
+      return isEmp()
+        && exists(mgrDoc())
+        && get(mgrDoc()).data.pin == get(adminDoc()).data.pin;
+    }
+    // True only inside the one-time setup batch, before any manager PIN exists.
+    function bootstrapping() { return signedIn() && !exists(adminDoc()) && existsAfter(adminDoc()); }
+    function nowMs() { return request.time.toMillis(); }
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    match /config/public {
+      allow read: if true;
+      allow write: if isMgr() || bootstrapping();
+    }
+    match /config/admin {
+      allow read: if false;
+      allow create: if signedIn() && !exists(adminDoc())
+        && request.resource.data.pin is string && request.resource.data.pin.matches('^[0-9]{4,6}$');
+      allow update: if isMgr() && request.resource.data.old == resource.data.pin
+        && request.resource.data.pin is string && request.resource.data.pin.matches('^[0-9]{4,6}$');
+    }
+
+    match /logins/{phone} {
+      allow get: if isMgr() || (signedIn() && exists(sessDoc()) && sess().phone == phone);
+      allow list: if isMgr();
+      allow write: if isMgr() || bootstrapping();
+    }
+    match /sessions/{uid} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.phone is string && request.resource.data.num is string
+        && existsAfter(loginDoc(request.resource.data.phone))
+        && getAfter(loginDoc(request.resource.data.phone)).data.num == request.resource.data.num;
+    }
+    match /managerSessions/{uid} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && (isEmp() || bootstrapping())
+        && getAfter(adminDoc()).data.pin == request.resource.data.pin;
+    }
+
+    match /employees/{id} {
+      allow read: if isEmp();
+      allow write: if isMgr() || bootstrapping();
+    }
+
+    match /shifts/{id} {
+      allow read: if isMgr() || (isEmp() && resource.data.empId == myEmpId());
+      allow create: if isMgr() || (isEmp() && request.resource.data.empId == myEmpId() && (
+          (request.resource.data.status == 'open' && request.resource.data.end == null
+            && math.abs(request.resource.data.start - nowMs()) < 300000)
+          || (request.resource.data.status == 'pending' && request.resource.data.end <= nowMs()
+            && request.resource.data.start < request.resource.data.end)));
+      // An employee may only close their own open shift, without moving its start.
+      allow update: if isMgr() || (isEmp() && resource.data.empId == myEmpId()
+          && resource.data.status == 'open' && request.resource.data.status == 'approved'
+          && request.resource.data.empId == resource.data.empId
+          && request.resource.data.start == resource.data.start
+          && request.resource.data.end <= nowMs() + 300000);
+      allow delete: if isMgr();
+    }
+
+    match /inventory/{id} {
+      allow read: if isMgr() || (isEmp() && resource.data.cat == 'drinks');
+      allow write: if isMgr();
+    }
+
+    match /drinkUpdates/{id} {
+      allow read: if isEmp();
+      allow create: if isMgr() || (isEmp() && request.resource.data.empId == myEmpId() && request.resource.data.status == 'pending');
+      allow update: if isMgr() || (isEmp() && resource.data.status == 'pending'
+          && request.resource.data.status == 'replaced' && onlyChanges(['status']));
+      allow delete: if isMgr();
+    }
+
+    match /deliveries/{id} {
+      allow read: if isEmp();
+      allow create, delete: if isMgr();
+      allow update: if isMgr() || (isEmp() && resource.data.get('arrived', false) != true
+          && request.resource.data.arrived == true && request.resource.data.arrivedBy == myEmpId()
+          && onlyChanges(['arrived', 'arrivedBy', 'arrivedAt']));
+    }
+
+    match /notifications/{id} {
+      allow read, update, delete: if isMgr();
+      allow create: if isMgr() || (isEmp() && request.resource.data.type == 'info');
+    }
+
+    match /tasks/{id} { allow read, write: if isMgr(); }
+    match /grades/{id} { allow read, write: if isMgr(); }
+  }
+}

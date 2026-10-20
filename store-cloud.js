@@ -1,0 +1,218 @@
+// Cloud store: every phone reads and writes the same Firestore database.
+// The app keeps working on plain arrays in S and calls save(); save() compares S with what
+// the server last sent and writes only the documents that changed.
+import { initializeApp } from 'firebase/app';
+import { initializeAuth, indexedDBLocalPersistence, signInAnonymously, signOut } from 'firebase/auth';
+import {
+  initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, deleteDoc,
+  collection, query, where, onSnapshot, writeBatch
+} from 'firebase/firestore';
+import { uid as newId, normPhone } from './util.js';
+
+const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins'];
+const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications'];
+
+const stable = v => {
+  if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';
+  return JSON.stringify(v);
+};
+const clean = o => JSON.parse(JSON.stringify(o));
+const withTimeout = (p, ms = 15000) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+const errText = e => {
+  const c = e && (e.code || e.message) || '';
+  if (/timeout|unavailable|network/i.test(c)) return 'אין חיבור לשרת. בדקו את החיבור לאינטרנט ונסו שוב';
+  if (/permission/i.test(c)) return 'אין הרשאה לפעולה הזו. אם השעה בטלפון לא נכונה, תקנו אותה ונסו שוב';
+  return 'הפעולה נכשלה: ' + c;
+};
+
+export function createCloudStore(config) {
+  const app = initializeApp(config);
+  const auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
+  const db = initializeFirestore(app, { localCache: persistentLocalCache() });
+
+  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, currentUser: null };
+  let synced = {}, loadedCols = new Set(), unsubs = [];
+  let empId = null, myPhone = null, myNum = null, mgr = false, setupDone = true, pinLen = 4;
+  const changeCbs = [], errorCbs = [];
+  const emit = () => changeCbs.forEach(f => f());
+  const fail = e => { console.error(e); errorCbs.forEach(f => f(errText(e))); };
+
+  // ---- mapping between S and Firestore documents ----
+  function desired(col) {
+    const m = new Map();
+    if (ARRAYS.includes(col)) S[col].forEach(x => { const { id, ...rest } = x; m.set(id, clean(rest)); });
+    else if (col === 'grades') Object.entries(S.grades).forEach(([k, v]) => m.set(k, { v }));
+    else if (col === 'logins') S.employees.forEach(e => { if (e.phone) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num) }); });
+    return m;
+  }
+  function apply(col, snap) {
+    const m = new Map();
+    snap.docs.forEach(d => m.set(d.id, stable(d.data())));
+    synced[col] = m;
+    if (ARRAYS.includes(col)) S[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    else if (col === 'grades') { S.grades = {}; snap.docs.forEach(d => S.grades[d.id] = d.data().v); }
+    loadedCols.add(col);
+  }
+
+  function resetState() {
+    unsubs.forEach(u => u()); unsubs = [];
+    ARRAYS.forEach(c => S[c] = []); S.grades = {};
+    synced = {}; loadedCols = new Set();
+    COLS.forEach(c => synced[c] = new Map());
+  }
+  function subscribe() {
+    resetState();
+    if (!empId) { emit(); return; }
+    const c = n => collection(db, n);
+    const specs = mgr
+      ? COLS.map(n => [n, c(n)])
+      : [['employees', c('employees')],
+        ['shifts', query(c('shifts'), where('empId', '==', empId))],
+        ['inventory', query(c('inventory'), where('cat', '==', 'drinks'))],
+        ['drinkUpdates', c('drinkUpdates')],
+        ['deliveries', c('deliveries')]];
+    specs.forEach(([name, q]) => {
+      unsubs.push(onSnapshot(q, snap => { apply(name, snap); emit(); }, e => fail(e)));
+    });
+    emit();
+  }
+
+  // ---- writes ----
+  function save() {
+    const sets = [], dels = [];
+    const cols = mgr ? COLS : COLS.filter(c => c !== 'logins');
+    for (const col of cols) {
+      const want = desired(col), have = synced[col] || new Map();
+      for (const [id, data] of want) { const s = stable(data); if (have.get(id) !== s) { sets.push([col, id, data]); have.set(id, s); } }
+      for (const id of [...have.keys()]) if (!want.has(id)) { dels.push([col, id]); have.delete(id); }
+      synced[col] = have;
+    }
+    if (!sets.length && !dels.length) return;
+    // A manager who edits their own phone or employee number re-links their session right after the new login doc.
+    const me = S.employees.find(e => e.id === empId);
+    const relink = mgr && me && (normPhone(me.phone) !== myPhone || String(me.num) !== myNum);
+    const run = async () => {
+      for (const [col, id, data] of sets) await setDoc(doc(db, col, id), data);
+      if (relink) {
+        myPhone = normPhone(me.phone); myNum = String(me.num);
+        await setDoc(doc(db, 'sessions', auth.currentUser.uid), { phone: myPhone, num: myNum, at: Date.now() });
+      }
+      for (const [col, id] of dels) await deleteDoc(doc(db, col, id));
+    };
+    run().catch(e => { fail(e); subscribe(); });
+  }
+
+  // ---- session ----
+  async function readPublic() {
+    try {
+      const p = await withTimeout(getDoc(doc(db, 'config', 'public')), 10000);
+      setupDone = p.exists() && p.data().setupDone === true;
+      pinLen = (p.exists() && p.data().pinLen) || 4;
+    } catch (e) { setupDone = true; }
+  }
+  async function linkSession() {
+    const u = auth.currentUser; if (!u) return false;
+    try {
+      const s = await getDoc(doc(db, 'sessions', u.uid));
+      if (!s.exists()) return false;
+      const { phone, num } = s.data();
+      const l = await getDoc(doc(db, 'logins', phone));
+      if (!l.exists() || String(l.data().num) !== String(num)) { await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { }); return false; }
+      empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId;
+      return true;
+    } catch (e) { return false; }
+  }
+  async function ensureAuth() { if (!auth.currentUser) await withTimeout(signInAnonymously(auth)); return auth.currentUser.uid; }
+
+  const ready = (async () => {
+    await auth.authStateReady();
+    await readPublic();
+    if (await linkSession()) {
+      // Manager mode never survives an app restart.
+      await deleteDoc(doc(db, 'managerSessions', auth.currentUser.uid)).catch(() => { });
+      subscribe();
+    }
+  })();
+
+  return {
+    mode: 'cloud',
+    S, ready,
+    needsSetup: () => !setupDone,
+    session: () => empId,
+    isManager: () => mgr,
+    loaded: (...names) => names.every(n => loadedCols.has(n)),
+    pinLength: () => pinLen,
+    onChange: cb => changeCbs.push(cb),
+    onError: cb => errorCbs.push(cb),
+    save,
+
+    async setup({ name, phone, num, wage, pin }) {
+      try {
+        const u = await ensureAuth(), id = newId(), p = normPhone(phone), n = String(num).trim();
+        const b = writeBatch(db);
+        b.set(doc(db, 'config', 'admin'), { pin });
+        b.set(doc(db, 'config', 'public'), { setupDone: true, pinLen: pin.length });
+        b.set(doc(db, 'employees', id), { name, phone: p, num: n, wage: Number(wage) });
+        b.set(doc(db, 'logins', p), { empId: id, num: n });
+        b.set(doc(db, 'sessions', u), { phone: p, num: n, at: Date.now() });
+        b.set(doc(db, 'managerSessions', u), { pin });
+        await withTimeout(b.commit());
+        setupDone = true; pinLen = pin.length; empId = id; myPhone = p; myNum = n; S.currentUser = id; mgr = true;
+        subscribe(); return { ok: true };
+      } catch (e) { return { error: errText(e) }; }
+    },
+
+    async login(phone, num) {
+      const p = normPhone(phone), n = String(num).trim();
+      try {
+        const u = await ensureAuth();
+        await withTimeout(setDoc(doc(db, 'sessions', u), { phone: p, num: n, at: Date.now() }));
+      } catch (e) {
+        if (/permission/i.test(e.code || '')) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
+        return { error: errText(e) };
+      }
+      if (!(await linkSession())) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
+      mgr = false; subscribe(); return { ok: true };
+    },
+
+    async logout() {
+      const u = auth.currentUser;
+      resetState();
+      if (u) {
+        await deleteDoc(doc(db, 'managerSessions', u.uid)).catch(() => { });
+        await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
+      }
+      empId = null; mgr = false; S.currentUser = null;
+      await signOut(auth).catch(() => { });
+      emit();
+    },
+
+    async enterManager(pin) {
+      try {
+        await withTimeout(setDoc(doc(db, 'managerSessions', auth.currentUser.uid), { pin }));
+        mgr = true; subscribe(); return true;
+      } catch (e) {
+        if (!/permission/i.test(e.code || '')) fail(e);
+        return false;
+      }
+    },
+    async exitManager() {
+      mgr = false; subscribe();
+      await deleteDoc(doc(db, 'managerSessions', auth.currentUser.uid)).catch(() => { });
+    },
+    async changePin(old, next) {
+      try {
+        const u = auth.currentUser.uid, b = writeBatch(db);
+        b.set(doc(db, 'config', 'admin'), { pin: next, old });
+        b.set(doc(db, 'managerSessions', u), { pin: next });
+        b.set(doc(db, 'config', 'public'), { setupDone: true, pinLen: next.length });
+        await withTimeout(b.commit());
+        pinLen = next.length; return { ok: true };
+      } catch (e) {
+        if (/permission/i.test(e.code || '')) return { error: 'הסיסמה הנוכחית שגויה' };
+        return { error: errText(e) };
+      }
+    },
+  };
+}

@@ -1,0 +1,6 @@
+{
+  "appId": "com.dalpak.store",
+  "appName": "דלפק",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false }
+}
