@@ -18,10 +18,11 @@ service cloud.firestore {
         && get(loginDoc(sess().phone)).data.num == sess().num;
     }
     function myEmpId() { return get(loginDoc(sess().phone)).data.empId; }
+    // Manager = an employee marked as a permanent manager, or one who entered the current PIN.
     function isMgr() {
-      return isEmp()
-        && exists(mgrDoc())
-        && get(mgrDoc()).data.pin == get(adminDoc()).data.pin;
+      return isEmp() && (
+        get(loginDoc(sess().phone)).data.get('admin', false) == true
+        || (exists(mgrDoc()) && get(mgrDoc()).data.pin == get(adminDoc()).data.pin));
     }
     // True only inside the one-time setup batch, before any manager PIN exists.
     function bootstrapping() { return signedIn() && !exists(adminDoc()) && existsAfter(adminDoc()); }
