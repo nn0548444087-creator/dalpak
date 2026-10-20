@@ -237,3 +237,10 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surfa
 .mgr-h{display:flex;align-items:center;gap:6px;font-size:.8125rem;font-weight:700;color:var(--brass)}
 .mgr-box label.btn{cursor:pointer}
 .pill .ic.sm{width:.85rem;height:.85rem}
+
+.row.tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.row.tap:active{background:var(--sunk)}
+.mi-sub{display:block;font-size:.8125rem;font-weight:500;color:var(--muted);margin-top:2px}
+.sheet-x{position:absolute;top:14px;left:14px;width:2.25rem;height:2.25rem;border-radius:50%;border:0;background:var(--sunk);color:var(--muted);display:grid;place-items:center;z-index:1}
+.sheet-x .ic{width:1.1rem;height:1.1rem}
+.sheet>h3:first-of-type{padding-left:2.75rem}
