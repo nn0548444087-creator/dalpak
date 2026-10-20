@@ -58,8 +58,35 @@ jobs:
       - name: Create the Android project
         run: npx cap add android
       - name: Set the app icon
-        continue-on-error: true
-        run: npx --yes @capacitor/assets@3 generate --android --iconBackgroundColor '#25528D' --iconBackgroundColorDark '#25528D'
+        run: |
+          python3 -m pip install --quiet --break-system-packages pillow || python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image, ImageDraw
+          import os
+          src = Image.open('assets/icon-only.png').convert('RGBA')
+          blue = (37, 82, 141, 255)
+          res = 'android/app/src/main/res'
+          legacy = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
+          for d, n in legacy.items():
+              p = f'{res}/mipmap-{d}'
+              os.makedirs(p, exist_ok=True)
+              sq = src.resize((n, n), Image.LANCZOS)
+              sq.save(f'{p}/ic_launcher.png')
+              m = Image.new('L', (n, n), 0)
+              ImageDraw.Draw(m).ellipse([0, 0, n - 1, n - 1], fill=255)
+              r = Image.new('RGBA', (n, n), (0, 0, 0, 0))
+              r.paste(sq, (0, 0), m)
+              r.save(f'{p}/ic_launcher_round.png')
+              F = n * 108 // 48
+              fg = Image.new('RGBA', (F, F), blue)
+              inner = int(F * 0.62)
+              fg.paste(src.resize((inner, inner), Image.LANCZOS), ((F - inner) // 2, (F - inner) // 2))
+              fg.save(f'{p}/ic_launcher_foreground.png')
+          os.makedirs(f'{res}/values', exist_ok=True)
+          with open(f'{res}/values/ic_launcher_background.xml', 'w') as f:
+              f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#25528D</color>\n</resources>\n')
+          print('icons written')
+          PY
       - name: Copy the app into the Android project
         run: npx cap sync android
       - name: Build the APK
