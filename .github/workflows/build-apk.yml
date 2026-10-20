@@ -56,9 +56,12 @@ jobs:
       - name: Build the web app
         run: npm run build
       - name: Create the Android project
-        run: |
-          npx cap add android
-          npx cap sync android
+        run: npx cap add android
+      - name: Set the app icon
+        continue-on-error: true
+        run: npx --yes @capacitor/assets@3 generate --android --iconBackgroundColor '#25528D' --iconBackgroundColorDark '#25528D'
+      - name: Copy the app into the Android project
+        run: npx cap sync android
       - name: Build the APK
         working-directory: android
         run: |
