@@ -1,8 +1,8 @@
 /* Layout: one phone-width column — sticky header, scrolling view, fixed bottom tab bar. Cards only where an item is its own object. */
 :root{
-  --bg:#ECEFF1; --surface:#FFFFFF; --sunk:#E2E7EA; --ink:#14212A; --muted:#5B6973; --line:#D3DAE0;
-  --accent:#0D5C61; --accent-ink:#FFFFFF; --accent-soft:#D6E8E7;
-  --brass:#946A27; --brass-soft:#F1E6D0;
+  --bg:#EDF0F5; --surface:#FFFFFF; --sunk:#E1E6EF; --ink:#131C2B; --muted:#5A6577; --line:#D1D8E4;
+  --accent:#25528D; --accent-ink:#FFFFFF; --accent-soft:#DCE5F2;
+  --brass:#8F6E3E; --brass-soft:#F2EADB;
   --ok:#2B7550; --ok-soft:#DBEEE2; --warn:#9E6814; --warn-soft:#F6E9CC; --bad:#AE3C35; --bad-soft:#F6DDDA;
   --shadow:0 1px 2px rgba(20,33,42,.05),0 10px 28px rgba(20,33,42,.07);
   --f-display:'Frank Ruhl Libre','David','Times New Roman',serif;
@@ -10,16 +10,16 @@
   --r:16px; --rb:11px; --rowpad:13px; --gap:18px; --dial:236px;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0E151A; --surface:#162027; --sunk:#1E2A32; --ink:#E6EDF0; --muted:#93A2AC; --line:#26343D;
-  --accent:#55B5B1; --accent-ink:#06211F; --accent-soft:#17363A;
-  --brass:#D6AE66; --brass-soft:#33291A;
+  --bg:#0C1220; --surface:#141C2C; --sunk:#1C2638; --ink:#E7ECF4; --muted:#95A0B3; --line:#26324A;
+  --accent:#86A9E0; --accent-ink:#0A1426; --accent-soft:#1A2A47;
+  --brass:#D4B47E; --brass-soft:#33291A;
   --ok:#62BD8A; --ok-soft:#173225; --warn:#E2B354; --warn-soft:#352A14; --bad:#E57D73; --bad-soft:#3A1E1C;
   --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;
 }}
 :root[data-theme="dark"]{
-  --bg:#0E151A; --surface:#162027; --sunk:#1E2A32; --ink:#E6EDF0; --muted:#93A2AC; --line:#26343D;
-  --accent:#55B5B1; --accent-ink:#06211F; --accent-soft:#17363A;
-  --brass:#D6AE66; --brass-soft:#33291A;
+  --bg:#0C1220; --surface:#141C2C; --sunk:#1C2638; --ink:#E7ECF4; --muted:#95A0B3; --line:#26324A;
+  --accent:#86A9E0; --accent-ink:#0A1426; --accent-soft:#1A2A47;
+  --brass:#D4B47E; --brass-soft:#33291A;
   --ok:#62BD8A; --ok-soft:#173225; --warn:#E2B354; --warn-soft:#352A14; --bad:#E57D73; --bad-soft:#3A1E1C;
   --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;
 }
@@ -41,8 +41,11 @@ header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background
 .top-in{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:12px}
 .brand{display:flex;align-items:center;gap:10px;min-width:0}
 .mark{width:2.5rem;height:2.5rem;border-radius:22%;display:block;object-fit:cover;flex:none;box-shadow:0 1px 3px rgba(20,33,42,.18)}
-.brand b{font-family:var(--f-display);font-size:1.31rem;font-weight:700;display:block;line-height:1.1}
+.brand b{font-family:var(--f-display);font-size:1.12rem;font-weight:700;display:block;line-height:1.1}
 .brand small{color:var(--muted);font-size:.78rem;letter-spacing:.3px}
+.brand>div{min-width:0}
+.brand b,.brand small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top-actions{flex:none}
 .top-actions{display:flex;gap:8px;align-items:center}
 .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px 5px 7px;font-size:.875rem;font-weight:600;white-space:nowrap}
 .chip.mgr{background:var(--brass-soft);border-color:transparent;color:var(--brass)}

@@ -10,6 +10,7 @@ let store, S, manager = false, view = 'clock', invTab = 'drinks', hoursRange = '
 
 /* ---------- display settings (per device) ---------- */
 const ACC = {
+  brand: { n: 'שאבעס מרקט', l: ['#25528D', '#DCE5F2'], d: ['#86A9E0', '#1A2A47'] },
   petrol: { n: 'פטרול', l: ['#0D5C61', '#D6E8E7'], d: ['#55B5B1', '#17363A'] },
   navy: { n: 'כחול לילה', l: ['#1F3F7A', '#DCE4F3'], d: ['#83A6E8', '#1B2840'] },
   wine: { n: 'בורדו', l: ['#7A2335', '#F1DCE0'], d: ['#E28C9C', '#3A1D24'] },
@@ -17,9 +18,11 @@ const ACC = {
   plum: { n: 'שזיף', l: ['#5B3A75', '#E7DEF0'], d: ['#BA9DD8', '#2B2238'] },
   graphite: { n: 'גרפיט', l: ['#2C3640', '#DFE3E7'], d: ['#B6C2CD', '#232C34'] }
 };
-const DS_DEFAULT = { theme: 'system', accent: 'petrol', scale: 100, font: 'Assistant', heading: 'serif', density: 'normal', radius: 'normal', dial: 'normal', clock12: false, seconds: true, showPay: true, contrast: false, motion: true, invSort: 'name', lowHi: true, home: 'clock', dateStyle: 'short' };
+const DS_DEFAULT = { theme: 'system', accent: 'brand', scale: 100, font: 'Assistant', heading: 'serif', density: 'normal', radius: 'normal', dial: 'normal', clock12: false, seconds: true, showPay: true, contrast: false, motion: true, invSort: 'name', lowHi: true, home: 'clock', dateStyle: 'short' };
 let DS = { ...DS_DEFAULT };
 try { DS = { ...DS_DEFAULT, ...JSON.parse(localStorage.getItem(LS_DISPLAY) || '{}') }; } catch (e) { }
+// Phones that kept the old default colour switch to the store colours once.
+if (DS.v !== 2) { if (DS.accent === 'petrol') DS.accent = 'brand'; DS.v = 2; try { localStorage.setItem(LS_DISPLAY, JSON.stringify(DS)); } catch (e) { } }
 const saveDS = () => { try { localStorage.setItem(LS_DISPLAY, JSON.stringify(DS)); } catch (e) { } };
 const mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : { matches: false, addEventListener() { } };
 let hostTheme = ROOT.getAttribute('data-theme');
@@ -28,7 +31,7 @@ function applyDisplay() {
   if (want) { if (ROOT.getAttribute('data-theme') !== want) ROOT.setAttribute('data-theme', want); }
   else if (ROOT.hasAttribute('data-theme')) ROOT.removeAttribute('data-theme');
   const t = ROOT.getAttribute('data-theme'), dark = t === 'dark' || (!t && mq.matches), st = ROOT.style;
-  const a = (ACC[DS.accent] || ACC.petrol)[dark ? 'd' : 'l'];
+  const a = (ACC[DS.accent] || ACC.brand)[dark ? 'd' : 'l'];
   st.setProperty('--accent', a[0]); st.setProperty('--accent-soft', a[1]); st.setProperty('--accent-ink', dark ? '#0B1115' : '#FFFFFF');
   if (DS.contrast) { st.setProperty('--muted', dark ? '#C6D1D8' : '#34414A'); st.setProperty('--line', dark ? '#4C5C68' : '#97A4AE'); }
   else { st.removeProperty('--muted'); st.removeProperty('--line'); }
@@ -41,7 +44,7 @@ function applyDisplay() {
   st.setProperty('--r', R[0]); st.setProperty('--rb', R[1]);
   st.setProperty('--dial', { small: '190px', normal: '236px', large: '290px' }[DS.dial] || '236px');
   ROOT.classList.toggle('no-motion', !DS.motion);
-  const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = dark ? '#0E151A' : '#ECEFF1';
+  const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = dark ? '#0C1220' : '#EDF0F5';
 }
 mq.addEventListener && mq.addEventListener('change', () => { applyDisplay(); if (view === 'display') render(); });
 new MutationObserver(() => {
