@@ -330,7 +330,10 @@ const empFields = (e, p) => `
   <div class="field"><label for="${p}-n">שם מלא</label><input id="${p}-n" name="name" required value="${esc(e.name || '')}"></div>
   <div class="two"><div class="field"><label for="${p}-u">מספר עובד</label><input id="${p}-u" name="num" inputmode="numeric" required value="${esc(e.num || nextNum())}"></div>
   <div class="field"><label for="${p}-w">שכר לשעה (₪)</label><input id="${p}-w" name="wage" type="number" min="0" step="0.5" value="${e.wage ?? 50}" required></div></div>
-  <div class="field"><label for="${p}-p">טלפון נייד</label><input id="${p}-p" class="ltr" style="text-align:right" name="phone" type="tel" inputmode="tel" placeholder="050-000-0000" required value="${esc(e.phone ? fmtPhone(e.phone) : '')}"><small>העובד מתחבר עם מספר הטלפון ומספר העובד.</small></div>`;
+  <div class="field"><label for="${p}-p">טלפון נייד</label><input id="${p}-p" class="ltr" style="text-align:right" name="phone" type="tel" inputmode="tel" placeholder="050-000-0000" required value="${esc(e.phone ? fmtPhone(e.phone) : '')}"><small>העובד מתחבר עם מספר הטלפון ומספר העובד.</small></div>
+  ${e.id && e.id === session() && e.admin
+    ? `<p class="hint">יש לך הרשאת ניהול קבועה. מנהל אחר יכול להסיר אותה.</p>`
+    : `<label class="check-row"><input type="checkbox" name="admin" ${e.admin ? 'checked' : ''}><span class="grow"><b>הרשאת ניהול קבועה</b><small>העובד נכנס תמיד במצב מנהל, בלי להקיש סיסמה. נכנס לתוקף בפתיחה הבאה של האפליקציה.</small></span></label>`}`;
 function validateEmp(f, id) {
   const ph = normPhone(f.phone), num = String(f.num).trim();
   if (!f.name.trim()) return 'צריך למלא שם';
@@ -347,7 +350,7 @@ function vAdmin() {
   return back() + `<h2 class="vt">ניהול חנות</h2>
   <h3 class="sec">עובדים · ${S.employees.length}</h3>
   <div class="list">${S.employees.map(e => `<div class="row"><span class="av lg">${esc((e.name || '?')[0])}</span><div class="row-main"><div class="row-title">${esc(e.name)}</div>
-    <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span></div></div>
+    <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
     <button class="btn sm" data-action="emp-edit" data-id="${e.id}">עריכה</button></div>`).join('')}</div>
   <form class="card form" data-form="emp"><b>הוספת עובד</b>${empFields({}, 'em')}<button class="btn primary">הוספת עובד</button></form>
   <form class="card form" data-form="item"><b>הוספת פריט למלאי</b>
@@ -423,13 +426,13 @@ async function pinKey(k) {
     else { pinBuf = ''; drawPin(true); }
   }
 }
-const needMgr = fn => store.isManager() ? fn() : openPin(fn);
+const needMgr = fn => store.isManager() ? fn() : store.isPermAdmin?.() ? store.enterManager().then(ok => { render(); if (ok) fn(); }) : openPin(fn);
 
 /* ---------- actions ---------- */
 const byId = (arr, id) => arr.find(x => x.id === id);
 const ACT = {
   nav: d => { view = d.view === 'login' ? 'clock' : d.view; render(); window.scrollTo(0, 0); },
-  pin: () => openPin(),
+  pin: async () => { if (store.isPermAdmin?.() && await store.enterManager()) { toast('מצב מנהל פעיל'); render(); } else openPin(); },
   key: d => pinKey(d.k),
   lock: async () => { await store.exitManager(); toast('יצאת ממצב מנהל'); render(); },
   close: closeSheet,
@@ -541,12 +544,14 @@ const FORMS = {
   item: f => { const [cat, sub] = f.cat.split('|'); S.inventory.push({ id: uid(), cat, sub: sub || null, name: f.name.trim(), qty: +f.qty || 0, min: +f.min || 0 }); save(); render(); toast('הפריט נוסף למלאי'); },
   emp: f => {
     if (!manager) return openPin(); const err = validateEmp(f, null); if (err) return toast(err);
-    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage) });
+    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage), ...(f.admin ? { admin: true } : {}) });
     save(); render(); toast(`${f.name.trim()} נוסף/ה. התחברות: ${fmtPhone(f.phone)} + מספר עובד ${String(f.num).trim()}`);
   },
   'emp-edit': (f, el) => {
     if (!manager) return openPin(); const e = byId(S.employees, el.dataset.id), err = validateEmp(f, e.id); if (err) return toast(err);
+    const keepAdmin = e.id === session() && e.admin;
     Object.assign(e, { name: f.name.trim(), num: String(f.num).trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage) });
+    if (f.admin || keepAdmin) e.admin = true; else delete e.admin;
     save(); closeSheet(); render(); toast('פרטי העובד נשמרו');
   },
   'pin-change': async f => {
