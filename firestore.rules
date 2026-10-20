@@ -107,6 +107,15 @@ service cloud.firestore {
       allow create: if isMgr() || (isEmp() && request.resource.data.type == 'info');
     }
 
+    // Item notes are for managers only. Item photos: managers add them, employees see drink photos.
+    match /itemNotes/{id} { allow read, write: if isMgr(); }
+    match /itemImages/{id} {
+      allow read: if isMgr() || (isEmp() && resource.data.cat == 'drinks');
+      allow create, update: if isMgr() && request.resource.data.data is string
+        && request.resource.data.data.size() < 400000;
+      allow delete: if isMgr();
+    }
+
     match /tasks/{id} { allow read, write: if isMgr(); }
     match /grades/{id} { allow read, write: if isMgr(); }
   }
