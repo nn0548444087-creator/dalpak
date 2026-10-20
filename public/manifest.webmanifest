@@ -1,13 +1,13 @@
 {
-  "name": "דלפק – ניהול חנות",
-  "short_name": "דלפק",
+  "name": "שאבעס מרקט – ניהול עובדים",
+  "short_name": "שאבעס מרקט",
   "lang": "he",
   "dir": "rtl",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#ECEFF1",
-  "theme_color": "#0D5C61",
+  "theme_color": "#25528D",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
