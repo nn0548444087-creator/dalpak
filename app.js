@@ -52,6 +52,8 @@ new MutationObserver(() => {
 }).observe(ROOT, { attributes: true, attributeFilter: ['data-theme'] });
 
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
+P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
+P.note = '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4M8 9h8M8 13h5"/>';
 const ic = (n, c = '') => `<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
 
 /* ---------- display helpers ---------- */
@@ -197,6 +199,8 @@ function vClock() {
       ${DS.showPay ? `<div class="num" style="font-weight:700">${s.status === 'rejected' ? '—' : money(dur(s) * me.wage)}</div>` : ''}</div>`).join('') : '<div class="row"><span class="muted">עוד לא נרשמו משמרות השבוע.</span></div>'}</div>`;
 }
 
+const img = id => (S.images && S.images[id] && S.images[id].data) || '';
+const note = id => (S.notes && S.notes[id]) || null;
 function sortItems(a) { const s = [...a]; if (DS.invSort === 'qty') s.sort((x, y) => x.qty - y.qty); else if (DS.invSort === 'low') s.sort((x, y) => (x.qty - x.min) - (y.qty - y.min)); else s.sort((x, y) => x.name.localeCompare(y.name, 'he')); return s; }
 function vInv() {
   const segs = Object.entries(CATS).map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}${k !== 'drinks' && !manager ? ic('lock', 'sm') : ''}</button>`).join('');
@@ -206,8 +210,9 @@ function vInv() {
     const items = S.inventory.filter(i => i.cat === invTab);
     const row = i => {
       const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending'), low = i.qty <= i.min; return `
-      <div class="row"><div class="row-main"><div class="row-title">${esc(i.name)}</div><div class="row-sub">
+      <div class="row">${img(i.id) ? `<button class="thumb" data-action="img-view" data-id="${i.id}" aria-label="תמונה של ${esc(i.name)}"><img src="${img(i.id)}" alt=""></button>` : ''}<div class="row-main"><div class="row-title">${esc(i.name)}</div><div class="row-sub">
         ${low && DS.lowHi ? '<span class="pill warn">מלאי נמוך</span>' : `<span>מינימום ${i.min}</span>`}
+        ${manager && note(i.id) ? `<span class="pill acc">${ic('note', 'sm')}הערה</span>` : ''}
         ${p ? `<span class="pill pend">ממתין לאישור: ${p.to}</span>` : ''}</div></div>
         <div class="qty ${low && DS.lowHi ? 'low' : ''}">${i.qty}<small>יח׳</small></div>
         <button class="btn sm" data-action="inv-update" data-id="${i.id}">עדכון</button></div>`;
@@ -246,7 +251,7 @@ function vAlerts() {
   if (!manager) return `<h2 class="vt">התראות</h2>` + locked('התראות מנהל', 'אישורי שעות, עדכוני מלאי וסיכומי שכר מוצגים כאן למנהל המערכת.');
   const { long, reqs, drinks, count } = alerts();
   const sums = S.notifications.filter(n => n.type === 'summary').sort((a, b) => b.key.localeCompare(a.key));
-  const info = S.notifications.filter(n => n.type === 'info').sort((a, b) => b.ts - a.ts).slice(0, 8);
+  const info = S.notifications.filter(n => n.type === 'info' || n.type === 'note').sort((a, b) => b.ts - a.ts).slice(0, 12);
   const L = long.map(s => `<div class="card edge-bad"><div class="card-head"><span class="pill bad">משמרת לא נסגרה</span><time>${ago(s.start + 12 * H)}</time></div>
       <p><b>${esc(emp(s.empId).name)}</b> פתח/ה משמרת ב-${fmtD(s.start)} בשעה ${fmtT(s.start)} ולא סגר/ה אותה. עברו <b class="num">${fmtH(dur(s))}</b> שעות.</p>
       <div class="actions"><button class="btn" data-action="allow" data-id="${s.id}">אפשר המשך עבודה</button><button class="btn primary" data-action="shorten" data-id="${s.id}">קצר ואשר שעות</button></div></div>`).join('');
@@ -270,7 +275,7 @@ function vAlerts() {
   ${count ? L + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
   <h3 class="sec">סיכומי שכר · נוצרים אוטומטית מה-1 לחודש</h3>
   ${SUM || '<div class="list"><div class="row muted">עדיין לא הופק סיכום חודשי.</div></div>'}
-  ${info.length ? `<h3 class="sec">עדכונים</h3><div class="list">${info.map(n => `<div class="row"><div class="row-main"><div>${esc(n.text)}</div><div class="row-sub">${ago(n.ts)}</div></div></div>`).join('')}</div>` : ''}`;
+  ${info.length ? `<h3 class="sec">עדכונים</h3><div class="list">${info.map(n => `<div class="row"><div class="row-main"><div>${n.type === 'note' ? `<span class="pill acc">${ic('note', 'sm')}הערה על פריט</span> ` : ''}${esc(n.text)}</div><div class="row-sub">${ago(n.ts)}</div></div>${n.type === 'note' && n.itemId && byId(S.inventory, n.itemId) ? `<button class="btn sm" data-action="inv-update" data-id="${n.itemId}">לפריט</button>` : ''}</div>`).join('')}</div>` : ''}`;
 }
 
 function vMore() {
@@ -457,10 +462,22 @@ const ACT = {
   'inv-tab': d => { if (d.tab !== 'drinks' && !store.isManager()) { openPin(() => { invTab = d.tab; render(); }); return; } invTab = d.tab; render(); },
   'inv-update': d => {
     const i = byId(S.inventory, d.id); const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending');
-    sheet(`<h3>${esc(i.name)}</h3><p class="muted" style="margin-bottom:14px">כמות נוכחית במלאי: ${i.qty}${p ? ` · ממתין לאישור: ${p.to}` : ''}</p>
+    const n = note(i.id);
+    sheet(`${img(i.id) ? `<img class="item-photo" src="${img(i.id)}" alt="">` : ''}<h3>${esc(i.name)}</h3><p class="muted" style="margin-bottom:14px">כמות נוכחית במלאי: ${i.qty}${p ? ` · ממתין לאישור: ${p.to}` : ''}</p>
     <form class="form" data-form="inv" data-id="${i.id}"><div class="stepper"><button type="button" data-action="step" data-d="-1" aria-label="פחות">−</button><input id="iq" name="qty" type="number" min="0" value="${p ? p.to : i.qty}" aria-label="כמות חדשה"><button type="button" data-action="step" data-d="1" aria-label="יותר">+</button></div>
-    <button class="btn primary block">${manager ? 'שמירה' : 'שליחה לאישור מנהל'}</button></form>`);
+    <button class="btn primary block">${manager ? 'שמירה' : 'שליחה לאישור מנהל'}</button></form>
+    ${manager ? `<div class="mgr-box"><div class="mgr-h">${ic('lock', 'sm')}למנהל בלבד</div>
+      <div class="actions"><label class="btn sm">${ic('camera', 'sm')}${img(i.id) ? 'החלפת תמונה' : 'הוספת תמונה'}<input type="file" accept="image/*" data-img-for="${i.id}" hidden></label>
+      ${img(i.id) ? `<button class="btn sm" data-action="img-del" data-id="${i.id}">הסרת התמונה</button>` : ''}</div>
+      <form class="form" data-form="note" data-id="${i.id}"><div class="field"><label for="nt">הערות על הפריט</label><textarea id="nt" name="text" placeholder="למשל: ספק, מחיר קנייה, מתי להזמין">${esc(n ? n.text : '')}</textarea>
+      ${n ? `<small>עודכן ע״י ${esc(emp(n.by).name)} · ${ago(n.ts)}</small>` : '<small>העובדים לא רואים את ההערות.</small>'}</div>
+      <button class="btn block">שמירת הערה</button></form>
+      <button class="btn danger block" data-action="item-del" data-id="${i.id}">מחיקת הפריט</button></div>` : ''}`);
   },
+  'img-view': d => { const i = byId(S.inventory, d.id); sheet(`<img class="item-photo lg" src="${img(d.id)}" alt=""><h3>${esc(i.name)}</h3><div class="actions" style="margin-top:12px"><button class="btn block" data-action="inv-update" data-id="${d.id}">עדכון כמות</button></div>`); },
+  'img-del': d => needMgr(() => { delete S.images[d.id]; save(); render(); ACT['inv-update'](d); toast('התמונה הוסרה'); }),
+  'item-del': d => { const i = byId(S.inventory, d.id); sheet(`<h3>למחוק את ${esc(i.name)}?</h3><p class="muted" style="margin-bottom:16px">הפריט יימחק מהמלאי יחד עם התמונה וההערות שלו.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="item-del-yes" data-id="${i.id}">מחיקה</button></div>`); },
+  'item-del-yes': d => needMgr(() => { const i = byId(S.inventory, d.id); S.inventory = S.inventory.filter(x => x.id !== d.id); delete S.images[d.id]; delete S.notes[d.id]; save(); closeSheet(); render(); toast(`${i.name} נמחק/ה מהמלאי`); }),
   step: d => { const el = document.getElementById('iq'); el.value = Math.max(0, (+el.value || 0) + +d.d); },
   'deliv-arrive': d => {
     const x = byId(S.deliveries, d.id); x.arrived = true; x.arrivedBy = session(); x.arrivedAt = Date.now();
@@ -527,6 +544,15 @@ const FORMS = {
     S.shifts.push({ id: uid(), empId: session(), start: s, end: e, status: 'pending', source: 'request', note: f.note.trim() });
     save(); closeSheet(); render(); toast('הבקשה נשלחה למנהל');
   },
+  note: (f, el) => {
+    if (!manager) return openPin(); const i = byId(S.inventory, el.dataset.id), t = (f.text || '').trim(), old = note(i.id);
+    if ((old ? old.text : '') === t) return closeSheet();
+    if (t) {
+      S.notes[i.id] = { text: t, by: session(), ts: Date.now() };
+      S.notifications.push({ id: uid(), type: 'note', itemId: i.id, ts: Date.now(), text: `${cur().name} ${old ? 'עדכן/ה' : 'הוסיף/ה'} הערה על ${i.name}: ${t.length > 80 ? t.slice(0, 80) + '…' : t}` });
+    } else delete S.notes[i.id];
+    save(); closeSheet(); render(); toast(t ? 'ההערה נשמרה' : 'ההערה נמחקה');
+  },
   inv: (f, el) => {
     const i = byId(S.inventory, el.dataset.id), q = Math.max(0, parseInt(f.qty) || 0);
     S.drinkUpdates.filter(u => u.itemId === i.id && u.status === 'pending').forEach(u => u.status = manager ? 'approved' : 'replaced');
@@ -568,6 +594,31 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-acti
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
 document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); });
+// Item photos are shrunk on the phone before saving, so the shared database stays small and fast.
+function shrinkImage(file, max = 360) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement('canvas');
+      c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); let q = .78, d = c.toDataURL('image/jpeg', q);
+      while (d.length > 120000 && q > .4) { q -= .1; d = c.toDataURL('image/jpeg', q); }
+      res(d);
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad image')); };
+    im.src = url;
+  });
+}
+document.addEventListener('change', async e => {
+  const inp = e.target.closest('input[data-img-for]'); if (!inp || !inp.files || !inp.files[0]) return;
+  if (!store.isManager()) return openPin();
+  const id = inp.dataset.imgFor, i = byId(S.inventory, id); if (!i) return;
+  try {
+    const data = await shrinkImage(inp.files[0]);
+    S.images[id] = { cat: i.cat, data }; save(); render(); ACT['inv-update']({ id }); toast('התמונה נשמרה');
+  } catch (err) { toast('לא הצלחתי לקרוא את התמונה. נסו תמונה אחרת'); }
+});
 document.addEventListener('keydown', e => { if (!document.getElementById('pin')) return; if (/^\d$/.test(e.key)) pinKey(e.key); else if (e.key === 'Backspace') pinKey('del'); else if (e.key === 'Escape') closeSheet(); });
 
 /* ---------- live clock ---------- */
