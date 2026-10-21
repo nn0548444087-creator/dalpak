@@ -85,6 +85,7 @@ export function createLocalStore() {
     needsSetup: () => false,
     session: () => session,
     isManager: () => mgr,
+    hasOwner: () => S.employees.some(e => e.owner),
     isPermAdmin: () => { const e = S.employees.find(x => x.id === session) || {}; return !!(e.admin || e.owner); },
     isViewer: () => session === 'viewer',
     async setViewer(phone, num) { S.viewerLogin = phone ? { phone, num: String(num) } : null; persist(); return { ok: true }; },
