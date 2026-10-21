@@ -92,6 +92,7 @@ export function createLocalStore() {
     async loadParts(id) { const r = S.reels.find(x => x.id === id); return PARTS.get(id) || (r && r.inline) || []; },
     async deleteReel(r) { PARTS.delete(r.id); S.reels = S.reels.filter(x => x.id !== r.id); S.reelComments = S.reelComments.filter(c => c.reel !== r.id); persist(); },
     isOwner: () => !!(S.employees.find(e => e.id === session) || {}).owner,
+    async setOwner(id) { const e = S.employees.find(x => x.id === id); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; if (id === session) mgr = true; persist(); return { ok: true }; },
     async claimOwner() { const e = S.employees.find(x => x.id === session); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; mgr = true; persist(); return { ok: true }; },
     loaded: () => true,
     pinLength: () => S.settings.pin.length,
