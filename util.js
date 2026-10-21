@@ -19,10 +19,12 @@ export function buildSummary(S, key, ts) {
   const rows = S.employees.map(e => {
     const sh = S.shifts.filter(s => s.empId === e.id && s.status === 'approved' && s.end && monthKey(s.start) === key);
     const h = sum(sh.map(dur));
-    return { name: e.name, num: e.num || '', wage: e.wage, hours: h, pay: h * e.wage, count: sh.length };
-  }).filter(x => x.count);
+    const ex = (S.extras || []).filter(x => x.empId === e.id && x.status === 'approved' && monthKey(x.ts) === key);
+    const deliv = sum(ex.filter(x => x.kind === 'delivery').map(x => +x.amount || 0)), bonus = sum(ex.filter(x => x.kind === 'bonus').map(x => +x.amount || 0));
+    return { name: e.name, num: e.num || '', wage: e.wage, hours: h, pay: h * e.wage, deliv, bonus, total: h * e.wage + deliv + bonus, count: sh.length };
+  }).filter(x => x.count || x.deliv || x.bonus);
   const id = 'sum-' + key;
   S.notifications = S.notifications.filter(n => n.id !== id);
-  S.notifications.unshift({ id, type: 'summary', ts: ts || Date.now(), key, rows, hours: sum(rows.map(x => x.hours)), total: sum(rows.map(x => x.pay)) });
+  S.notifications.unshift({ id, type: 'summary', ts: ts || Date.now(), key, rows, hours: sum(rows.map(x => x.hours)), total: sum(rows.map(x => x.total)), deliv: sum(rows.map(x => x.deliv)), bonus: sum(rows.map(x => x.bonus)) });
 }
 export const hasSummary = (S, key) => S.notifications.some(n => n.id === 'sum-' + key);
