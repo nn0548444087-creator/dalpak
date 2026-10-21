@@ -39,6 +39,9 @@ export function createCloudStore(config) {
   const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], extras: [], currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
   let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, owner = false, viewer = false, viewerLogins = [], setupDone = true, pinLen = 4;
+  // The owner's phone and employee number are kept only in their own login record, never in the shared employee list.
+  let myLogin = null, ownerSet = false, migrated = false;
+  const PRIVATE = ['phone', 'num', 'admin', 'owner'];
   const changeCbs = [], errorCbs = [];
   const emit = () => changeCbs.forEach(f => f());
   const fail = e => { console.error(e); errorCbs.forEach(f => f(errText(e))); };
@@ -46,18 +49,34 @@ export function createCloudStore(config) {
   // ---- mapping between S and Firestore documents ----
   function desired(col) {
     const m = new Map();
-    if (ARRAYS.includes(col)) S[col].forEach(x => { const { id, ...rest } = x; m.set(id, clean(rest)); });
+    if (ARRAYS.includes(col)) S[col].forEach(x => { const { id, ...rest } = x; const d = clean(rest); if (col === 'employees' && d.owner) PRIVATE.forEach(k => delete d[k]); m.set(id, d); });
     else if (col === 'grades') Object.entries(S.grades).forEach(([k, v]) => m.set(k, { v }));
     else if (MAPS[col]) Object.entries(S[MAPS[col]]).forEach(([k, v]) => m.set(k, clean(v)));
-    else if (col === 'logins') viewerLogins.forEach(v => m.set(v.id, v.data)), S.employees.forEach(e => { if (e.phone) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), ...(e.admin || e.owner ? { admin: true } : {}), ...(e.owner ? { owner: true } : {}) }); });
+    else if (col === 'logins') {
+      viewerLogins.forEach(v => m.set(v.id, v.data));
+      S.employees.forEach(e => {
+        if (!e.phone) return;
+        // Only the owner's own phone writes the owner's login record.
+        if (e.owner) { if (owner && e.id === empId) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), admin: true, owner: true }); return; }
+        m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), owner: false, ...(e.admin ? { admin: true } : {}) });
+      });
+    }
     return m;
   }
   function apply(col, snap) {
     if (READONLY[col]) { S[READONLY[col]] = snap.docs.map(d => ({ id: d.id, ...d.data() })); loadedCols.add(col); return; }
     const m = new Map();
     snap.docs.forEach(d => m.set(d.id, stable(d.data())));
+    if (col === 'logins' && owner && myLogin) m.set(myPhone, stable(myLogin));
     synced[col] = m;
     if (ARRAYS.includes(col)) S[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (col === 'employees') {
+      // The owner sees their own details; everyone else sees the owner as a regular employee.
+      S.employees = S.employees.map(e => owner && e.id === empId ? { ...e, phone: myPhone, num: myNum, admin: true, owner: true }
+        : e.owner ? (({ phone, num, admin, owner: _o, ...r }) => r)(e) : e);
+      // Old records still holding the owner's details are cleaned by the next manager save.
+      if (mgr && snap.docs.some(d => d.data().owner === true)) setTimeout(save, 0);
+    }
     else if (col === 'logins') { viewerLogins = snap.docs.filter(d => d.data().viewer === true).map(d => ({ id: d.id, data: d.data() })); S.viewerLogin = viewerLogins[0] ? { phone: viewerLogins[0].id, num: viewerLogins[0].data.num } : null; }
     else if (col === 'grades') { S.grades = {}; snap.docs.forEach(d => S.grades[d.id] = d.data().v); }
     else if (MAPS[col]) { const o = {}; snap.docs.forEach(d => o[d.id] = d.data()); S[MAPS[col]] = o; }
@@ -75,7 +94,7 @@ export function createCloudStore(config) {
     if (!empId) { emit(); return; }
     const c = n => collection(db, n);
     const specs = mgr || viewer
-      ? [...COLS.filter(n => mgr || n !== 'logins').map(n => [n, c(n)]), ['openShifts', query(c('shifts'), where('status', '==', 'open'))]]
+      ? [...COLS.filter(n => mgr || n !== 'logins').map(n => [n, n === 'logins' ? query(c(n), where('owner', '==', false)) : c(n)]), ['openShifts', query(c('shifts'), where('status', '==', 'open'))]]
       : [['employees', c('employees')],
         ['shifts', query(c('shifts'), where('empId', '==', empId))],
         ['openShifts', query(c('shifts'), where('status', '==', 'open'))],
@@ -93,6 +112,21 @@ export function createCloudStore(config) {
       unsubs.push(onSnapshot(q, snap => { apply(name, snap); emit(); }, e => fail(e)));
     });
     emit();
+    if (mgr) migrate();
+  }
+  // One-time upgrade of older data: mark every login record with owner:false so the list query
+  // can skip the owner's record, and flag publicly (without naming anyone) that an owner exists.
+  async function migrate() {
+    if (migrated) return; migrated = true;
+    try {
+      const all = await getDocs(collection(db, 'logins'));
+      for (const d of all.docs) if (!('owner' in d.data())) await setDoc(doc(db, 'logins', d.id), { owner: false }, { merge: true });
+    } catch (e) { }
+    try {
+      if (!ownerSet && (owner || (await getDoc(doc(db, 'config', 'owner'))).exists())) {
+        await setDoc(doc(db, 'config', 'public'), { ownerSet: true }, { merge: true }); ownerSet = true; emit();
+      }
+    } catch (e) { }
   }
 
   // ---- writes ----
@@ -127,6 +161,7 @@ export function createCloudStore(config) {
       const p = await withTimeout(getDoc(doc(db, 'config', 'public')), 10000);
       setupDone = p.exists() && p.data().setupDone === true;
       pinLen = (p.exists() && p.data().pinLen) || 4;
+      ownerSet = p.exists() && p.data().ownerSet === true;
     } catch (e) { setupDone = true; }
   }
   async function linkSession() {
@@ -137,7 +172,7 @@ export function createCloudStore(config) {
       const { phone, num } = s.data();
       const l = await getDoc(doc(db, 'logins', phone));
       if (!l.exists() || String(l.data().num) !== String(num)) { await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { }); return false; }
-      empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId;
+      empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId; myLogin = l.data();
       owner = l.data().owner === true;
       permAdmin = l.data().admin === true || owner;
       viewer = l.data().viewer === true; if (viewer) permAdmin = false;
@@ -152,10 +187,14 @@ export function createCloudStore(config) {
       const e = S.employees.find(x => x.id === id); if (!e || !e.phone) return { error: 'העובד לא נמצא' };
       const b = writeBatch(db);
       b.set(doc(db, 'config', 'owner'), { empId: id });
-      b.set(doc(db, 'employees', id), { ...clean((({ id: _, ...r }) => r)(e)), admin: true, owner: true });
+      const pub = clean((({ id: _, ...r }) => r)(e)); PRIVATE.forEach(k => delete pub[k]);
+      b.set(doc(db, 'employees', id), pub);
       b.set(doc(db, 'logins', normPhone(e.phone)), { empId: id, num: String(e.num), admin: true, owner: true });
+      b.set(doc(db, 'config', 'public'), { ownerSet: true }, { merge: true });
       await withTimeout(b.commit());
-      if (id === empId) { owner = true; permAdmin = true; mgr = true; subscribe(); }
+      ownerSet = true;
+      if (id === empId) { owner = true; permAdmin = true; mgr = true; myLogin = { empId: id, num: String(e.num), admin: true, owner: true }; }
+      subscribe();
       return { ok: true };
     } catch (err) { return { error: errText(err) }; }
   }
@@ -178,13 +217,14 @@ export function createCloudStore(config) {
     isManager: () => mgr,
     isPermAdmin: () => permAdmin,
     isOwner: () => owner,
+    hasOwner: () => ownerSet,
     isViewer: () => viewer,
     // The shared read-only "בקרה" login. Only managers (the owner, once one exists) may create it.
     async setViewer(phone, num) {
       try {
         const b = writeBatch(db);
         viewerLogins.forEach(v => { if (v.id !== phone) b.delete(doc(db, 'logins', v.id)); });
-        if (phone) b.set(doc(db, 'logins', phone), { empId: 'viewer', num: String(num), viewer: true });
+        if (phone) b.set(doc(db, 'logins', phone), { empId: 'viewer', num: String(num), viewer: true, owner: false });
         await withTimeout(b.commit()); return { ok: true };
       } catch (e) { return { error: errText(e) }; }
     },
@@ -223,7 +263,7 @@ export function createCloudStore(config) {
         b.set(doc(db, 'config', 'admin'), { pin });
         b.set(doc(db, 'config', 'public'), { setupDone: true, pinLen: pin.length });
         b.set(doc(db, 'employees', id), { name, phone: p, num: n, wage: Number(wage) });
-        b.set(doc(db, 'logins', p), { empId: id, num: n });
+        b.set(doc(db, 'logins', p), { empId: id, num: n, owner: false });
         b.set(doc(db, 'sessions', u), { phone: p, num: n, at: Date.now() });
         b.set(doc(db, 'managerSessions', u), { pin });
         await withTimeout(b.commit());
@@ -252,7 +292,7 @@ export function createCloudStore(config) {
         await deleteDoc(doc(db, 'managerSessions', u.uid)).catch(() => { });
         await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
       }
-      empId = null; mgr = false; permAdmin = false; owner = false; viewer = false; S.currentUser = null;
+      empId = null; mgr = false; permAdmin = false; owner = false; viewer = false; S.currentUser = null; myLogin = null; migrated = false;
       await signOut(auth).catch(() => { });
       emit();
     },
