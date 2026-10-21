@@ -138,8 +138,10 @@ function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
   const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length + newActivity().length;
   // The bell is there for everyone: employees see their own tasks, managers also see approvals.
-  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ['alerts', 'התראות', 'bell'], ['more', 'עוד', 'menu']];
-  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
+  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ['more', 'עוד', 'menu']];
+  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}</button>`).join('');
+  const hb = document.getElementById('hbadge'); if (hb) { hb.textContent = n; hb.hidden = !n; }
+  const bb = document.getElementById('hbell'); if (bb) bb.classList.toggle('on', view === 'alerts');
 }
 function render() {
   renderPending = false;
@@ -156,10 +158,11 @@ function render() {
   }
   checkMonthly();
   const me = cur();
-  hdr.innerHTML = brand + `
+  const bell = `<button class="hbell ${view === 'alerts' ? 'on' : ''}" id="hbell" data-action="nav" data-view="alerts" aria-label="התראות">${ic('bell')}<span class="badge" id="hbadge" hidden></span></button>`;
+  hdr.innerHTML = brand.replace(/<\/div>$/, bell + '</div>') + `
     <div class="top-actions">
-      ${viewer ? `<span class="chip">${ic('eye', 'sm')}צפייה בלבד</span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
-      <button class="chip" data-action="account">${avatar(me)}${esc(first(me.name))}</button>
+      ${viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}<span class="cl">נעל</span></button>` : `<button class="chip" data-action="pin" aria-label="מנהל">${ic('lock', 'sm')}<span class="cl">מנהל</span></button>`}
+      <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks') invTab = 'drinks'; }
   const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, report: vReport, avail: vAvail, reels: vReels };
