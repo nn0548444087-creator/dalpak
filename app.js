@@ -220,8 +220,8 @@ function vClock() {
     </button>
     <div class="since">${open ? `נכנסת ב-${fmtT(open.start)}${sameDay(open.start, now) ? '' : ' · ' + fmtD(open.start)}` : `עובד מס׳ ${esc(me.num)}`}</div>
   </section>
-  ${(() => { const crew = onShiftNow().filter(s => s.empId !== me.id).map(s => ({ e: emp(s.empId), s })).filter(x => x.e.id);
-    return crew.length ? `<div class="crew"><span class="crew-l">${open ? 'עובדים איתך עכשיו' : 'במשמרת עכשיו'}</span><div class="crew-row">${crew.map(x => `<span class="crew-p" title="${esc(x.e.name)} · מ-${fmtT(x.s.start)}">${avatar(x.e, 'md')}<small>${esc(first(x.e.name))}</small></span>`).join('')}</div></div>` : ''; })()}
+  ${(() => { const crew = onShiftNow().map(s => ({ e: emp(s.empId), s, me: s.empId === me.id })).filter(x => x.e.id).sort((x, y) => y.me - x.me);
+    return crew.length ? `<div class="crew"><span class="crew-l">${open ? (crew.length > 1 ? 'במשמרת איתך עכשיו' : 'במשמרת עכשיו') : 'במשמרת עכשיו'}</span><div class="crew-row">${crew.map(x => `<span class="crew-p ${x.me ? 'me' : ''}" title="${esc(x.e.name)} · מ-${fmtT(x.s.start)}">${avatar(x.e, 'md')}<small>${x.me ? 'אני' : esc(first(x.e.name))}</small></span>`).join('')}</div></div>` : ''; })()}
   ${open && now - open.start > 12 * H ? `<div class="banner bad">${ic('alert')}<span>המשמרת פתוחה יותר מ-12 שעות. נשלחה התראה למנהל המערכת.</span></div>` : ''}
   <div class="stats">
     <div class="stat"><span>שעות היום</span><b class="num">${fmtH(tH)}</b></div>
