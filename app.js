@@ -172,7 +172,7 @@ function render() {
 // Data from other phones arrives at any moment; wait while someone is typing or a sheet is open.
 function softRender() {
   const a = document.activeElement;
-  const typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+  const typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !a.classList.contains('rv-seek');
   if (document.querySelector('form[data-form=comment]')) refreshComments();
   if (typing || document.querySelector('.sheet')) { renderPending = true; renderNav(); return; }
   if (view === 'reels') return patchReels();
@@ -632,10 +632,12 @@ function reelCard(r) {
   const counts = Object.fromEntries(REACTS.map(([k]) => [k, Object.values(r.reactions || {}).filter(v => v === k).length]));
   return `<article class="reel" data-reel="${r.id}">
     <div class="reel-media ${r.type}" data-action="reel-tap" data-id="${r.id}">
-      ${r.type === 'video' ? `<video class="rv" playsinline loop muted preload="none" ${r.poster ? `poster="${r.poster}"` : ''}></video><span class="rv-sound" aria-hidden="true">🔇</span>`
+      ${r.type === 'video' ? `<video class="rv" playsinline loop muted preload="none" ${r.poster ? `poster="${r.poster}"` : ''}></video><span class="rv-paused" aria-hidden="true">▶</span>`
       : `<div class="rp-track">${[...Array(r.parts || 1)].map((_, i) => `<div class="rp-slide">${i === 0 && r.poster ? `<img src="${r.poster}" alt="">` : ''}</div>`).join('')}</div>${(r.parts || 1) > 1 ? `<div class="rp-dots">${[...Array(r.parts)].map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}`}
       <span class="reel-load">טוען…</span>
     </div>
+    ${r.type === 'video' ? `<button class="rv-sound" data-action="reel-sound" aria-label="${reelMuted ? 'הפעלת קול' : 'השתקה'}">${reelMuted ? '🔇' : '🔊'}</button>
+    <div class="rv-bar"><span class="rv-time" hidden></span><input class="rv-seek" type="range" min="0" max="1000" step="1" value="0" dir="ltr" aria-label="מיקום בסרטון"></div>` : ''}
     <div class="reel-side">
       ${REACTS.map(([k, e]) => `<button class="rx ${mine === k ? 'on' : ''}" data-action="react" data-id="${r.id}" data-r="${k}" aria-label="תגובה ${e}"><span>${e}</span><small data-cnt="${k}">${counts[k] || ''}</small></button>`).join('')}
       <button class="rx" data-action="reel-comments" data-id="${r.id}" aria-label="תגובות"><span>💬</span><small data-cnt="c">${n || ''}</small></button>
@@ -651,21 +653,54 @@ function reelCard(r) {
 }
 function vReels() {
   const list = liveReels();
-  return `<div class="reels-head"><h2 class="vt">רילס</h2>${viewer ? '<span class="pill">צפייה בלבד</span>' : ''}</div>
-  ${viewer ? '' : `<button class="reel-fab" data-action="reel-new" aria-label="ריל או פוסט חדש">${ic('plus')}</button>`}
-  <p class="lead">סרטונים ופוסטים של הצוות. כל פריט נמחק מהאפליקציה אחרי 72 שעות.</p>
-  <div class="reels">${list.map(reelCard).join('') || '<div class="list"><div class="row muted">עדיין אין רילס. היו הראשונים להעלות!</div></div>'}</div>`;
+  // Full-screen feed like Instagram: the feed itself scrolls, one post per screen.
+  return `${viewer ? '' : `<button class="reel-fab" data-action="reel-new" aria-label="ריל או פוסט חדש">${ic('plus')}</button>`}
+  <div class="reels-feed" id="reels-feed">${list.map(reelCard).join('') || '<div class="reels-empty"><b>עדיין אין רילס</b><span>היו הראשונים להעלות! כל פוסט נמחק מהאפליקציה אחרי 72 שעות.</span></div>'}</div>`;
 }
 // Only the reels in view load their media, and only the one on screen plays.
 function watchReels() {
   if (reelsObs) reelsObs.disconnect();
   if (view !== 'reels') return;
+  fitFeed();
+  const feed = document.getElementById('reels-feed');
   reelsObs = new IntersectionObserver(es => es.forEach(en => {
     const el = en.target, v = el.querySelector('video');
-    if (en.isIntersecting && en.intersectionRatio > 0.6) { showMedia(el); if (v && v.src) v.play().catch(() => { }); if (!viewTimers.has(el.dataset.reel)) viewTimers.set(el.dataset.reel, setTimeout(() => { viewTimers.delete(el.dataset.reel); if (el.isConnected) markViewed(el.dataset.reel); }, 1500)); }
+    if (en.isIntersecting && en.intersectionRatio > 0.6) { showMedia(el); if (v && v.src) playReel(el); if (!viewTimers.has(el.dataset.reel)) viewTimers.set(el.dataset.reel, setTimeout(() => { viewTimers.delete(el.dataset.reel); if (el.isConnected) markViewed(el.dataset.reel); }, 1500)); }
     else { if (v) v.pause(); clearTimeout(viewTimers.get(el.dataset.reel)); viewTimers.delete(el.dataset.reel); }
-  }), { threshold: [0, 0.6, 1] });
-  document.querySelectorAll('.reel').forEach(el => reelsObs.observe(el));
+  }), { root: feed, threshold: [0, 0.6, 1] });
+  document.querySelectorAll('.reel').forEach(el => { reelsObs.observe(el); wireSeek(el); });
+}
+// The feed sits between the header and the bottom tabs.
+function fitFeed() {
+  const f = document.getElementById('reels-feed'); if (!f) return;
+  const h = document.querySelector('header.top'), n = document.getElementById('navbar');
+  f.style.top = Math.max(0, h ? h.getBoundingClientRect().bottom : 0) + 'px';
+  const nb = n && !n.hidden ? Math.max(0, innerHeight - n.getBoundingClientRect().top) : 0;
+  f.style.bottom = nb + 'px';
+  // The new-post button sits just above the video's position bar.
+  const fab = document.querySelector('.reel-fab'); if (fab) fab.style.bottom = (nb + 30) + 'px';
+}
+addEventListener('resize', () => { if (view === 'reels') fitFeed(); });
+// Sound is off until someone turns it on; after that every video plays with sound.
+let reelMuted = true;
+function playReel(el) {
+  const v = el.querySelector('video'); if (!v || !v.src) return;
+  v.muted = reelMuted; el.classList.remove('paused');
+  v.play().catch(() => { v.muted = true; v.play().catch(() => { }); });
+}
+const fmtSec = t => { t = Math.max(0, Math.floor(t || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+// Drag the bar to move through the video; the bar follows the video while it plays.
+function wireSeek(el) {
+  const v = el.querySelector('video'), s = el.querySelector('.rv-seek'), lab = el.querySelector('.rv-time');
+  if (!v || !s || s.dataset.wired) return; s.dataset.wired = '1';
+  let drag = false;
+  const show = () => { lab.textContent = `${fmtSec(v.currentTime)} / ${fmtSec(v.duration)}`; };
+  v.addEventListener('timeupdate', () => { if (!drag && v.duration) s.value = Math.round(v.currentTime / v.duration * 1000); });
+  const start = () => { drag = true; lab.hidden = false; show(); };
+  const end = () => { if (!drag) return; drag = false; lab.hidden = true; s.blur(); };
+  s.addEventListener('pointerdown', start); s.addEventListener('touchstart', start, { passive: true });
+  s.addEventListener('input', () => { if (!drag) start(); if (v.duration) { v.currentTime = s.value / 1000 * v.duration; show(); } });
+  ['pointerup', 'pointercancel', 'touchend', 'change'].forEach(t => s.addEventListener(t, end));
 }
 async function getMedia(r) {
   if (MEDIA.has(r.id)) return MEDIA.get(r.id);
@@ -683,7 +718,7 @@ async function showMedia(el) {
   const r = byId(S.reels, el.dataset.reel); if (!r) return;
   try {
     const m = await getMedia(r);
-    if (m.url) { const v = el.querySelector('video'); v.src = m.url; v.play().catch(() => { }); }
+    if (m.url) { const v = el.querySelector('video'); v.src = m.url; playReel(el); }
     else el.querySelectorAll('.rp-slide').forEach((s, i) => { if (m.imgs[i]) s.innerHTML = `<img src="${m.imgs[i]}" alt="">`; });
     el.classList.add('ready');
   } catch (e) { el.dataset.loaded = ''; el.querySelector('.reel-load').textContent = 'לא הצלחתי לטעון. בדקו את החיבור'; }
@@ -691,7 +726,7 @@ async function showMedia(el) {
 // Reactions and comment counts change often; update them in place so a playing video keeps playing.
 function patchReels() {
   const ids = [...document.querySelectorAll('.reel')].map(e => e.dataset.reel).join(), want = liveReels().map(r => r.id).join();
-  if (ids !== want) { const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if (ids !== want) { const f = document.getElementById('reels-feed'), y = f ? f.scrollTop : 0; render(); const g = document.getElementById('reels-feed'); if (g) g.scrollTop = y; return; }
   liveReels().forEach(r => {
     const el = document.querySelector(`.reel[data-reel="${r.id}"]`); if (!el) return;
     const mine = (r.reactions || {})[session()];
@@ -937,7 +972,8 @@ const ACT = {
   'reel-viewers': d => { const r = byId(S.reels, d.id); if (!r || r.by !== session()) return; const list = Object.entries(r.views || {}).filter(([id]) => id !== r.by).sort((a, b) => b[1] - a[1]);
     sheet(`<h3>${ic('eye', 'sm')} צפו בפוסט · ${list.length}</h3><div class="list" style="margin-top:10px">${list.map(([id, ts]) => `<div class="row">${avatar(emp(id), 'md')}<div class="row-main"><div class="row-title">${esc(emp(id).name)}</div><div class="row-sub">${ago(ts)}${(r.reactions || {})[id] ? ' · ' + ((REACTS.find(x => x[0] === r.reactions[id]) || [])[1] || '') : ''}</div></div></div>`).join('') || '<div class="row muted">עדיין אף אחד לא צפה.</div>'}</div>`); },
   'reel-open': d => { go('reels'); setTimeout(() => { document.querySelector(`.reel[data-reel="${d.id}"]`)?.scrollIntoView({ block: 'center' }); openComments(d.id); }, 150); },
-  'reel-tap': (d, el) => { const v = el.querySelector('video'); if (!v || !v.src) return; if (v.muted) { v.muted = false; v.play().catch(() => { }); el.querySelector('.rv-sound').textContent = '🔊'; } else if (v.paused) v.play().catch(() => { }); else v.pause(); },
+  'reel-tap': (d, el) => { const v = el.querySelector('video'), card = el.closest('.reel'); if (!v || !v.src) return; if (v.paused) playReel(card); else { v.pause(); card.classList.add('paused'); } },
+  'reel-sound': (d, el) => { reelMuted = !reelMuted; document.querySelectorAll('.reel video').forEach(v => { v.muted = reelMuted; }); document.querySelectorAll('.rv-sound').forEach(b => { b.textContent = reelMuted ? '🔇' : '🔊'; b.setAttribute('aria-label', reelMuted ? 'הפעלת קול' : 'השתקה'); }); },
   'reply-to': d => { replyTo = d.id; const b = document.getElementById('cm-reply'); b.hidden = false; b.innerHTML = `משיב/ה ל${esc(d.name)} <button type="button" class="link-btn" data-action="reply-clear">ביטול</button>`; const t = document.getElementById('cm-t'); if (d.by && d.by !== session()) { mentionTags.set(d.by, d.name); if (!t.value.includes('@' + d.name)) t.value = `@${d.name} ` + t.value; } t.focus(); },
   'reply-clear': () => { replyTo = null; const b = document.getElementById('cm-reply'); if (b) b.hidden = true; },
   'mention-pick': (d, el) => {
@@ -1118,7 +1154,7 @@ const FORMS = {
     const caption = (f.caption || '').trim(), up = pendingUpload; busy = true; document.getElementById('up-go').disabled = true;
     const r = await store.uploadReel({ ...up.meta, caption, tags: pickedTags(caption), reactions: {} }, up.parts, p => setProg(p, `מעלה… ${Math.round(p * 100)}%`));
     busy = false; if (r.error) { document.getElementById('up-go').disabled = false; return toast(r.error); }
-    pendingUpload = null; closeSheet(); go('reels'); window.scrollTo(0, 0); toast('פורסם! יימחק מהאפליקציה בעוד 72 שעות');
+    pendingUpload = null; closeSheet(); go('reels'); const rf = document.getElementById('reels-feed'); if (rf) rf.scrollTop = 0; toast('פורסם! יימחק מהאפליקציה בעוד 72 שעות');
   },
   comment: (f, el) => {
     const text = (f.text || '').trim(); if (!text) return;
@@ -1251,7 +1287,7 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-sound', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
