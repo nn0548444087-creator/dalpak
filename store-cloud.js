@@ -146,6 +146,19 @@ export function createCloudStore(config) {
   }
   async function ensureAuth() { if (!auth.currentUser) await withTimeout(signInAnonymously(auth)); return auth.currentUser.uid; }
 
+  // Make an employee the store owner: a permanent manager nobody else can remove.
+  async function setOwner(id) {
+    try {
+      const e = S.employees.find(x => x.id === id); if (!e || !e.phone) return { error: 'העובד לא נמצא' };
+      const b = writeBatch(db);
+      b.set(doc(db, 'config', 'owner'), { empId: id });
+      b.set(doc(db, 'employees', id), { ...clean((({ id: _, ...r }) => r)(e)), admin: true, owner: true });
+      b.set(doc(db, 'logins', normPhone(e.phone)), { empId: id, num: String(e.num), admin: true, owner: true });
+      await withTimeout(b.commit());
+      if (id === empId) { owner = true; permAdmin = true; mgr = true; subscribe(); }
+      return { ok: true };
+    } catch (err) { return { error: errText(err) }; }
+  }
   const ready = (async () => {
     await auth.authStateReady();
     await readPublic();
@@ -245,17 +258,8 @@ export function createCloudStore(config) {
     },
 
     // The first manager to claim it becomes the store owner: a permanent manager nobody else can remove.
-    async claimOwner() {
-      try {
-        const me = S.employees.find(e => e.id === empId); if (!me) return { error: 'העובד לא נמצא' };
-        const b = writeBatch(db);
-        b.set(doc(db, 'config', 'owner'), { empId });
-        b.set(doc(db, 'employees', empId), { ...clean((({ id, ...r }) => r)(me)), admin: true, owner: true });
-        b.set(doc(db, 'logins', myPhone), { empId, num: myNum, admin: true, owner: true });
-        await withTimeout(b.commit());
-        owner = true; permAdmin = true; mgr = true; subscribe(); return { ok: true };
-      } catch (e) { return { error: errText(e) }; }
-    },
+    async claimOwner() { return setOwner(empId); },
+    setOwner,
     async enterManager(pin) {
       if (permAdmin) { mgr = true; subscribe(); return true; }
       try {
