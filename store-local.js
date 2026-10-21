@@ -69,7 +69,7 @@ export function createLocalStore() {
     S.settings = S.settings || { pin: '0000' };
     S.notes = S.notes || {}; S.images = S.images || {}; S.empPhotos = S.empPhotos || {};
     S.suppliers = S.suppliers || []; S.orders = S.orders || []; S.unavail = S.unavail || [];
-    S.reels = (S.reels || []).filter(r => r.type === 'photos' || PARTS.has(r.id)); S.reelComments = S.reelComments || [];
+    S.reels = (S.reels || []).filter(r => r.type === 'photos' || PARTS.has(r.id)); S.reelComments = S.reelComments || []; S.extras = S.extras || [];
     try { session = localStorage.getItem(LS_SESSION); } catch (e) { session = null; }
     if (session && session !== 'viewer' && !S.employees.some(e => e.id === session)) session = null;
     S.currentUser = session; persist();
