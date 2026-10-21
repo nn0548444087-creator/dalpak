@@ -52,7 +52,9 @@ new MutationObserver(() => {
   if (DS.theme === 'system') { const v = ROOT.getAttribute('data-theme'); if (v !== hostTheme) { hostTheme = v; applyDisplay(); if (view === 'display') render(); } }
 }).observe(ROOT, { attributes: true, attributeFilter: ['data-theme'] });
 
+let viewer = false;
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
+P.play = '<path d="M8 5v14l11-7z"/>';
 P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
 P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
 P.users = '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>';
@@ -76,7 +78,7 @@ const monthName = k => { const [y, m] = k.split('-'); return new Date(+y, +m - 1
 const toLocalInput = t => { const d = new Date(t); return dateKey(t) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const emp = id => S.employees.find(e => e.id === id) || { name: 'עובד', wage: 50, num: '', phone: '' };
 const session = () => store && store.session();
-const cur = () => emp(session());
+const cur = () => session() === 'viewer' ? { id: 'viewer', name: 'בקרה', num: '', phone: '', wage: 0 } : emp(session());
 const first = n => String(n).split(' ')[0];
 const openShift = id => S.shifts.find(s => s.empId === id && s.status === 'open');
 const ago = t => { const m = Math.round((Date.now() - t) / 6e4); if (m < 60) return `לפני ${Math.max(m, 0)} דק׳`; const h = Math.floor(m / 60); if (h < 24) return `לפני ${h} שע׳`; return fmtD(t); };
@@ -108,7 +110,7 @@ function downloadCsv(name, rows) {
 const waLink = (phone, text) => `https://wa.me/${phone ? '972' + normPhone(phone).replace(/^0/, '') : ''}?text=${encodeURIComponent(text)}`;
 
 function checkMonthly() {
-  if (monthChecked || !manager || !store.loaded('employees', 'shifts', 'notifications')) return;
+  if (monthChecked || !manager || viewer || !store.loaded('employees', 'shifts', 'notifications')) return;
   monthChecked = true;
   const k = prevMonthKey();
   if (!hasSummary(S, k) && S.shifts.some(s => s.status === 'approved' && s.end && monthKey(s.start) === k)) {
@@ -129,15 +131,16 @@ const MORE_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 
 const MGR_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
-  const n = alerts().count + newTasks().length;
+  const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length;
   // The bell is there for everyone: employees see their own tasks, managers also see approvals.
-  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['alerts', 'התראות', 'bell'], ['more', 'עוד', 'menu']];
+  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ['alerts', 'התראות', 'bell'], ['more', 'עוד', 'menu']];
   document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
 function render() {
   renderPending = false;
   if (!store) return;
-  S = store.S; manager = store.isManager();
+  S = store.S; viewer = !!store.isViewer?.(); manager = store.isManager() || viewer;
+  document.body.classList.toggle('is-viewer', viewer);
   const brand = `<div class="brand"><img class="mark" src="./logo.png" alt=""><div><b>שאבעס מרקט</b><small>ניהול חנות${local() ? ' · גרסת דמו' : ''}</small></div></div>`;
   const hdr = document.getElementById('hdr'), main = document.getElementById('main');
   if (booting) { hdr.innerHTML = brand; main.innerHTML = `<div class="view"><div class="lock"><p class="muted">טוען נתונים…</p></div></div>`; renderNav(); return; }
@@ -150,19 +153,21 @@ function render() {
   const me = cur();
   hdr.innerHTML = brand + `
     <div class="top-actions">
-      ${manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
+      ${viewer ? `<span class="chip">${ic('eye', 'sm')}צפייה בלבד</span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
       <button class="chip" data-action="account">${avatar(me)}${esc(first(me.name))}</button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks') invTab = 'drinks'; }
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, report: vReport, avail: vAvail };
-  main.innerHTML = `<div class="view">${(V[view] || vClock)()}</div>`;
-  renderNav(); tick();
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, report: vReport, avail: vAvail, reels: vReels };
+  main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
+  renderNav(); tick(); watchReels(); cleanReels();
 }
 // Data from other phones arrives at any moment; wait while someone is typing or a sheet is open.
 function softRender() {
   const a = document.activeElement;
   const typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+  if (document.querySelector('form[data-form=comment]')) refreshComments();
   if (typing || document.querySelector('.sheet')) { renderPending = true; renderNav(); return; }
+  if (view === 'reels') return patchReels();
   render();
 }
 document.addEventListener('focusout', () => setTimeout(() => { if (renderPending && !document.querySelector('.sheet')) { const a = document.activeElement; if (!a || !/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) render(); } }, 50));
@@ -200,6 +205,10 @@ function vSetup() {
 
 /* ---------- views ---------- */
 function vClock() {
+  if (viewer) { const crew = onShiftNow().map(s => emp(s.empId)).filter(e => e.id);
+    return `<div class="card"><b>${ic('eye', 'sm')} מצב בקרה · צפייה בלבד</b><p class="muted" style="margin:6px 0 0">אפשר לראות את כל הנתונים במערכת: מלאי, אספקה, רילס, התראות, שעות ושכר, ספקים והזמנות. אי אפשר לשנות נתונים או להוציא דוחות.</p></div>
+    <h3 class="sec">במשמרת עכשיו · ${crew.length}</h3><div class="crew"><div class="crew-row">${crew.map(e => `<span class="crew-p">${avatar(e, 'md')}<small>${esc(first(e.name))}</small></span>`).join('') || '<span class="muted">אף אחד לא במשמרת כרגע</span>'}</div></div>
+    <div class="list">${[['hours', 'chart', 'שעות עובדים ושכר'], ['orders', 'cart', 'הזמנות מספקים'], ['suppliers', 'users', 'ספקים ומחירים'], ['tasks', 'task', 'משימות'], ['avail', 'cal', 'אילוצים של עובדים']].map(([v, i, l]) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${ic('chev', 'sm chev')}</button>`).join('')}</div>`; }
   const me = cur(), now = Date.now(), open = openShift(me.id);
   const counted = s => s.empId === me.id && (s.status === 'approved' || s.status === 'open');
   const tH = sum(S.shifts.filter(s => counted(s) && sameDay(s.start, now)).map(dur));
@@ -295,7 +304,10 @@ function vAlerts() {
   if (fresh.size) setTimeout(() => { myTasks().forEach(t => { if (fresh.has(t.id)) t.seen = true; }); save(); renderNav(); }, 1500);
   const TK = mine.length ? `<h3 class="sec">המשימות שלי · ${mine.filter(t => !t.done).length} פתוחות</h3><div class="list">${mine.map(t => `<div class="row ${t.done ? 'done' : ''}"><button class="check ${t.done ? 'on' : ''}" data-action="my-task" data-id="${t.id}" aria-label="סימון כבוצע">${t.done ? ic('check', 'sm') : ''}</button>
     <div class="row-main"><div class="row-title">${esc(t.title)} ${fresh.has(t.id) ? '<span class="pill acc">חדש</span>' : ''}</div><div class="row-sub num">${fmtH(t.hours)} ש׳ משוערות${t.ts ? ' · ' + ago(t.ts) : ''}</div></div></div>`).join('')}</div>` : '';
-  if (!manager) return `<h2 class="vt">התראות</h2>` + (TK || '<div class="list"><div class="row muted">אין כרגע משימות או התראות בשבילך.</div></div>');
+  const MS = myMentions().slice(0, 10), seenAt = mentionSeen();
+  if (MS.length && MS[0].ts > seenAt) setTimeout(() => { try { localStorage.setItem(MENTION_SEEN, String(Date.now())); } catch (e) { } renderNav(); }, 1500);
+  const MN = MS.length ? `<h3 class="sec">תייגו אותך ברילס</h3><div class="list">${MS.map(m => `<div class="row tap" data-action="reel-open" data-id="${m.reel}">${avatar(emp(m.by), 'md')}<div class="row-main"><div class="row-title">${esc(emp(m.by).name)} תייג/ה אותך ${m.kind === 'comment' ? 'בתגובה' : 'בפוסט'} ${m.ts > seenAt ? '<span class="pill acc">חדש</span>' : ''}</div><div class="row-sub">${esc(m.text.slice(0, 80))} · ${ago(m.ts)}</div></div>${ic('chev', 'sm chev')}</div>`).join('')}</div>` : '';
+  if (!manager) return `<h2 class="vt">התראות</h2>` + MN + (TK || (MN ? '' : '<div class="list"><div class="row muted">אין כרגע משימות או התראות בשבילך.</div></div>'));
   const { long, reqs, drinks, pins, count } = alerts();
   const sums = S.notifications.filter(n => n.type === 'summary').sort((a, b) => b.key.localeCompare(a.key));
   const info = S.notifications.filter(n => (n.type === 'info' && n.kind !== 'pin') || n.type === 'note').sort((a, b) => b.ts - a.ts).slice(0, 12);
@@ -321,7 +333,7 @@ function vAlerts() {
       ${n.rows.map(r => `<tr><td>${esc(r.num || '')}</td><td>${esc(r.name)}</td><td>${r.count}</td><td>${fmtH(r.hours)}</td><td>${money(r.wage)}</td><td class="l">${money(r.pay)}</td></tr>`).join('')}
       <tr class="tot"><td></td><td>סה״כ</td><td>${sum(n.rows.map(r => r.count))}</td><td>${fmtH(n.hours)}</td><td></td><td class="l">${money(n.total)}</td></tr></tbody></table></div></details></div>`).join('');
   return `<h2 class="vt">התראות</h2>
-  ${TK}
+  ${MN}${TK}
   <h3 class="sec">דורש טיפול · ${count}</h3>
   ${count ? PF + L + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
   <h3 class="sec">סיכומי שכר · נוצרים אוטומטית מה-1 לחודש</h3>
@@ -334,7 +346,7 @@ function vMore() {
   return `<h2 class="vt">תפריט</h2>
   ${manager ? `<div class="list">${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
   <div class="list">${it('avail', 'cal', manager ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד', 0)}${it('display', 'eye', 'הגדרות תצוגה', 0)}
-  ${manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
+  ${viewer ? '' : manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
   <p class="lead">${local() ? 'גרסת דמו: הנתונים נשמרים בטלפון הזה בלבד.' : 'הנתונים נשמרים בענן ומשותפים לכל הטלפונים של העובדים.'}</p>`;
 }
@@ -455,7 +467,10 @@ function vStaff() {
   <div class="list">${S.employees.map(e => `<div class="row tap" data-action="emp-edit" data-id="${e.id}">${avatar(e, 'lg')}<div class="row-main"><div class="row-title">${esc(e.name)}</div>
     <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.owner ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
     <span class="btn sm">עריכה</span></div>`).join('')}</div>
-  <button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>`;
+  <button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>
+  ${viewer ? '' : `<div class="card" style="margin-top:14px"><b>${ic('eye', 'sm')} משתמש בקרה (צפייה בלבד)</b>
+    <p class="muted" style="margin:6px 0 10px">חשבון אחד שאפשר להתחבר אליו מכמה מכשירים. רואה את כל הנתונים, לא משנה כלום ולא מוציא דוחות.${S.viewerLogin ? ` פעיל: טלפון <span class="ltr">${esc(S.viewerLogin.phone)}</span> · מספר עובד ${esc(S.viewerLogin.num)}` : ' כרגע כבוי.'}</p>
+    ${canSetFlags() ? `<div class="actions"><button class="btn" data-action="viewer-set">${S.viewerLogin ? 'שינוי פרטים' : 'הפעלה'}</button>${S.viewerLogin ? '<button class="btn danger" data-action="viewer-off">כיבוי</button>' : ''}</div>` : '<p class="hint">רק בעל הבית יכול להפעיל או לשנות.</p>'}</div>`}`;
 }
 
 /* ---------- suppliers & orders (managers) ---------- */
@@ -535,6 +550,217 @@ function vAvail() {
   <p class="lead">העובדים מסמנים בטלפון ימים שהם לא יכולים לעבוד. מוצגים 4 השבועות הקרובים.</p>
   <div class="list">${days.map(k => { const g = by(k); return `<div class="row"><div class="row-main"><div class="row-title">${fmtLong(new Date(k + 'T12:00'))}</div>
     <div class="row-sub">${g.length ? g.map(u => `<span class="pill bad">${esc(emp(u.empId).name)}${u.note ? ' · ' + esc(u.note) : ''}</span>`).join('') : '<span class="muted">כולם פנויים</span>'}</div></div></div>`; }).join('')}</div>`;
+}
+
+/* ---------- reels: short videos and photo posts, 72 hours ---------- */
+const REEL_TTL = 72 * H, REEL_MAX_SEC = 30, DAY_LIMIT = { video: 5, photos: 5 };
+const REACTS = [['laugh', '😂'], ['cry', '😢'], ['wow', '😮'], ['poop', '💩']];
+const MEDIA = new Map();
+let pendingUpload = null, replyTo = null, mentionTags = new Map(), reelsObs = null;
+const liveReels = () => S.reels.filter(r => r.ready && Date.now() - r.ts < REEL_TTL).sort((a, b) => b.ts - a.ts);
+const myToday = type => S.reels.filter(r => r.by === session() && r.type === type && sameDay(r.ts, Date.now())).length;
+const leftToday = type => manager ? Infinity : Math.max(0, DAY_LIMIT[type] - myToday(type));
+const MENTION_SEEN = 'dalpak-mention-seen';
+const mentionSeen = () => { try { return +localStorage.getItem(MENTION_SEEN) || 0; } catch (e) { return 0; } };
+function myMentions() {
+  const me = session(), live = new Set(liveReels().map(r => r.id)), out = [];
+  liveReels().forEach(r => { if (r.by !== me && (r.tags || []).includes(me)) out.push({ ts: r.ts, by: r.by, reel: r.id, text: r.caption || '', kind: 'reel' }); });
+  S.reelComments.forEach(c => { if (c.by !== me && live.has(c.reel) && (c.tags || []).includes(me)) out.push({ ts: c.ts, by: c.by, reel: c.reel, text: c.text, kind: 'comment' }); });
+  return out.sort((a, b) => b.ts - a.ts);
+}
+const newMentions = () => viewer ? [] : myMentions().filter(m => m.ts > mentionSeen());
+// @mentions: text keeps "@שם", tags keep the employee ids that were picked from the list.
+const withMentions = (text, tags) => {
+  let h = esc(text);
+  (tags || []).map(id => emp(id)).filter(e => e.id).sort((a, b) => b.name.length - a.name.length)
+    .forEach(e => { h = h.split('@' + esc(e.name)).join(`<b class="mention">@${esc(e.name)}</b>`); });
+  return h;
+};
+function reelCard(r) {
+  const a = emp(r.by), mine = (r.reactions || {})[session()], n = S.reelComments.filter(c => c.reel === r.id).length;
+  const left = Math.max(1, Math.ceil((r.ts + REEL_TTL - Date.now()) / H));
+  const counts = Object.fromEntries(REACTS.map(([k]) => [k, Object.values(r.reactions || {}).filter(v => v === k).length]));
+  return `<article class="reel" data-reel="${r.id}">
+    <div class="reel-media ${r.type}" data-action="reel-tap" data-id="${r.id}">
+      ${r.type === 'video' ? `<video class="rv" playsinline loop muted preload="none" ${r.poster ? `poster="${r.poster}"` : ''}></video><span class="rv-sound" aria-hidden="true">🔇</span>`
+      : `<div class="rp-track">${[...Array(r.parts || 1)].map((_, i) => `<div class="rp-slide">${i === 0 && r.poster ? `<img src="${r.poster}" alt="">` : ''}</div>`).join('')}</div>${(r.parts || 1) > 1 ? `<div class="rp-dots">${[...Array(r.parts)].map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}`}
+      <span class="reel-load">טוען…</span>
+    </div>
+    <div class="reel-side">
+      ${REACTS.map(([k, e]) => `<button class="rx ${mine === k ? 'on' : ''}" data-action="react" data-id="${r.id}" data-r="${k}" aria-label="תגובה ${e}"><span>${e}</span><small data-cnt="${k}">${counts[k] || ''}</small></button>`).join('')}
+      <button class="rx" data-action="reel-comments" data-id="${r.id}" aria-label="תגובות"><span>💬</span><small data-cnt="c">${n || ''}</small></button>
+      ${manager && !viewer ? `<button class="rx" data-action="reel-save" data-id="${r.id}" aria-label="שמירה למכשיר"><span>${ic('down', 'sm')}</span></button>` : ''}
+      ${!viewer && (manager || r.by === session()) ? `<button class="rx" data-action="reel-del" data-id="${r.id}" aria-label="מחיקה"><span>🗑</span></button>` : ''}
+    </div>
+    <div class="reel-info">
+      <div class="reel-who">${avatar(a, 'md')}<b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small></div>
+      ${r.caption ? `<p class="reel-cap">${withMentions(r.caption, r.tags)}</p>` : ''}
+    </div>
+  </article>`;
+}
+function vReels() {
+  const list = liveReels();
+  return `<div class="reels-head"><h2 class="vt">רילס</h2>${viewer ? '<span class="pill">צפייה בלבד</span>' : `<button class="btn primary sm" data-action="reel-new">${ic('plus', 'sm')}העלאה</button>`}</div>
+  <p class="lead">סרטונים ופוסטים של הצוות. כל פריט נמחק מהאפליקציה אחרי 72 שעות.</p>
+  <div class="reels">${list.map(reelCard).join('') || '<div class="list"><div class="row muted">עדיין אין רילס. היו הראשונים להעלות!</div></div>'}</div>`;
+}
+// Only the reels in view load their media, and only the one on screen plays.
+function watchReels() {
+  if (reelsObs) reelsObs.disconnect();
+  if (view !== 'reels') return;
+  reelsObs = new IntersectionObserver(es => es.forEach(en => {
+    const el = en.target, v = el.querySelector('video');
+    if (en.isIntersecting && en.intersectionRatio > 0.6) { showMedia(el); if (v && v.src) v.play().catch(() => { }); }
+    else if (v) v.pause();
+  }), { threshold: [0, 0.6, 1] });
+  document.querySelectorAll('.reel').forEach(el => reelsObs.observe(el));
+}
+async function getMedia(r) {
+  if (MEDIA.has(r.id)) return MEDIA.get(r.id);
+  const parts = await store.loadParts(r.id);
+  let m;
+  if (r.type === 'video') {
+    const bin = atob(parts.join('')), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const blob = new Blob([u8], { type: r.mime || 'video/mp4' }); m = { blob, url: URL.createObjectURL(blob) };
+  } else m = { imgs: parts };
+  MEDIA.set(r.id, m); return m;
+}
+async function showMedia(el) {
+  if (el.dataset.loaded) return; el.dataset.loaded = '1';
+  const r = byId(S.reels, el.dataset.reel); if (!r) return;
+  try {
+    const m = await getMedia(r);
+    if (m.url) { const v = el.querySelector('video'); v.src = m.url; v.play().catch(() => { }); }
+    else el.querySelectorAll('.rp-slide').forEach((s, i) => { if (m.imgs[i]) s.innerHTML = `<img src="${m.imgs[i]}" alt="">`; });
+    el.classList.add('ready');
+  } catch (e) { el.dataset.loaded = ''; el.querySelector('.reel-load').textContent = 'לא הצלחתי לטעון. בדקו את החיבור'; }
+}
+// Reactions and comment counts change often; update them in place so a playing video keeps playing.
+function patchReels() {
+  const ids = [...document.querySelectorAll('.reel')].map(e => e.dataset.reel).join(), want = liveReels().map(r => r.id).join();
+  if (ids !== want) { const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  liveReels().forEach(r => {
+    const el = document.querySelector(`.reel[data-reel="${r.id}"]`); if (!el) return;
+    const mine = (r.reactions || {})[session()];
+    REACTS.forEach(([k]) => { const b = el.querySelector(`[data-r="${k}"]`); if (!b) return; b.classList.toggle('on', mine === k); b.querySelector('small').textContent = Object.values(r.reactions || {}).filter(v => v === k).length || ''; });
+    const c = el.querySelector('[data-cnt="c"]'); if (c) c.textContent = S.reelComments.filter(x => x.reel === r.id).length || '';
+  });
+  renderNav();
+}
+function commentsHtml(r) {
+  const cs = S.reelComments.filter(c => c.reel === r.id).sort((a, b) => a.ts - b.ts), top = cs.filter(c => !c.parent);
+  const one = c => `<div class="cm ${c.parent ? 'sub' : ''}">${avatar(emp(c.by), 'md')}<div class="cm-b"><div><b>${esc(emp(c.by).name)}</b> <small class="muted">${ago(c.ts)}</small></div><div>${withMentions(c.text, c.tags)}</div>
+    <div class="cm-act">${viewer ? '' : `<button class="link-btn" data-action="reply-to" data-id="${c.parent || c.id}" data-by="${c.by}" data-name="${esc(emp(c.by).name)}">הגב</button>`}${!viewer && (manager || c.by === session()) ? `<button class="link-btn danger-t" data-action="cm-del" data-id="${c.id}">מחיקה</button>` : ''}</div></div></div>`;
+  return top.map(c => one(c) + cs.filter(x => x.parent === c.id).map(one).join('')).join('') || '<p class="muted">עדיין אין תגובות. מה דעתכם?</p>';
+}
+function openComments(id) {
+  const r = byId(S.reels, id); if (!r) return; replyTo = null; mentionTags = new Map();
+  sheet(`<h3>תגובות</h3><div class="cms" id="cms">${commentsHtml(r)}</div>
+    ${viewer ? '' : `<form class="form cm-form" data-form="comment" data-reel="${r.id}"><div id="cm-reply" class="cm-reply" hidden></div><div class="mention-wrap"><textarea id="cm-t" name="text" rows="2" maxlength="500" placeholder="כתבו תגובה… אפשר לתייג עם @" data-mention required></textarea><div class="mention-box" hidden></div></div><button class="btn primary block">שליחה</button></form>`}`);
+}
+function refreshComments() { const box = document.getElementById('cms'), f = document.querySelector('form[data-form=comment]'); if (box && f) box.innerHTML = commentsHtml(byId(S.reels, f.dataset.reel) || {}); }
+// Shrink a video on the phone: redraw it at mobile size and record it again at a low bitrate.
+async function compressVideo(file, onProg) {
+  const url = URL.createObjectURL(file), v = document.createElement('video');
+  v.src = url; v.playsInline = true; v.muted = true; v.preload = 'auto';
+  await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('bad')); });
+  const dur = Math.min(v.duration || 0, REEL_MAX_SEC), k = Math.min(1, 480 / Math.max(v.videoWidth || 480, v.videoHeight || 480));
+  const w = Math.round((v.videoWidth || 480) * k / 2) * 2, h = Math.round((v.videoHeight || 480) * k / 2) * 2;
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+  await new Promise(r => { v.onseeked = r; v.currentTime = Math.min(0.3, dur / 2); });
+  g.drawImage(v, 0, 0, w, h);
+  const pc = document.createElement('canvas'), pk = Math.min(1, 240 / Math.max(w, h)); pc.width = Math.round(w * pk); pc.height = Math.round(h * pk); pc.getContext('2d').drawImage(c, 0, 0, pc.width, pc.height);
+  const poster = pc.toDataURL('image/jpeg', 0.6);
+  // A short, already-small MP4 is kept as it is.
+  if (file.size < 2.2e6 && /mp4|quicktime/.test(file.type) && (v.duration || 99) <= REEL_MAX_SEC + 0.5) { URL.revokeObjectURL(url); onProg(1); return { blob: file, mime: file.type === 'video/quicktime' ? 'video/mp4' : file.type, poster, dur, orig: v.duration }; }
+  await new Promise(r => { v.onseeked = r; v.currentTime = 0; });
+  const stream = c.captureStream(24);
+  try { const ac = new (window.AudioContext || window.webkitAudioContext)(), src = ac.createMediaElementSource(v), dst = ac.createMediaStreamDestination(); src.connect(dst); dst.stream.getAudioTracks().forEach(t => stream.addTrack(t)); v.muted = false; } catch (e) { }
+  const mime = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  if (!mime) throw new Error('norec');
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 450000, audioBitsPerSecond: 48000 }), chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const done = new Promise(r => rec.onstop = r);
+  rec.start(500); await v.play();
+  await new Promise(r => { const draw = () => { g.drawImage(v, 0, 0, w, h); onProg(Math.min(1, v.currentTime / dur)); if (v.ended || v.currentTime >= dur) { v.pause(); r(); } else requestAnimationFrame(draw); }; draw(); });
+  rec.stop(); await done; URL.revokeObjectURL(url);
+  return { blob: new Blob(chunks, { type: mime.split(';')[0] }), mime: mime.split(';')[0], poster, dur, orig: v.duration };
+}
+const blobB64 = b => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(b); });
+const chunk = (s, n) => { const a = []; for (let i = 0; i < s.length; i += n) a.push(s.slice(i, i + n)); return a; };
+function uploadSheet(type) {
+  pendingUpload = null; mentionTags = new Map();
+  const left = leftToday(type);
+  sheet(`<h3>העלאה לרילס</h3>
+    <div class="seg-wrap" style="margin:10px 0">${[['video', '🎬 סרטון'], ['photos', '🖼 פוסט תמונות']].map(([k, l]) => `<button class="seg ${type === k ? 'on' : ''}" data-action="reel-type" data-t="${k}">${l}</button>`).join('')}</div>
+    <p class="muted" style="font-size:.85rem">${type === 'video' ? `עד ${REEL_MAX_SEC} שניות. הסרטון נדחס בטלפון לפני ההעלאה.` : 'עד 5 תמונות. התמונות נדחסות לפני ההעלאה.'} ${left === Infinity ? '' : `נשארו לך היום: ${left}`}</p>
+    ${left === 0 ? '<p class="banner info">הגעת למכסה היומית. אפשר להעלות שוב מחר.</p>' : `
+    <form class="form" data-form="reel" data-type="${type}">
+      <label class="btn block">${ic(type === 'video' ? 'camera' : 'plus', 'sm')}${type === 'video' ? 'בחירת סרטון' : 'בחירת תמונות'}<input id="up-f" type="file" accept="${type === 'video' ? 'video/*' : 'image/*'}" ${type === 'photos' ? 'multiple' : ''} hidden data-up="${type}"></label>
+      <div id="up-prev" class="up-prev"></div><div class="up-prog" hidden><i></i><span></span></div>
+      <div class="field mention-wrap"><label for="up-cap">כיתוב</label><textarea id="up-cap" name="caption" rows="2" maxlength="300" placeholder="מה רואים כאן? אפשר לתייג עם @" data-mention></textarea><div class="mention-box" hidden></div></div>
+      <button class="btn primary block" id="up-go" disabled>פרסום</button></form>`}`);
+}
+const setProg = (f, label) => { const p = document.querySelector('.up-prog'); if (!p) return; p.hidden = false; p.querySelector('i').style.width = Math.round(f * 100) + '%'; p.querySelector('span').textContent = label; };
+async function prepUpload(inp) {
+  const type = inp.dataset.up, files = [...inp.files]; if (!files.length) return;
+  const go = document.getElementById('up-go'), prev = document.getElementById('up-prev'); go.disabled = true; pendingUpload = null;
+  try {
+    if (type === 'video') {
+      setProg(0, 'מכין את הסרטון…');
+      const r = await compressVideo(files[0], f => setProg(f, `דוחס… ${Math.round(f * 100)}%`));
+      if (r.blob.size > 3.2e6) { setProg(1, 'הסרטון עדיין גדול מדי. נסו סרטון קצר יותר'); return; }
+      const b64 = await blobB64(r.blob);
+      pendingUpload = { type, parts: chunk(b64, 700000), meta: { type, mime: r.mime, poster: r.poster, size: r.blob.size, dur: Math.round(r.dur) } };
+      prev.innerHTML = `<video src="${URL.createObjectURL(r.blob)}" playsinline controls muted></video>`;
+      setProg(1, `מוכן · ${(r.blob.size / 1e6).toFixed(1)}MB · ${Math.round(r.dur)} שניות${(r.orig || 0) > REEL_MAX_SEC + 0.5 ? ' (קוצר ל-30 שניות)' : ''}`);
+    } else {
+      const pick = files.slice(0, 5); setProg(0, 'דוחס תמונות…'); const imgs = [];
+      for (let i = 0; i < pick.length; i++) { imgs.push(await shrinkImage(pick[i], 1080)); setProg((i + 1) / pick.length, `דוחס תמונות… ${i + 1}/${pick.length}`); }
+      const poster = await shrinkImage(pick[0], 240);
+      pendingUpload = { type, parts: imgs, meta: { type, poster, size: imgs.join('').length } };
+      prev.innerHTML = imgs.map(s => `<img src="${s}" alt="">`).join('');
+      setProg(1, `מוכן · ${imgs.length} תמונות${files.length > 5 ? ' (נלקחו 5 הראשונות)' : ''}`);
+    }
+    go.disabled = false;
+  } catch (e) { setProg(1, e.message === 'norec' ? 'המכשיר הזה לא יודע לדחוס סרטונים. נסו מטלפון אחר' : 'לא הצלחתי לקרוא את הקובץ. נסו קובץ אחר'); }
+}
+// @ autocomplete inside any textarea marked data-mention.
+function mentionInput(t) {
+  const box = t.parentElement.querySelector('.mention-box'); if (!box) return;
+  const m = t.value.slice(0, t.selectionStart).match(/@([^\s@]*)$/);
+  if (!m) { box.hidden = true; return; }
+  const q = m[1], list = S.employees.filter(e => e.name.includes(q)).slice(0, 6);
+  box.innerHTML = list.map(e => `<button type="button" data-action="mention-pick" data-id="${e.id}">${avatar(e)}${esc(e.name)}</button>`).join('');
+  box.hidden = !list.length;
+}
+const pickedTags = text => [...mentionTags].filter(([id, name]) => text.includes('@' + name)).map(([id]) => id);
+async function backupReels() {
+  const out = [], list = S.reels.filter(r => r.ready && !r.backedUp);
+  for (const r of list) {
+    try {
+      const m = await getMedia(r), a = emp(r.by), d = new Date(r.ts), stamp = dateKey(r.ts) + '_' + pad(d.getHours()) + pad(d.getMinutes());
+      const base = `shabbes-reel_${stamp}_${(a.name || 'עובד').replace(/\s+/g, '-')}_${r.id}`;
+      const dl = (href, name) => { const x = document.createElement('a'); x.href = href; x.download = name; document.body.appendChild(x); x.click(); x.remove(); };
+      if (m.url) dl(m.url, base + (/webm/.test(r.mime) ? '.webm' : '.mp4'));
+      else m.imgs.forEach((s, i) => dl(s, `${base}_${i + 1}.jpg`));
+      const cs = S.reelComments.filter(c => c.reel === r.id).sort((x, y) => x.ts - y.ts);
+      const txt = `${a.name} · ${d.toLocaleString('he-IL')}\n${r.caption || ''}\n\nתגובות אימוג׳י: ${REACTS.map(([k, e]) => e + ' ' + Object.values(r.reactions || {}).filter(v => v === k).length).join('  ')}\n\n` + cs.map(c => `${c.parent ? '   ↳ ' : ''}${emp(c.by).name} (${new Date(c.ts).toLocaleString('he-IL')}): ${c.text}`).join('\n');
+      dl(URL.createObjectURL(new Blob(['\ufeff' + txt], { type: 'text/plain;charset=utf-8' })), base + '.txt');
+      out.push(r.id); await new Promise(z => setTimeout(z, 700));
+    } catch (e) { }
+  }
+  return out;
+}
+window.shabbesBackup = async () => (store.isManager() ? { ids: await backupReels() } : { error: 'צריך להיות במצב מנהל' });
+window.shabbesBackupDone = ids => { (ids || []).forEach(id => { const r = byId(S.reels, id); if (r) r.backedUp = true; }); save(); return true; };
+// Managers' phones clear reels older than 72 hours once they were copied to the computer (or after 7 days).
+let reelsCleaned = false;
+async function cleanReels() {
+  if (reelsCleaned || !store.isManager() || viewer || !store.loaded('reels', 'reelComments')) return; reelsCleaned = true;
+  const now = Date.now();
+  for (const r of S.reels.filter(r => now - r.ts > REEL_TTL && (r.backedUp || now - r.ts > 7 * DAY))) await store.deleteReel(r);
 }
 
 /* ---------- display settings view ---------- */
@@ -626,11 +852,30 @@ async function pinKey(k) {
     }
   }
 }
-const needMgr = fn => store.isManager() ? fn() : store.isPermAdmin?.() ? store.enterManager().then(ok => { render(); if (ok) fn(); }) : openPin(fn);
+const needMgr = fn => store.isManager() || viewer ? fn() : store.isPermAdmin?.() ? store.enterManager().then(ok => { render(); if (ok) fn(); }) : openPin(fn);
 
 /* ---------- actions ---------- */
 const byId = (arr, id) => arr.find(x => x.id === id);
 const ACT = {
+  'reel-new': () => uploadSheet('video'),
+  'reel-type': d => uploadSheet(d.t),
+  react: d => { const r = byId(S.reels, d.id); if (!r) return; r.reactions = { ...(r.reactions || {}) }; if (r.reactions[session()] === d.r) delete r.reactions[session()]; else r.reactions[session()] = d.r; save(); patchReels(); },
+  'reel-comments': d => openComments(d.id),
+  'reel-open': d => { go('reels'); setTimeout(() => { document.querySelector(`.reel[data-reel="${d.id}"]`)?.scrollIntoView({ block: 'center' }); openComments(d.id); }, 150); },
+  'reel-tap': (d, el) => { const v = el.querySelector('video'); if (!v || !v.src) return; if (v.muted) { v.muted = false; v.play().catch(() => { }); el.querySelector('.rv-sound').textContent = '🔊'; } else if (v.paused) v.play().catch(() => { }); else v.pause(); },
+  'reply-to': d => { replyTo = d.id; const b = document.getElementById('cm-reply'); b.hidden = false; b.innerHTML = `משיב/ה ל${esc(d.name)} <button type="button" class="link-btn" data-action="reply-clear">ביטול</button>`; const t = document.getElementById('cm-t'); if (d.by && d.by !== session()) { mentionTags.set(d.by, d.name); if (!t.value.includes('@' + d.name)) t.value = `@${d.name} ` + t.value; } t.focus(); },
+  'reply-clear': () => { replyTo = null; const b = document.getElementById('cm-reply'); if (b) b.hidden = true; },
+  'mention-pick': (d, el) => {
+    const box = el.closest('.mention-box'), t = box.parentElement.querySelector('textarea'), e = emp(d.id), pos = t.selectionStart;
+    const before = t.value.slice(0, pos).replace(/@([^\s@]*)$/, '@' + e.name + ' '); t.value = before + t.value.slice(pos);
+    mentionTags.set(e.id, e.name); box.hidden = true; t.focus(); t.selectionStart = t.selectionEnd = before.length;
+  },
+  'cm-del': d => { S.reelComments = S.reelComments.filter(c => c.id !== d.id && !(manager && c.parent === d.id)); save(); refreshComments(); patchReels(); },
+  'reel-del': d => sheet(`<h3>למחוק את הפוסט?</h3><p class="muted" style="margin-bottom:16px">הפוסט והתגובות שלו יימחקו מהאפליקציה לכולם.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="reel-del-yes" data-id="${d.id}">מחיקה</button></div>`),
+  'reel-del-yes': async d => { const r = byId(S.reels, d.id); closeSheet(); if (r) { await store.deleteReel(r); MEDIA.delete(r.id); } render(); toast('הפוסט נמחק'); },
+  'reel-save': async d => { const r = byId(S.reels, d.id); if (!r) return; toast('מכין את הקובץ…'); const ids = await (async () => { const was = r.backedUp; r.backedUp = false; const all = S.reels; S.reels = [r]; try { return await backupReels(); } finally { S.reels = all; r.backedUp = was; } })(); toast(ids.length ? 'הקבצים ירדו למכשיר' : 'ההורדה נכשלה'); },
+  'viewer-set': () => needMgr(() => sheet(`<h3>משתמש בקרה</h3><form class="form" data-form="viewer" style="margin-top:12px"><div class="two"><div class="field"><label for="vw-p">טלפון</label><input id="vw-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.phone : '0000000000')}" required></div><div class="field"><label for="vw-n">מספר עובד</label><input id="vw-n" name="num" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.num : '1234')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
+  'viewer-off': () => needMgr(async () => { const r = await store.setViewer(null); render(); toast(r.error || 'משתמש הבקרה כובה'); }),
   nav: d => go(d.view === 'login' ? 'clock' : d.view),
   back: d => { if (history.state && history.state.d > 0) history.back(); else go(d.view === 'login' ? 'clock' : d.view, true); },
   'item-bulk': () => needMgr(() => sheet(`<h3>הוספת פריטים מרשימה</h3><form class="form" data-form="bulk" style="margin-top:12px">
@@ -703,7 +948,7 @@ const ACT = {
     <div class="field"><label for="rq-e">תאריך יציאה</label><input id="rq-e" name="endDate" type="date" max="${dateKey(Date.now())}" value="${dateKey(Date.now())}" required><small>אם המשמרת נגמרה אחרי חצות, בוחרים כאן את היום שאחרי.</small></div>
     <div class="field"><label for="rq-n">הסבר קצר</label><textarea id="rq-n" name="note" placeholder="למשל: הטלפון נגמר לי בסוללה"></textarea></div>
     <button class="btn primary block">שליחה לאישור</button></form>`),
-  'inv-tab': d => { if (d.tab === 'snacks' && !store.isManager()) { openPin(() => { invTab = d.tab; render(); }); return; } invTab = d.tab; render(); },
+  'inv-tab': d => { if (d.tab === 'snacks' && !store.isManager() && !viewer) { openPin(() => { invTab = d.tab; render(); }); return; } invTab = d.tab; render(); },
   'inv-update': d => {
     const i = byId(S.inventory, d.id); const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending');
     const n = note(i.id);
@@ -762,9 +1007,28 @@ const ACT = {
   'ds-reset': () => { DS = { ...DS_DEFAULT }; saveDS(); applyDisplay(); render(); toast('ההגדרות הוחזרו לברירת המחדל'); }
 };
 const FORMS = {
+  reel: async (f, el) => {
+    if (!pendingUpload) return toast('בחרו קובץ קודם'); if (leftToday(pendingUpload.type) <= 0) return toast('הגעת למכסה היומית');
+    const caption = (f.caption || '').trim(), up = pendingUpload; busy = true; document.getElementById('up-go').disabled = true;
+    const r = await store.uploadReel({ ...up.meta, caption, tags: pickedTags(caption), reactions: {} }, up.parts, p => setProg(p, `מעלה… ${Math.round(p * 100)}%`));
+    busy = false; if (r.error) { document.getElementById('up-go').disabled = false; return toast(r.error); }
+    pendingUpload = null; closeSheet(); go('reels'); window.scrollTo(0, 0); toast('פורסם! יימחק מהאפליקציה בעוד 72 שעות');
+  },
+  comment: (f, el) => {
+    const text = (f.text || '').trim(); if (!text) return;
+    S.reelComments.push({ id: uid(), reel: el.dataset.reel, by: session(), text, ts: Date.now(), parent: replyTo || null, tags: pickedTags(text) });
+    save(); replyTo = null; mentionTags = new Map(); el.reset(); const b = document.getElementById('cm-reply'); if (b) b.hidden = true; refreshComments(); patchReels();
+    const box = document.getElementById('cms'); if (box) box.scrollTop = box.scrollHeight;
+  },
+  viewer: async f => {
+    const p = normPhone(f.phone), n = String(f.num).trim();
+    if (!/^\d{10}$/.test(p) || !/^\d{1,6}$/.test(n)) return toast('טלפון בן 10 ספרות ומספר עובד עד 6 ספרות');
+    if (S.employees.some(e => normPhone(e.phone) === p)) return toast('מספר הטלפון כבר שייך לעובד');
+    const r = await store.setViewer(p, n); if (r.error) return toast(r.error); closeSheet(); render(); toast('משתמש הבקרה פעיל');
+  },
   login: async f => {
     const p = normPhone(f.phone), n = String(f.num).trim();
-    if (!/^05\d{8}$/.test(p)) return toast('הזינו מספר נייד בן 10 ספרות');
+    if (!/^05\d{8}$/.test(p) && p !== '0000000000' && !(S.viewerLogin && S.viewerLogin.phone === p)) return toast('הזינו מספר נייד בן 10 ספרות');
     if (!n) return toast('הזינו מספר עובד');
     busy = true; render();
     const r = await store.login(p, n);
@@ -880,11 +1144,15 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (a) { e.preventDefault(); a(b.dataset, b); } });
-document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
+const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-tap', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); a(b.dataset, b); });
+document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
+document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
 document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); if (e.target.closest('[data-calc]')) drawCalc(); });
-document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); });
+document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
+document.addEventListener('change', e => { if (e.target.matches('input[data-up]')) prepUpload(e.target); });
+document.addEventListener('scroll', e => { const t = e.target; if (!t.classList || !t.classList.contains('rp-track')) return; const i = Math.round(Math.abs(t.scrollLeft) / t.clientWidth); t.parentElement.querySelectorAll('.rp-dots i').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
 new MutationObserver(() => { if (document.getElementById('pr-calc') && !document.getElementById('pr-calc').innerHTML) drawCalc(); }).observe(document.getElementById('layer') || document.body, { childList: true, subtree: true });
 // Item photos are shrunk on the phone before saving, so the shared database stays small and fast.
 function shrinkImage(file, max = 360) {
