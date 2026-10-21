@@ -90,6 +90,10 @@ const onShiftNow = () => (local() ? S.shifts : (S.openShifts || [])).filter(s =>
 const hasOwner = () => S.employees.some(e => e.owner);
 const canSetFlags = () => !!(store.isOwner?.() || !hasOwner());
 const VAT = 0.18;
+// Deliveries and bonuses are added on top of the hourly pay.
+const EXTRA = { delivery: 'משלוח', bonus: 'בונוס' };
+const extrasOf = (id, a, b) => (S.extras || []).filter(x => x.empId === id && x.status === 'approved' && x.ts >= a && x.ts <= b);
+const exSum = (l, k) => sum(l.filter(x => !k || x.kind === k).map(x => +x.amount || 0));
 const withVat = p => p.vatIncl ? +p.price : +p.price * (1 + VAT);
 const sellPrice = p => withVat(p) * 1.5;
 const myTasks = () => S.tasks.filter(t => t.empId === session());
@@ -123,7 +127,8 @@ function alerts() {
   const reqs = S.shifts.filter(s => s.status === 'pending');
   const drinks = S.drinkUpdates.filter(u => u.status === 'pending');
   const pins = S.notifications.filter(n => n.kind === 'pin' && !n.seen);
-  return { long, reqs, drinks, pins, count: manager ? long.length + reqs.length + drinks.length + pins.length : 0 };
+  const ext = (S.extras || []).filter(x => x.status === 'pending');
+  return { long, reqs, drinks, pins, ext, count: manager ? long.length + reqs.length + drinks.length + pins.length + ext.length : 0 };
 }
 
 /* ---------- shell ---------- */
@@ -215,7 +220,9 @@ function vClock() {
   const mH = sum(S.shifts.filter(s => counted(s) && monthKey(s.start) === monthKey(now)).map(dur));
   const ws = weekStart(now);
   const mine = S.shifts.filter(s => s.empId === me.id && s.start >= ws).sort((a, b) => b.start - a.start);
-  const C = 2 * Math.PI * 46;
+  const C = 2 * Math.PI * 46, ms0 = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1).getTime();
+  const xT = exSum(extrasOf(me.id, sod(now), now + DAY)), xM = exSum(extrasOf(me.id, ms0, now + DAY));
+  const myEx = (S.extras || []).filter(x => x.empId === me.id && x.ts >= ms0).sort((a, b) => b.ts - a.ts);
   return `
   <section class="hero">
     <div class="today">${fmtLong(now)}</div>
@@ -234,12 +241,15 @@ function vClock() {
   ${open && now - open.start > 12 * H ? `<div class="banner bad">${ic('alert')}<span>המשמרת פתוחה יותר מ-12 שעות. נשלחה התראה למנהל המערכת.</span></div>` : ''}
   <div class="stats">
     <div class="stat"><span>שעות היום</span><b class="num">${fmtH(tH)}</b></div>
-    ${DS.showPay ? `<div class="stat"><span>שכר היום</span><b class="num">${money(tH * me.wage)}</b></div>` : `<div class="stat"><span>משמרות השבוע</span><b class="num">${mine.filter(s => s.status !== 'rejected').length}</b></div>`}
+    ${DS.showPay ? `<div class="stat"><span>שכר היום</span><b class="num">${money(tH * me.wage + xT)}</b>${xT ? `<small>כולל ${money(xT)} משלוחים ובונוסים</small>` : ''}</div>` : `<div class="stat"><span>משמרות השבוע</span><b class="num">${mine.filter(s => s.status !== 'rejected').length}</b></div>`}
     <div class="stat"><span>שעות החודש</span><b class="num">${fmtH(mH)}</b></div>
-    ${DS.showPay ? `<div class="stat"><span>שכר החודש</span><b class="num">${money(mH * me.wage)}</b><small>לפי ${money(me.wage)} לשעה</small></div>` : `<div class="stat"><span>שכר</span><b class="num">•••</b><small>מוסתר בהגדרות התצוגה</small></div>`}
+    ${DS.showPay ? `<div class="stat"><span>שכר החודש</span><b class="num">${money(mH * me.wage + xM)}</b><small>${xM ? `כולל ${money(xM)} משלוחים ובונוסים` : `לפי ${money(me.wage)} לשעה`}</small></div>` : `<div class="stat"><span>שכר</span><b class="num">•••</b><small>מוסתר בהגדרות התצוגה</small></div>`}
   </div>
   <div class="link-row"><button class="link-btn" data-action="req-hours">${ic('plus', 'sm')}שכחתי להחתים שעון – בקשת אישור שעות</button>
-  <button class="link-btn" data-action="nav" data-view="avail">${ic('cal', 'sm')}ימים שאני לא יכול לעבוד</button></div>
+  <button class="link-btn" data-action="nav" data-view="avail">${ic('cal', 'sm')}ימים שאני לא יכול לעבוד</button>
+  <button class="link-btn" data-action="extra-new">${ic('truck', 'sm')}עשיתי משלוח</button></div>
+  ${myEx.length ? `<h3 class="sec">משלוחים ובונוסים החודש</h3><div class="list">${myEx.map(x => `<div class="row"><div class="row-main"><div class="row-title">${EXTRA[x.kind] || 'משלוח'} · ${fmtD(x.ts)} ${fmtT(x.ts)}</div>${x.note ? `<div class="row-sub">${esc(x.note)}</div>` : ''}</div>
+    ${x.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : x.status === 'rejected' ? '<span class="pill bad">נדחה</span>' : DS.showPay ? `<b class="num">${money(+x.amount || 0)}</b>` : '<span class="pill ok">אושר</span>'}</div>`).join('')}</div>` : ''}
   <h3 class="sec">המשמרות שלי השבוע</h3>
   <div class="list">${mine.length ? mine.map(s => `
     <div class="row"><div class="row-main"><div class="row-title">${fmtD(s.start)}</div>
@@ -311,7 +321,12 @@ function vAlerts() {
   if (fresh2.size) setTimeout(() => { try { localStorage.setItem(ACT_SEEN, JSON.stringify(AC.map(a => a.key).slice(-500))); } catch (e) { } renderNav(); }, 1500);
   const AV = AC.length ? `<h3 class="sec">תגובות לפוסטים שלך</h3><div class="list">${AC.sort((a, b) => (fresh2.has(b.key) - fresh2.has(a.key)) || (b.ts - a.ts)).slice(0, 15).map(a => `<div class="row tap" data-action="reel-open" data-id="${a.reel}">${avatar(emp(a.by), 'md')}<div class="row-main"><div class="row-title">${esc(emp(a.by).name)} ${a.emoji ? `הגיב/ה ${a.emoji} לפוסט שלך` : 'הגיב/ה לפוסט שלך'} ${fresh2.has(a.key) ? '<span class="pill acc">חדש</span>' : ''}</div>${a.text ? `<div class="row-sub">${esc(a.text.slice(0, 80))} · ${ago(a.ts)}</div>` : ''}</div>${ic('chev', 'sm chev')}</div>`).join('')}</div>` : '';
   if (!manager) return `<h2 class="vt">התראות</h2>` + AV + MN + (TK || (MN || AV ? '' : '<div class="list"><div class="row muted">אין כרגע משימות או התראות בשבילך.</div></div>'));
-  const { long, reqs, drinks, pins, count } = alerts();
+  const { long, reqs, drinks, pins, ext, count } = alerts();
+  const EX = ext.sort((a, b) => a.ts - b.ts).map(x => `<div class="card edge-acc"><div class="card-head"><span class="pill acc">${ic('truck', 'sm')}${x.kind === 'bonus' ? 'בקשת בונוס' : 'משלוח לאישור'}</span><time>${ago(x.ts)}</time></div>
+      <p><b>${esc(emp(x.empId).name)}</b> סימן/ה ${x.kind === 'bonus' ? 'בונוס' : 'משלוח'} ב-${fmtD(x.ts)} בשעה ${fmtT(x.ts)}.</p>${x.note ? `<p class="muted">״${esc(x.note)}״</p>` : ''}
+      <form class="form" data-form="extra-ok" data-id="${x.id}"><div class="seg-wrap">${Object.entries(EXTRA).map(([k, l]) => `<label class="seg ${(x.kind || 'delivery') === k ? 'on' : ''}"><input type="radio" name="kind" value="${k}" ${(x.kind || 'delivery') === k ? 'checked' : ''} hidden data-segpick>${l}</label>`).join('')}</div>
+      <div class="field"><label for="xa-${x.id}">סכום (₪)</label><input id="xa-${x.id}" name="amount" type="number" min="0" step="0.5" inputmode="decimal" required></div>
+      <div class="actions"><button type="button" class="btn danger" data-action="extra-reject" data-id="${x.id}">דחייה</button><button class="btn primary">אישור והוספה לשכר</button></div></form></div>`).join('');
   const sums = S.notifications.filter(n => n.type === 'summary').sort((a, b) => b.key.localeCompare(a.key));
   const info = S.notifications.filter(n => (n.type === 'info' && n.kind !== 'pin') || n.type === 'note').sort((a, b) => b.ts - a.ts).slice(0, 12);
   const L = long.map(s => `<div class="card edge-bad"><div class="card-head"><span class="pill bad">משמרת לא נסגרה</span><time>${ago(s.start + 12 * H)}</time></div>
@@ -331,14 +346,14 @@ function vAlerts() {
   }).join('');
   const SUM = sums.map(n => `<div class="card"><div class="card-head"><span class="pill pend">סיכום שעות חודשי</span><time>${fmtD(n.ts)}</time></div>
       <div><div class="muted">${monthName(n.key)} · שעות מאושרות בלבד</div>
-      <div class="summary-total"><b>${money(n.total)}</b><span class="muted num">סה״כ לתשלום · ${fmtH(n.hours)} שעות</span></div></div>
-      <details><summary>פירוט לפי עובד</summary><div class="tbl-wrap"><table><thead><tr><th>מס׳</th><th>עובד</th><th>משמרות</th><th>שעות</th><th>לשעה</th><th class="l">לתשלום</th></tr></thead><tbody>
-      ${n.rows.map(r => `<tr><td>${esc(r.num || '')}</td><td>${esc(r.name)}</td><td>${r.count}</td><td>${fmtH(r.hours)}</td><td>${money(r.wage)}</td><td class="l">${money(r.pay)}</td></tr>`).join('')}
-      <tr class="tot"><td></td><td>סה״כ</td><td>${sum(n.rows.map(r => r.count))}</td><td>${fmtH(n.hours)}</td><td></td><td class="l">${money(n.total)}</td></tr></tbody></table></div></details></div>`).join('');
+      <div class="summary-total"><b>${money(n.total)}</b><span class="muted num">סה״כ לתשלום · ${fmtH(n.hours)} שעות${n.deliv ? ` · משלוחים ${money(n.deliv)}` : ''}${n.bonus ? ` · בונוסים ${money(n.bonus)}` : ''}</span></div></div>
+      <details><summary>פירוט לפי עובד</summary><div class="tbl-wrap"><table><thead><tr><th>מס׳</th><th>עובד</th><th>משמרות</th><th>שעות</th><th>שכר שעות</th><th>משלוחים</th><th>בונוסים</th><th class="l">לתשלום</th></tr></thead><tbody>
+      ${n.rows.map(r => `<tr><td>${esc(r.num || '')}</td><td>${esc(r.name)}</td><td>${r.count}</td><td>${fmtH(r.hours)}</td><td>${money(r.pay)}</td><td>${money(r.deliv || 0)}</td><td>${money(r.bonus || 0)}</td><td class="l">${money(r.total ?? r.pay)}</td></tr>`).join('')}
+      <tr class="tot"><td></td><td>סה״כ</td><td>${sum(n.rows.map(r => r.count))}</td><td>${fmtH(n.hours)}</td><td>${money(sum(n.rows.map(r => r.pay)))}</td><td>${money(n.deliv || 0)}</td><td>${money(n.bonus || 0)}</td><td class="l">${money(n.total)}</td></tr></tbody></table></div></details></div>`).join('');
   return `<h2 class="vt">התראות</h2>
   ${AV}${MN}${TK}
   <h3 class="sec">דורש טיפול · ${count}</h3>
-  ${count ? PF + L + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
+  ${count ? PF + L + EX + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
   <h3 class="sec">סיכומי שכר · נוצרים אוטומטית מה-1 לחודש</h3>
   ${SUM || '<div class="list"><div class="row muted">עדיין לא הופק סיכום חודשי.</div></div>'}
   ${info.length ? `<h3 class="sec">עדכונים</h3><div class="list">${info.map(n => `<div class="row"><div class="row-main"><div>${n.type === 'note' ? `<span class="pill acc">${ic('note', 'sm')}הערה על פריט</span> ` : ''}${esc(n.text)}</div><div class="row-sub">${ago(n.ts)}</div></div>${n.type === 'note' && n.itemId && byId(S.inventory, n.itemId) ? `<button class="btn sm" data-action="inv-update" data-id="${n.itemId}">לפריט</button>` : ''}</div>`).join('')}</div>` : ''}`;
@@ -358,17 +373,18 @@ function vHours() {
   if (!manager) return back() + `<h2 class="vt">שעות עובדים ושכר</h2>` + locked('שעות ושכר של כל העובדים');
   const now = Date.now(), ws = weekStart(now), mk = monthKey(now);
   const inRange = s => (s.status === 'approved' || s.status === 'open') && (hoursRange === 'week' ? s.start >= ws : monthKey(s.start) === mk);
-  const rows = S.employees.map(e => { const sh = S.shifts.filter(s => s.empId === e.id && inRange(s)).sort((a, b) => a.start - b.start); const h = sum(sh.map(dur)); return { e, sh, h, pay: h * e.wage, open: openShift(e.id) }; });
+  const exIn = x => x.status === 'approved' && (hoursRange === 'week' ? x.ts >= ws : monthKey(x.ts) === mk);
+  const rows = S.employees.map(e => { const sh = S.shifts.filter(s => s.empId === e.id && inRange(s)).sort((a, b) => a.start - b.start); const h = sum(sh.map(dur)); const ex = (S.extras || []).filter(x => x.empId === e.id && exIn(x)); const dl = exSum(ex, 'delivery'), bn = exSum(ex, 'bonus'); return { e, sh, h, dl, bn, pay: h * e.wage + dl + bn, open: openShift(e.id) }; });
   const days = [...Array(7)].map((_, i) => ws + i * DAY);
   return back() + `<h2 class="vt">שעות עובדים ושכר</h2>
   <div class="seg-wrap"><button class="seg ${hoursRange === 'week' ? 'on' : ''}" data-action="range" data-r="week">השבוע</button><button class="seg ${hoursRange === 'month' ? 'on' : ''}" data-action="range" data-r="month">${monthName(mk)}</button></div>
   <div class="stats"><div class="stat"><span>סה״כ שעות</span><b class="num">${fmtH(sum(rows.map(r => r.h)))}</b></div><div class="stat"><span>סה״כ שכר</span><b class="num">${money(sum(rows.map(r => r.pay)))}</b></div></div>
   <div class="list">${rows.map(r => `<div class="row"><div class="row-main"><div class="row-title">${esc(r.e.name)} <span class="muted num">#${esc(r.e.num)}</span> ${r.open ? '<span class="pill ok">במשמרת</span>' : ''}</div>
-    <div class="row-sub num">${r.sh.length} משמרות · ${fmtH(r.h)} ש׳ · ${money(r.e.wage)} לשעה</div>
+    <div class="row-sub num">${r.sh.length} משמרות · ${fmtH(r.h)} ש׳ · ${money(r.e.wage)} לשעה${r.dl ? ` · משלוחים ${money(r.dl)}` : ''}${r.bn ? ` · בונוסים ${money(r.bn)}` : ''}</div>
     ${hoursRange === 'week' ? `<div class="row-sub num">${days.map(d => { const x = sum(r.sh.filter(s => sameDay(s.start, d)).map(dur)); return `<span class="pill ${x ? 'acc' : ''}">${new Date(d).toLocaleDateString('he-IL', { weekday: 'narrow' })} ${x ? fmtH(x) : '–'}</span>`; }).join('')}</div>` : ''}</div>
     <div class="num" style="font-weight:700">${money(r.pay)}</div></div>`).join('')}</div>
   <p class="lead">כולל משמרות פתוחות עד לרגע זה. בקשות שעדיין ממתינות לאישור לא נספרות.</p>
-  <button class="btn primary" data-action="report-new">${ic('chart', 'sm')}דוח שכר מפורט</button>`;
+  <div class="actions"><button class="btn primary" data-action="report-new">${ic('chart', 'sm')}דוח שכר מפורט</button><button class="btn" data-action="extra-add">${ic('plus', 'sm')}הוספת משלוח או בונוס</button></div>`;
 }
 
 function vTasks() {
@@ -521,8 +537,9 @@ function reportData() {
   const { from, to, emp: who } = repCfg, a = new Date(from + 'T00:00').getTime(), b = new Date(to + 'T23:59:59').getTime();
   return S.employees.filter(e => !who || e.id === who).map(e => {
     const sh = S.shifts.filter(s => s.empId === e.id && (s.status === 'approved' || s.status === 'open') && s.start >= a && s.start <= b).sort((x, y) => x.start - y.start);
-    const h = sum(sh.map(dur)); return { e, sh, h, pay: h * e.wage };
-  }).filter(r => r.sh.length);
+    const h = sum(sh.map(dur)), ex = extrasOf(e.id, a, b).sort((x, y) => x.ts - y.ts), dl = exSum(ex, 'delivery'), bn = exSum(ex, 'bonus');
+    return { e, sh, h, ex, dl, bn, hp: h * e.wage, pay: h * e.wage + dl + bn };
+  }).filter(r => r.sh.length || r.ex.length);
 }
 function vReport() {
   if (!repCfg) { view = 'hours'; return vHours(); }
@@ -534,10 +551,12 @@ function vReport() {
   ${rows.map(r => `<div class="card rep"><div class="card-head"><b>${esc(r.e.name)} <span class="muted num">#${esc(r.e.num)}</span></b><span class="num">${fmtH(r.h)} ש׳ · <b>${money(r.pay)}</b></span></div>
     <div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th class="l">שכר</th></tr></thead><tbody>
     ${r.sh.map(s => `<tr><td>${fmtD(s.start)}</td><td>${fmtT(s.start)}</td><td>${s.end ? fmtT(s.end) + (sameDay(s.start, s.end) ? '' : ' (+1)') : 'פתוחה'}</td><td>${fmtH(dur(s))}</td><td class="l">${money(dur(s) * r.e.wage)}</td></tr>`).join('')}
-    <tr class="tot"><td>${r.sh.length} משמרות</td><td></td><td></td><td>${fmtH(r.h)}</td><td class="l">${money(r.pay)}</td></tr></tbody></table></div>
+    <tr class="tot"><td>${r.sh.length} משמרות</td><td></td><td></td><td>${fmtH(r.h)}</td><td class="l">${money(r.hp)}</td></tr></tbody></table></div>
+    ${r.ex.length ? `<div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>קטגוריה</th><th>הערה</th><th class="l">סכום</th></tr></thead><tbody>${r.ex.map(x => `<tr><td>${fmtD(x.ts)}</td><td>${EXTRA[x.kind] || ''}</td><td>${esc(x.note || '')}</td><td class="l">${money(+x.amount || 0)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    <div class="rep-sum num"><span>שעות ${money(r.hp)}</span><span>משלוחים ${money(r.dl)}</span><span>בונוסים ${money(r.bn)}</span><b>סה״כ ${money(r.pay)}</b></div>
     <div class="muted num" style="font-size:.8rem;margin-top:6px">${money(r.e.wage)} לשעה</div></div>`).join('') || '<div class="list"><div class="row muted">אין משמרות בטווח הזה.</div></div>'}`;
 }
-const reportText = () => { const rows = reportData(); return `דוח שכר · שאבעס מרקט · ${new Date(repCfg.from).toLocaleDateString('he-IL')} – ${new Date(repCfg.to).toLocaleDateString('he-IL')}\n\n` + rows.map(r => `${r.e.name} (#${r.e.num}) · ${fmtH(r.h)} שעות · ${money(r.pay)}\n` + r.sh.map(s => `  ${new Date(s.start).toLocaleDateString('he-IL')} ${fmtT(s.start)}–${s.end ? fmtT(s.end) : 'פתוחה'} · ${fmtH(dur(s))} ש׳ · ${money(dur(s) * r.e.wage)}`).join('\n')).join('\n\n') + `\n\nסה״כ: ${fmtH(sum(rows.map(r => r.h)))} שעות · ${money(sum(rows.map(r => r.pay)))}`; };
+const reportText = () => { const rows = reportData(); return `דוח שכר · שאבעס מרקט · ${new Date(repCfg.from).toLocaleDateString('he-IL')} – ${new Date(repCfg.to).toLocaleDateString('he-IL')}\n\n` + rows.map(r => `${r.e.name} (#${r.e.num}) · ${fmtH(r.h)} שעות · שעות ${money(r.hp)} · משלוחים ${money(r.dl)} · בונוסים ${money(r.bn)} · סה״כ ${money(r.pay)}\n` + r.sh.map(s => `  ${new Date(s.start).toLocaleDateString('he-IL')} ${fmtT(s.start)}–${s.end ? fmtT(s.end) : 'פתוחה'} · ${fmtH(dur(s))} ש׳ · ${money(dur(s) * r.e.wage)}`).join('\n') + r.ex.map(x => `\n  ${new Date(x.ts).toLocaleDateString('he-IL')} ${EXTRA[x.kind] || ''}${x.note ? ' (' + x.note + ')' : ''} · ${money(+x.amount || 0)}`).join('')).join('\n\n') + `\n\nסה״כ: ${fmtH(sum(rows.map(r => r.h)))} שעות · ${money(sum(rows.map(r => r.pay)))}`; };
 
 /* ---------- days an employee cannot work ---------- */
 function vAvail() {
@@ -613,11 +632,11 @@ function reelCard(r) {
       ${REACTS.map(([k, e]) => `<button class="rx ${mine === k ? 'on' : ''}" data-action="react" data-id="${r.id}" data-r="${k}" aria-label="תגובה ${e}"><span>${e}</span><small data-cnt="${k}">${counts[k] || ''}</small></button>`).join('')}
       <button class="rx" data-action="reel-comments" data-id="${r.id}" aria-label="תגובות"><span>💬</span><small data-cnt="c">${n || ''}</small></button>
       ${manager && !viewer ? `<button class="rx" data-action="reel-save" data-id="${r.id}" aria-label="שמירה למכשיר"><span>${ic('down', 'sm')}</span></button>` : ''}
-      ${!viewer && (manager || r.by === session()) ? `<button class="rx" data-action="reel-del" data-id="${r.id}" aria-label="מחיקה"><span>🗑</span></button>` : ''}
+      ${!viewer && r.by === session() ? `<button class="rx" data-action="reel-del" data-id="${r.id}" aria-label="מחיקה"><span>🗑</span></button>` : ''}
     </div>
     <div class="reel-info">
-      <div class="reel-who">${avatar(a, 'md')}<b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small>${!viewer && (manager || r.by === session()) ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
-      <button class="reel-views" data-action="reel-viewers" data-id="${r.id}" aria-label="צפיות">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></button>
+      <div class="reel-who">${avatar(a, 'md')}<b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small>${!viewer && r.by === session() ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
+      ${r.by === session() ? `<button class="reel-views" data-action="reel-viewers" data-id="${r.id}" aria-label="מי צפה">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></button>` : `<span class="reel-views" aria-label="צפיות">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></span>`}
       ${r.caption ? `<p class="reel-cap">${withMentions(r.caption, r.tags)}</p>` : ''}
     </div>
   </article>`;
@@ -884,10 +903,17 @@ const needMgr = fn => store.isManager() || viewer ? fn() : store.isPermAdmin?.()
 const byId = (arr, id) => arr.find(x => x.id === id);
 const ACT = {
   'reel-new': () => uploadSheet('video'),
+  'extra-new': () => sheet(`<h3>${ic('truck', 'sm')} עשיתי משלוח</h3><p class="muted" style="margin-bottom:12px">המנהל יאשר ויקבע את הסכום, והוא יתווסף לשכר שלך.</p><form class="form" data-form="extra"><div class="field"><label for="ex-n">לאן / פרטים (לא חובה)</label><input id="ex-n" name="note" placeholder="למשל: הזמנה לרחוב הרצל 12"></div><button class="btn primary block">שליחה לאישור</button></form>`),
+  'extra-add': () => needMgr(() => sheet(`<h3>הוספת משלוח או בונוס</h3><form class="form" data-form="extra-direct" style="margin-top:12px">
+    <div class="field"><label for="xd-e">עובד</label><select id="xd-e" name="emp">${S.employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
+    <div class="seg-wrap">${Object.entries(EXTRA).map(([k, l], i) => `<label class="seg ${i ? '' : 'on'}"><input type="radio" name="kind" value="${k}" ${i ? '' : 'checked'} hidden data-segpick>${l}</label>`).join('')}</div>
+    <div class="two"><div class="field"><label for="xd-a">סכום (₪)</label><input id="xd-a" name="amount" type="number" min="0" step="0.5" inputmode="decimal" required></div><div class="field"><label for="xd-d">תאריך</label><input id="xd-d" name="date" type="date" value="${dateKey(Date.now())}" required></div></div>
+    <div class="field"><label for="xd-n">הערה</label><input id="xd-n" name="note" placeholder="לא חובה"></div><button class="btn primary block">הוספה לשכר</button></form>`)),
+  'extra-reject': d => needMgr(() => { const x = byId(S.extras, d.id); if (!x) return; x.status = 'rejected'; x.by = session(); save(); render(); toast('נדחה'); }),
   'reel-type': d => uploadSheet(d.t),
   react: d => { const r = byId(S.reels, d.id); if (!r) return; r.reactions = { ...(r.reactions || {}) }; if (r.reactions[session()] === d.r) delete r.reactions[session()]; else r.reactions[session()] = d.r; save(); patchReels(); },
   'reel-comments': d => openComments(d.id),
-  'reel-viewers': d => { const r = byId(S.reels, d.id); if (!r) return; const list = Object.entries(r.views || {}).filter(([id]) => id !== r.by).sort((a, b) => b[1] - a[1]);
+  'reel-viewers': d => { const r = byId(S.reels, d.id); if (!r || r.by !== session()) return; const list = Object.entries(r.views || {}).filter(([id]) => id !== r.by).sort((a, b) => b[1] - a[1]);
     sheet(`<h3>${ic('eye', 'sm')} צפו בפוסט · ${list.length}</h3><div class="list" style="margin-top:10px">${list.map(([id, ts]) => `<div class="row">${avatar(emp(id), 'md')}<div class="row-main"><div class="row-title">${esc(emp(id).name)}</div><div class="row-sub">${ago(ts)}${(r.reactions || {})[id] ? ' · ' + ((REACTS.find(x => x[0] === r.reactions[id]) || [])[1] || '') : ''}</div></div></div>`).join('') || '<div class="row muted">עדיין אף אחד לא צפה.</div>'}</div>`); },
   'reel-open': d => { go('reels'); setTimeout(() => { document.querySelector(`.reel[data-reel="${d.id}"]`)?.scrollIntoView({ block: 'center' }); openComments(d.id); }, 150); },
   'reel-tap': (d, el) => { const v = el.querySelector('video'); if (!v || !v.src) return; if (v.muted) { v.muted = false; v.play().catch(() => { }); el.querySelector('.rv-sound').textContent = '🔊'; } else if (v.paused) v.play().catch(() => { }); else v.pause(); },
@@ -919,7 +945,9 @@ const ACT = {
     <button class="btn primary block">הפקת הדוח</button></form>`); }),
   'report-copy': () => copyText(reportText()),
   'report-csv': () => { const rows = [['עובד', 'מס׳ עובד', 'תאריך', 'כניסה', 'יציאה', 'שעות', 'שכר לשעה', 'שכר']];
-    reportData().forEach(r => { r.sh.forEach(s => rows.push([r.e.name, r.e.num, new Date(s.start).toLocaleDateString('he-IL'), fmtT(s.start), s.end ? fmtT(s.end) : 'פתוחה', (dur(s)).toFixed(2), r.e.wage, (dur(s) * r.e.wage).toFixed(2)])); rows.push([r.e.name, r.e.num, 'סה״כ', '', '', r.h.toFixed(2), '', r.pay.toFixed(2)]); rows.push([]); });
+    reportData().forEach(r => { r.sh.forEach(s => rows.push([r.e.name, r.e.num, new Date(s.start).toLocaleDateString('he-IL'), fmtT(s.start), s.end ? fmtT(s.end) : 'פתוחה', (dur(s)).toFixed(2), r.e.wage, (dur(s) * r.e.wage).toFixed(2)]));
+      r.ex.forEach(x => rows.push([r.e.name, r.e.num, new Date(x.ts).toLocaleDateString('he-IL'), EXTRA[x.kind] || '', x.note || '', '', '', (+x.amount || 0).toFixed(2)]));
+      rows.push([r.e.name, r.e.num, 'סה״כ שעות', '', '', r.h.toFixed(2), '', r.hp.toFixed(2)]); rows.push([r.e.name, r.e.num, 'סה״כ משלוחים', '', '', '', '', r.dl.toFixed(2)]); rows.push([r.e.name, r.e.num, 'סה״כ בונוסים', '', '', '', '', r.bn.toFixed(2)]); rows.push([r.e.name, r.e.num, 'סה״כ לתשלום', '', '', '', '', r.pay.toFixed(2)]); rows.push([]); });
     downloadCsv(`דוח-שכר-${repCfg.from}-עד-${repCfg.to}`, rows); },
   'sup-open': d => { supId = d.id; go('supplier'); },
   'sup-new': () => needMgr(() => sheet(`<h3>ספק חדש</h3>${supForm({})}`)),
@@ -1035,6 +1063,13 @@ const ACT = {
   'ds-reset': () => { DS = { ...DS_DEFAULT }; saveDS(); applyDisplay(); render(); toast('ההגדרות הוחזרו לברירת המחדל'); }
 };
 const FORMS = {
+  extra: f => { S.extras.push({ id: uid(), empId: session(), ts: Date.now(), kind: 'delivery', note: (f.note || '').trim(), status: 'pending' }); save(); closeSheet(); render(); toast('נשלח למנהל לאישור'); },
+  'extra-ok': (f, el) => { if (!manager) return openPin(); const x = byId(S.extras, el.dataset.id), a = parseFloat(f.amount); if (!x || !(a >= 0)) return toast('צריך סכום תקין');
+    Object.assign(x, { status: 'approved', amount: Math.round(a * 100) / 100, kind: f.kind === 'bonus' ? 'bonus' : 'delivery', by: session(), at: Date.now() }); save(); render(); toast(`אושר ${EXTRA[x.kind]} של ${money(x.amount)}`); },
+  'extra-direct': f => { if (!manager) return openPin(); const a = parseFloat(f.amount); if (!(a >= 0)) return toast('צריך סכום תקין');
+    const ts = sameDay(new Date(f.date + 'T12:00').getTime(), Date.now()) ? Date.now() : new Date(f.date + 'T12:00').getTime();
+    S.extras.push({ id: uid(), empId: f.emp, ts, kind: f.kind === 'bonus' ? 'bonus' : 'delivery', note: (f.note || '').trim(), status: 'approved', amount: Math.round(a * 100) / 100, by: session(), at: Date.now() });
+    save(); closeSheet(); render(); toast('נוסף לשכר'); },
   reel: async (f, el) => {
     if (!pendingUpload) return toast('בחרו קובץ קודם'); if (leftToday(pendingUpload.type) <= 0) return toast('הגעת למכסה היומית');
     const caption = (f.caption || '').trim(), up = pendingUpload; busy = true; document.getElementById('up-go').disabled = true;
@@ -1178,6 +1213,7 @@ document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn,
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
 document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); if (e.target.closest('[data-calc]')) drawCalc(); });
+document.addEventListener('change', e => { if (e.target.matches('[data-segpick]')) e.target.closest('.seg-wrap').querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked)); });
 document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
 document.addEventListener('change', e => { if (e.target.matches('input[data-up]')) prepUpload(e.target); });
 document.addEventListener('scroll', e => { const t = e.target; if (!t.classList || !t.classList.contains('rp-track')) return; const i = Math.round(Math.abs(t.scrollLeft) / t.clientWidth); t.parentElement.querySelectorAll('.rp-dots i').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
