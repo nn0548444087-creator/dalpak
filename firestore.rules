@@ -9,6 +9,7 @@ service cloud.firestore {
     function mgrDoc() { return /databases/$(database)/documents/managerSessions/$(request.auth.uid); }
     function loginDoc(phone) { return /databases/$(database)/documents/logins/$(phone); }
     function adminDoc() { return /databases/$(database)/documents/config/admin; }
+    function ownerDoc() { return /databases/$(database)/documents/config/owner; }
     function signedIn() { return request.auth != null; }
     function sess() { return get(sessDoc()).data; }
     function isEmp() {
@@ -23,6 +24,17 @@ service cloud.firestore {
       return isEmp() && (
         get(loginDoc(sess().phone)).data.get('admin', false) == true
         || (exists(mgrDoc()) && get(mgrDoc()).data.pin == get(adminDoc()).data.pin));
+    }
+    function isOwner() { return isEmp() && get(loginDoc(sess().phone)).data.get('owner', false) == true; }
+    // Only the owner hands out permanent-manager rights. Before an owner exists, any manager may.
+    function canSetFlags() { return isOwner() || !exists(ownerDoc()); }
+    function flagsSame() {
+      return request.resource.data.get('admin', false) == resource.data.get('admin', false)
+        && request.resource.data.get('owner', false) == resource.data.get('owner', false);
+    }
+    function ownerFlagOk() {
+      return request.resource.data.get('owner', false) == false
+        || (existsAfter(ownerDoc()) && getAfter(ownerDoc()).data.empId == request.resource.data.empId);
     }
     // True only inside the one-time setup batch, before any manager PIN exists.
     function bootstrapping() { return signedIn() && !exists(adminDoc()) && existsAfter(adminDoc()); }
@@ -41,10 +53,19 @@ service cloud.firestore {
         && request.resource.data.pin is string && request.resource.data.pin.matches('^[0-9]{4,6}$');
     }
 
+    match /config/owner {
+      allow read: if isEmp();
+      allow create: if isMgr() && request.resource.data.empId == myEmpId();
+      allow update, delete: if isOwner();
+    }
+
     match /logins/{phone} {
       allow get: if isMgr() || (signedIn() && exists(sessDoc()) && sess().phone == phone);
       allow list: if isMgr();
-      allow write: if isMgr() || bootstrapping();
+      allow create: if bootstrapping() || (isMgr() && ownerFlagOk()
+        && (canSetFlags() || request.resource.data.get('admin', false) == false));
+      allow update: if isMgr() && ownerFlagOk() && (canSetFlags() || flagsSame());
+      allow delete: if isMgr() && (canSetFlags() || (resource.data.get('admin', false) == false && resource.data.get('owner', false) == false));
     }
     match /sessions/{uid} {
       allow read, delete: if signedIn() && request.auth.uid == uid;
@@ -66,7 +87,8 @@ service cloud.firestore {
     }
 
     match /shifts/{id} {
-      allow read: if isMgr() || (isEmp() && resource.data.empId == myEmpId());
+      // Everyone can see who is on shift right now; past shifts stay private.
+      allow read: if isMgr() || (isEmp() && (resource.data.empId == myEmpId() || resource.data.status == 'open'));
       allow create: if isMgr() || (isEmp() && request.resource.data.empId == myEmpId() && (
           (request.resource.data.status == 'open' && request.resource.data.end == null
             && math.abs(request.resource.data.start - nowMs()) < 300000)
@@ -82,7 +104,7 @@ service cloud.firestore {
     }
 
     match /inventory/{id} {
-      allow read: if isMgr() || (isEmp() && resource.data.cat == 'drinks');
+      allow read: if isMgr() || (isEmp() && resource.data.cat in ['drinks', 'salads']);
       allow write: if isMgr();
     }
 
@@ -110,13 +132,34 @@ service cloud.firestore {
     // Item notes are for managers only. Item photos: managers add them, employees see drink photos.
     match /itemNotes/{id} { allow read, write: if isMgr(); }
     match /itemImages/{id} {
-      allow read: if isMgr() || (isEmp() && resource.data.cat == 'drinks');
-      allow create, update: if isMgr() && request.resource.data.data is string
-        && request.resource.data.data.size() < 400000;
+      allow read: if isMgr() || (isEmp() && resource.data.cat in ['drinks', 'salads']);
+      allow create, update: if isMgr() && request.resource.data.get('data', '').size() < 400000
+        && request.resource.data.get('url', '').size() < 2000;
       allow delete: if isMgr();
     }
 
-    match /tasks/{id} { allow read, write: if isMgr(); }
+    match /empPhotos/{id} {
+      allow read: if isEmp();
+      allow write: if (isMgr() || (isEmp() && id == myEmpId()))
+        && (request.resource == null || (request.resource.data.data is string && request.resource.data.data.size() < 200000));
+    }
+
+    // Tasks: an employee sees their own and may only mark them seen or done.
+    match /tasks/{id} {
+      allow read: if isMgr() || (isEmp() && resource.data.empId == myEmpId());
+      allow create, delete: if isMgr();
+      allow update: if isMgr() || (isEmp() && resource.data.empId == myEmpId() && onlyChanges(['done', 'seen', 'doneAt']));
+    }
+
+    // Days an employee cannot work.
+    match /unavail/{id} {
+      allow read: if isMgr() || (isEmp() && resource.data.empId == myEmpId());
+      allow create: if isMgr() || (isEmp() && request.resource.data.empId == myEmpId());
+      allow update, delete: if isMgr() || (isEmp() && resource.data.empId == myEmpId());
+    }
+
+    match /suppliers/{id} { allow read, write: if isMgr(); }
+    match /orders/{id} { allow read, write: if isMgr(); }
     match /grades/{id} { allow read, write: if isMgr(); }
   }
 }
