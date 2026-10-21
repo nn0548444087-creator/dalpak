@@ -333,3 +333,8 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 .rep-sum{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.85rem;margin-top:8px;color:var(--muted)}
 .rep-sum b{color:var(--ink);margin-inline-start:auto}
 .extra-box{display:flex;flex-direction:column;gap:8px;margin:-6px 0 14px}
+.hbell{position:relative;flex:none;display:grid;place-items:center;width:2.4rem;height:2.4rem;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.hbell.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.hbell .badge{top:-5px;left:-5px}
+/* small phones: header chips show icons only so the store name keeps its room */
+@media (max-width:430px){.top-actions .chip .cl{display:none}.top-actions .chip{padding:5px 7px}.top-actions{gap:6px}}
