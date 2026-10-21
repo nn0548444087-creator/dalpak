@@ -101,12 +101,13 @@ service cloud.firestore {
         && getAfter(adminDoc()).data.pin == request.resource.data.pin;
     }
 
-    // The owner's employee record carries no phone, number or rights; other managers may change only its name and wage.
+    // The owner's employee record carries no phone or number and shows only as a permanent manager;
+    // other managers may change only its name and wage.
     match /employees/{id} {
       allow read: if isEmp();
       allow create: if isMgr() || bootstrapping();
       allow update: if isMgr() && (!isOwnerEmp(id) || isOwner()
-        || !request.resource.data.keys().hasAny(['phone', 'num', 'admin', 'owner']));
+        || (!request.resource.data.keys().hasAny(['phone', 'num', 'owner']) && request.resource.data.get('admin', false) == true));
       allow delete: if isMgr() && (!isOwnerEmp(id) || isOwner());
     }
 
