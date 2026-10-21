@@ -9,10 +9,13 @@ import {
 } from 'firebase/firestore';
 import { uid as newId, normPhone } from './util.js';
 
-const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages'];
+const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos'];
 // Collections kept in S as plain objects keyed by document id.
-const MAPS = { itemNotes: 'notes', itemImages: 'images' };
-const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications'];
+const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos' };
+const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail'];
+// Shown to everyone, never written from this list (each phone writes only its own shifts).
+const READONLY = { openShifts: 'openShifts' };
+const PUBLIC_CATS = ['drinks', 'salads'];
 
 const stable = v => {
   if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
@@ -33,9 +36,9 @@ export function createCloudStore(config) {
   const auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
   const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
-  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, currentUser: null };
+  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
-  let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, setupDone = true, pinLen = 4;
+  let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, owner = false, setupDone = true, pinLen = 4;
   const changeCbs = [], errorCbs = [];
   const emit = () => changeCbs.forEach(f => f());
   const fail = e => { console.error(e); errorCbs.forEach(f => f(errText(e))); };
@@ -46,10 +49,11 @@ export function createCloudStore(config) {
     if (ARRAYS.includes(col)) S[col].forEach(x => { const { id, ...rest } = x; m.set(id, clean(rest)); });
     else if (col === 'grades') Object.entries(S.grades).forEach(([k, v]) => m.set(k, { v }));
     else if (MAPS[col]) Object.entries(S[MAPS[col]]).forEach(([k, v]) => m.set(k, clean(v)));
-    else if (col === 'logins') S.employees.forEach(e => { if (e.phone) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), ...(e.admin ? { admin: true } : {}) }); });
+    else if (col === 'logins') S.employees.forEach(e => { if (e.phone) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), ...(e.admin || e.owner ? { admin: true } : {}), ...(e.owner ? { owner: true } : {}) }); });
     return m;
   }
   function apply(col, snap) {
+    if (READONLY[col]) { S[READONLY[col]] = snap.docs.map(d => ({ id: d.id, ...d.data() })); loadedCols.add(col); return; }
     const m = new Map();
     snap.docs.forEach(d => m.set(d.id, stable(d.data())));
     synced[col] = m;
@@ -61,7 +65,7 @@ export function createCloudStore(config) {
 
   function resetState() {
     unsubs.forEach(u => u()); unsubs = [];
-    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {};
+    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.openShifts = [];
     synced = {}; loadedCols = new Set();
     COLS.forEach(c => synced[c] = new Map());
   }
@@ -70,13 +74,17 @@ export function createCloudStore(config) {
     if (!empId) { emit(); return; }
     const c = n => collection(db, n);
     const specs = mgr
-      ? COLS.map(n => [n, c(n)])
+      ? [...COLS.map(n => [n, c(n)]), ['openShifts', query(c('shifts'), where('status', '==', 'open'))]]
       : [['employees', c('employees')],
         ['shifts', query(c('shifts'), where('empId', '==', empId))],
-        ['inventory', query(c('inventory'), where('cat', '==', 'drinks'))],
+        ['openShifts', query(c('shifts'), where('status', '==', 'open'))],
+        ['inventory', query(c('inventory'), where('cat', 'in', PUBLIC_CATS))],
         ['drinkUpdates', c('drinkUpdates')],
         ['deliveries', c('deliveries')],
-        ['itemImages', query(c('itemImages'), where('cat', '==', 'drinks'))]];
+        ['tasks', query(c('tasks'), where('empId', '==', empId))],
+        ['unavail', query(c('unavail'), where('empId', '==', empId))],
+        ['empPhotos', c('empPhotos')],
+        ['itemImages', query(c('itemImages'), where('cat', 'in', PUBLIC_CATS))]];
     specs.forEach(([name, q]) => {
       unsubs.push(onSnapshot(q, snap => { apply(name, snap); emit(); }, e => fail(e)));
     });
@@ -86,7 +94,7 @@ export function createCloudStore(config) {
   // ---- writes ----
   function save() {
     const sets = [], dels = [];
-    const cols = mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages'].includes(c));
+    const cols = mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory'].includes(c));
     for (const col of cols) {
       const want = desired(col), have = synced[col] || new Map();
       for (const [id, data] of want) { const s = stable(data); if (have.get(id) !== s) { sets.push([col, id, data]); have.set(id, s); } }
@@ -125,7 +133,8 @@ export function createCloudStore(config) {
       const l = await getDoc(doc(db, 'logins', phone));
       if (!l.exists() || String(l.data().num) !== String(num)) { await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { }); return false; }
       empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId;
-      permAdmin = l.data().admin === true;
+      owner = l.data().owner === true;
+      permAdmin = l.data().admin === true || owner;
       return true;
     } catch (e) { return false; }
   }
@@ -149,6 +158,7 @@ export function createCloudStore(config) {
     session: () => empId,
     isManager: () => mgr,
     isPermAdmin: () => permAdmin,
+    isOwner: () => owner,
     loaded: (...names) => names.every(n => loadedCols.has(n)),
     pinLength: () => pinLen,
     onChange: cb => changeCbs.push(cb),
@@ -191,11 +201,23 @@ export function createCloudStore(config) {
         await deleteDoc(doc(db, 'managerSessions', u.uid)).catch(() => { });
         await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
       }
-      empId = null; mgr = false; permAdmin = false; S.currentUser = null;
+      empId = null; mgr = false; permAdmin = false; owner = false; S.currentUser = null;
       await signOut(auth).catch(() => { });
       emit();
     },
 
+    // The first manager to claim it becomes the store owner: a permanent manager nobody else can remove.
+    async claimOwner() {
+      try {
+        const me = S.employees.find(e => e.id === empId); if (!me) return { error: 'העובד לא נמצא' };
+        const b = writeBatch(db);
+        b.set(doc(db, 'config', 'owner'), { empId });
+        b.set(doc(db, 'employees', empId), { ...clean((({ id, ...r }) => r)(me)), admin: true, owner: true });
+        b.set(doc(db, 'logins', myPhone), { empId, num: myNum, admin: true, owner: true });
+        await withTimeout(b.commit());
+        owner = true; permAdmin = true; mgr = true; subscribe(); return { ok: true };
+      } catch (e) { return { error: errText(e) }; }
+    },
     async enterManager(pin) {
       if (permAdmin) { mgr = true; subscribe(); return true; }
       try {
