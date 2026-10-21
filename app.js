@@ -236,6 +236,9 @@ function vClock() {
     </button>
     <div class="since">${open ? `נכנסת ב-${fmtT(open.start)}${sameDay(open.start, now) ? '' : ' · ' + fmtD(open.start)}` : `עובד מס׳ ${esc(me.num)}`}</div>
   </section>
+  <div class="extra-box"><button class="btn block" data-action="extra-new">${ic('truck', 'sm')}עשיתי משלוח</button>
+  ${myEx.length ? `<div class="list">${myEx.map(x => `<div class="row"><div class="row-main"><div class="row-title">${EXTRA[x.kind] || 'משלוח'} · ${fmtD(x.ts)} ${fmtT(x.ts)}</div>${x.note ? `<div class="row-sub">${esc(x.note)}</div>` : ''}</div>
+    ${x.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : x.status === 'rejected' ? '<span class="pill bad">נדחה</span>' : DS.showPay ? `<b class="num">${money(+x.amount || 0)}</b>` : '<span class="pill ok">אושר</span>'}</div>`).join('')}</div>` : ''}</div>
   ${(() => { const crew = onShiftNow().map(s => ({ e: emp(s.empId), s, me: s.empId === me.id })).filter(x => x.e.id).sort((x, y) => y.me - x.me);
     return crew.length ? `<div class="crew"><span class="crew-l">${open ? (crew.length > 1 ? 'במשמרת איתך עכשיו' : 'במשמרת עכשיו') : 'במשמרת עכשיו'}</span><div class="crew-row">${crew.map(x => `<span class="crew-p ${x.me ? 'me' : ''}" title="${esc(x.e.name)} · מ-${fmtT(x.s.start)}">${avatar(x.e, 'md')}<small>${x.me ? 'אני' : esc(first(x.e.name))}</small></span>`).join('')}</div></div>` : ''; })()}
   ${open && now - open.start > 12 * H ? `<div class="banner bad">${ic('alert')}<span>המשמרת פתוחה יותר מ-12 שעות. נשלחה התראה למנהל המערכת.</span></div>` : ''}
@@ -246,10 +249,7 @@ function vClock() {
     ${DS.showPay ? `<div class="stat"><span>שכר החודש</span><b class="num">${money(mH * me.wage + xM)}</b><small>${xM ? `כולל ${money(xM)} משלוחים ובונוסים` : `לפי ${money(me.wage)} לשעה`}</small></div>` : `<div class="stat"><span>שכר</span><b class="num">•••</b><small>מוסתר בהגדרות התצוגה</small></div>`}
   </div>
   <div class="link-row"><button class="link-btn" data-action="req-hours">${ic('plus', 'sm')}שכחתי להחתים שעון – בקשת אישור שעות</button>
-  <button class="link-btn" data-action="nav" data-view="avail">${ic('cal', 'sm')}ימים שאני לא יכול לעבוד</button>
-  <button class="link-btn" data-action="extra-new">${ic('truck', 'sm')}עשיתי משלוח</button></div>
-  ${myEx.length ? `<h3 class="sec">משלוחים ובונוסים החודש</h3><div class="list">${myEx.map(x => `<div class="row"><div class="row-main"><div class="row-title">${EXTRA[x.kind] || 'משלוח'} · ${fmtD(x.ts)} ${fmtT(x.ts)}</div>${x.note ? `<div class="row-sub">${esc(x.note)}</div>` : ''}</div>
-    ${x.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : x.status === 'rejected' ? '<span class="pill bad">נדחה</span>' : DS.showPay ? `<b class="num">${money(+x.amount || 0)}</b>` : '<span class="pill ok">אושר</span>'}</div>`).join('')}</div>` : ''}
+  <button class="link-btn" data-action="nav" data-view="avail">${ic('cal', 'sm')}ימים שאני לא יכול לעבוד</button></div>
   <h3 class="sec">המשמרות שלי השבוע</h3>
   <div class="list">${mine.length ? mine.map(s => `
     <div class="row"><div class="row-main"><div class="row-title">${fmtD(s.start)}</div>
