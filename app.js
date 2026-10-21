@@ -591,6 +591,14 @@ const withMentions = (text, tags) => {
     .forEach(e => { h = h.split('@' + esc(e.name)).join(`<b class="mention">@${esc(e.name)}</b>`); });
   return h;
 };
+const viewCount = r => Object.keys(r.views || {}).filter(id => id !== r.by).length;
+// A post counts as watched after it stayed on screen for 1.5 seconds. Your own posts don't count.
+const viewTimers = new Map();
+function markViewed(id) {
+  const r = byId(S.reels, id), me = session();
+  if (!r || viewer || r.by === me || (r.views || {})[me]) return;
+  r.views = { ...(r.views || {}), [me]: Date.now() }; save(); patchReels();
+}
 function reelCard(r) {
   const a = emp(r.by), mine = (r.reactions || {})[session()], n = S.reelComments.filter(c => c.reel === r.id).length;
   const left = Math.max(1, Math.ceil((r.ts + REEL_TTL - Date.now()) / H));
@@ -609,6 +617,7 @@ function reelCard(r) {
     </div>
     <div class="reel-info">
       <div class="reel-who">${avatar(a, 'md')}<b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small>${!viewer && (manager || r.by === session()) ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
+      <button class="reel-views" data-action="reel-viewers" data-id="${r.id}" aria-label="צפיות">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></button>
       ${r.caption ? `<p class="reel-cap">${withMentions(r.caption, r.tags)}</p>` : ''}
     </div>
   </article>`;
@@ -626,8 +635,8 @@ function watchReels() {
   if (view !== 'reels') return;
   reelsObs = new IntersectionObserver(es => es.forEach(en => {
     const el = en.target, v = el.querySelector('video');
-    if (en.isIntersecting && en.intersectionRatio > 0.6) { showMedia(el); if (v && v.src) v.play().catch(() => { }); }
-    else if (v) v.pause();
+    if (en.isIntersecting && en.intersectionRatio > 0.6) { showMedia(el); if (v && v.src) v.play().catch(() => { }); if (!viewTimers.has(el.dataset.reel)) viewTimers.set(el.dataset.reel, setTimeout(() => { viewTimers.delete(el.dataset.reel); if (el.isConnected) markViewed(el.dataset.reel); }, 1500)); }
+    else { if (v) v.pause(); clearTimeout(viewTimers.get(el.dataset.reel)); viewTimers.delete(el.dataset.reel); }
   }), { threshold: [0, 0.6, 1] });
   document.querySelectorAll('.reel').forEach(el => reelsObs.observe(el));
 }
@@ -661,6 +670,7 @@ function patchReels() {
     const mine = (r.reactions || {})[session()];
     REACTS.forEach(([k]) => { const b = el.querySelector(`[data-r="${k}"]`); if (!b) return; b.classList.toggle('on', mine === k); b.querySelector('small').textContent = Object.values(r.reactions || {}).filter(v => v === k).length || ''; });
     const c = el.querySelector('[data-cnt="c"]'); if (c) c.textContent = S.reelComments.filter(x => x.reel === r.id).length || '';
+    const vv = el.querySelector('[data-cnt="v"]'); if (vv) vv.textContent = viewCount(r);
   });
   renderNav();
 }
@@ -877,6 +887,8 @@ const ACT = {
   'reel-type': d => uploadSheet(d.t),
   react: d => { const r = byId(S.reels, d.id); if (!r) return; r.reactions = { ...(r.reactions || {}) }; if (r.reactions[session()] === d.r) delete r.reactions[session()]; else r.reactions[session()] = d.r; save(); patchReels(); },
   'reel-comments': d => openComments(d.id),
+  'reel-viewers': d => { const r = byId(S.reels, d.id); if (!r) return; const list = Object.entries(r.views || {}).filter(([id]) => id !== r.by).sort((a, b) => b[1] - a[1]);
+    sheet(`<h3>${ic('eye', 'sm')} צפו בפוסט · ${list.length}</h3><div class="list" style="margin-top:10px">${list.map(([id, ts]) => `<div class="row">${avatar(emp(id), 'md')}<div class="row-main"><div class="row-title">${esc(emp(id).name)}</div><div class="row-sub">${ago(ts)}${(r.reactions || {})[id] ? ' · ' + ((REACTS.find(x => x[0] === r.reactions[id]) || [])[1] || '') : ''}</div></div></div>`).join('') || '<div class="row muted">עדיין אף אחד לא צפה.</div>'}</div>`); },
   'reel-open': d => { go('reels'); setTimeout(() => { document.querySelector(`.reel[data-reel="${d.id}"]`)?.scrollIntoView({ block: 'center' }); openComments(d.id); }, 150); },
   'reel-tap': (d, el) => { const v = el.querySelector('video'); if (!v || !v.src) return; if (v.muted) { v.muted = false; v.play().catch(() => { }); el.querySelector('.rv-sound').textContent = '🔊'; } else if (v.paused) v.play().catch(() => { }); else v.pause(); },
   'reply-to': d => { replyTo = d.id; const b = document.getElementById('cm-reply'); b.hidden = false; b.innerHTML = `משיב/ה ל${esc(d.name)} <button type="button" class="link-btn" data-action="reply-clear">ביטול</button>`; const t = document.getElementById('cm-t'); if (d.by && d.by !== session()) { mentionTags.set(d.by, d.name); if (!t.value.includes('@' + d.name)) t.value = `@${d.name} ` + t.value; } t.focus(); },
@@ -1160,7 +1172,7 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-tap', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'reel-tap', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
