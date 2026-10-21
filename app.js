@@ -6,6 +6,7 @@ const ROOT = document.documentElement; ROOT.lang = 'he'; ROOT.dir = 'rtl';
 const LS_DISPLAY = 'dalpak-display';
 const SUBS = ['שתייה', 'שתייה אמריקאי', 'בירות', 'שתייה גדולה'];
 const CATS = { drinks: 'שתייה', snacks: 'חטיפים', salads: 'סלטים' };
+let supId = null, orderId = null, repCfg = null;
 let store, S, manager = false, view = 'clock', invTab = 'drinks', hoursRange = 'week', pinBuf = '', pinNext = null, pinBusy = false, pinFails = 0, toastT, booting = true, busy = false, monthChecked = false, renderPending = false;
 
 /* ---------- display settings (per device) ---------- */
@@ -54,6 +55,13 @@ new MutationObserver(() => {
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
 P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
 P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
+P.users = '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>';
+P.cart = '<path d="M3 4h2l2.2 10.5h10.6L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>';
+P.cal = '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>';
+P.copy = '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>';
+P.down = '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>';
+P.share = '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 10.8 15.7 7.2M8.3 13.2l7.4 3.6"/>';
+P.crown = '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/>';
 P.note = '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4M8 9h8M8 13h5"/>';
 const ic = (n, c = '') => `<svg class="ic ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
 
@@ -74,6 +82,30 @@ const openShift = id => S.shifts.find(s => s.empId === id && s.status === 'open'
 const ago = t => { const m = Math.round((Date.now() - t) / 6e4); if (m < 60) return `לפני ${Math.max(m, 0)} דק׳`; const h = Math.floor(m / 60); if (h < 24) return `לפני ${h} שע׳`; return fmtD(t); };
 const save = () => store.save();
 const local = () => store.mode === 'local';
+const ePhoto = id => (S.empPhotos && S.empPhotos[id] && S.empPhotos[id].data) || '';
+const avatar = (e, cls = '') => ePhoto(e.id) ? `<span class="av ${cls} ph"><img src="${ePhoto(e.id)}" alt=""></span>` : `<span class="av ${cls}">${esc((e.name || '?')[0])}</span>`;
+const onShiftNow = () => (local() ? S.shifts : (S.openShifts || [])).filter(s => s.status === 'open');
+const hasOwner = () => S.employees.some(e => e.owner);
+const canSetFlags = () => !!(store.isOwner?.() || !hasOwner());
+const VAT = 0.18;
+const withVat = p => p.vatIncl ? +p.price : +p.price * (1 + VAT);
+const sellPrice = p => withVat(p) * 1.5;
+const myTasks = () => S.tasks.filter(t => t.empId === session());
+const newTasks = () => myTasks().filter(t => !t.seen && !t.done);
+// Export helpers: copy, download as a spreadsheet file, share to WhatsApp.
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); toast('הועתק. אפשר להדביק בכל מקום'); return; } catch (e) { }
+  const a = document.createElement('textarea'); a.value = t; a.style.position = 'fixed'; a.style.opacity = '0'; document.body.appendChild(a); a.select();
+  try { document.execCommand('copy'); toast('הועתק. אפשר להדביק בכל מקום'); } catch (e) { toast('ההעתקה לא נתמכת במכשיר הזה'); } a.remove();
+}
+function downloadCsv(name, rows) {
+  const q = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const csv = '\ufeff' + rows.map(r => r.map(q).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name + '.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast('הקובץ ירד. נפתח באקסל או בגוגל שיטס');
+}
+const waLink = (phone, text) => `https://wa.me/${phone ? '972' + normPhone(phone).replace(/^0/, '') : ''}?text=${encodeURIComponent(text)}`;
 
 function checkMonthly() {
   if (monthChecked || !manager || !store.loaded('employees', 'shifts', 'notifications')) return;
@@ -93,12 +125,14 @@ function alerts() {
 }
 
 /* ---------- shell ---------- */
+const MORE_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
+const MGR_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
-  const n = alerts().count;
-  // Manager-only screens stay out of sight until manager mode is on.
-  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ...(store.isManager() ? [['alerts', 'התראות', 'bell']] : []), ['more', 'עוד', 'menu']];
-  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && ['hours', 'tasks', 'admin', 'staff', 'display'].includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
+  const n = alerts().count + newTasks().length;
+  // The bell is there for everyone: employees see their own tasks, managers also see approvals.
+  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['alerts', 'התראות', 'bell'], ['more', 'עוד', 'menu']];
+  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
 }
 function render() {
   renderPending = false;
@@ -117,10 +151,10 @@ function render() {
   hdr.innerHTML = brand + `
     <div class="top-actions">
       ${manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}נעל</button>` : `<button class="chip" data-action="pin">${ic('lock', 'sm')}מנהל</button>`}
-      <button class="chip" data-action="account"><span class="av">${esc((me.name || '?')[0])}</span>${esc(first(me.name))}</button>
+      <button class="chip" data-action="account">${avatar(me)}${esc(first(me.name))}</button>
     </div>`;
-  if (!manager) { if (['alerts', 'hours', 'tasks', 'admin', 'staff'].includes(view)) view = 'clock'; invTab = 'drinks'; }
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay };
+  if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks') invTab = 'drinks'; }
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, report: vReport, avail: vAvail };
   main.innerHTML = `<div class="view">${(V[view] || vClock)()}</div>`;
   renderNav(); tick();
 }
@@ -186,6 +220,8 @@ function vClock() {
     </button>
     <div class="since">${open ? `נכנסת ב-${fmtT(open.start)}${sameDay(open.start, now) ? '' : ' · ' + fmtD(open.start)}` : `עובד מס׳ ${esc(me.num)}`}</div>
   </section>
+  ${(() => { const crew = onShiftNow().filter(s => s.empId !== me.id).map(s => ({ e: emp(s.empId), s })).filter(x => x.e.id);
+    return crew.length ? `<div class="crew"><span class="crew-l">${open ? 'עובדים איתך עכשיו' : 'במשמרת עכשיו'}</span><div class="crew-row">${crew.map(x => `<span class="crew-p" title="${esc(x.e.name)} · מ-${fmtT(x.s.start)}">${avatar(x.e, 'md')}<small>${esc(first(x.e.name))}</small></span>`).join('')}</div></div>` : ''; })()}
   ${open && now - open.start > 12 * H ? `<div class="banner bad">${ic('alert')}<span>המשמרת פתוחה יותר מ-12 שעות. נשלחה התראה למנהל המערכת.</span></div>` : ''}
   <div class="stats">
     <div class="stat"><span>שעות היום</span><b class="num">${fmtH(tH)}</b></div>
@@ -193,7 +229,8 @@ function vClock() {
     <div class="stat"><span>שעות החודש</span><b class="num">${fmtH(mH)}</b></div>
     ${DS.showPay ? `<div class="stat"><span>שכר החודש</span><b class="num">${money(mH * me.wage)}</b><small>לפי ${money(me.wage)} לשעה</small></div>` : `<div class="stat"><span>שכר</span><b class="num">•••</b><small>מוסתר בהגדרות התצוגה</small></div>`}
   </div>
-  <button class="link-btn" data-action="req-hours">${ic('plus', 'sm')}שכחתי להחתים שעון – בקשת אישור שעות</button>
+  <div class="link-row"><button class="link-btn" data-action="req-hours">${ic('plus', 'sm')}שכחתי להחתים שעון – בקשת אישור שעות</button>
+  <button class="link-btn" data-action="nav" data-view="avail">${ic('cal', 'sm')}ימים שאני לא יכול לעבוד</button></div>
   <h3 class="sec">המשמרות שלי השבוע</h3>
   <div class="list">${mine.length ? mine.map(s => `
     <div class="row"><div class="row-main"><div class="row-title">${fmtD(s.start)}</div>
@@ -203,30 +240,31 @@ function vClock() {
       ${DS.showPay ? `<div class="num" style="font-weight:700">${s.status === 'rejected' ? '—' : money(dur(s) * me.wage)}</div>` : ''}</div>`).join('') : '<div class="row"><span class="muted">עוד לא נרשמו משמרות השבוע.</span></div>'}</div>`;
 }
 
-const img = id => (S.images && S.images[id] && S.images[id].data) || '';
+const img = id => (S.images && S.images[id] && (S.images[id].data || S.images[id].url)) || '';
+const isLow = i => i.min > 0 && i.qty <= i.min;
 const note = id => (S.notes && S.notes[id]) || null;
 function sortItems(a) { const s = [...a]; if (DS.invSort === 'qty') s.sort((x, y) => x.qty - y.qty); else if (DS.invSort === 'low') s.sort((x, y) => (x.qty - x.min) - (y.qty - y.min)); else s.sort((x, y) => x.name.localeCompare(y.name, 'he')); return s; }
 function vInv() {
-  const segs = Object.entries(CATS).filter(([k]) => manager || k === 'drinks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}${k !== 'drinks' && !manager ? ic('lock', 'sm') : ''}</button>`).join('');
+  const segs = Object.entries(CATS).filter(([k]) => manager || k !== 'snacks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}</button>`).join('');
+  const ro = !manager && invTab !== 'drinks';
   let body;
-  if (invTab !== 'drinks' && !manager) body = locked(`מלאי ${CATS[invTab]} נעול`, 'צפייה ועדכון של המחלקה הזו דורשים סיסמת מנהל.');
-  else {
+  {
     const items = S.inventory.filter(i => i.cat === invTab);
     const row = i => {
-      const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending'), low = i.qty <= i.min; return `
-      <div class="row tap" data-action="inv-update" data-id="${i.id}">${img(i.id) ? `<button class="thumb" data-action="img-view" data-id="${i.id}" aria-label="תמונה של ${esc(i.name)}"><img src="${img(i.id)}" alt=""></button>` : ''}<div class="row-main"><div class="row-title">${esc(i.name)}</div><div class="row-sub">
-        ${low && DS.lowHi ? '<span class="pill warn">מלאי נמוך</span>' : `<span>מינימום ${i.min}</span>`}
+      const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending'), low = isLow(i); return `
+      <div class="row ${ro && !img(i.id) ? '' : 'tap'}" data-action="${ro ? 'img-view' : 'inv-update'}" data-id="${i.id}">${img(i.id) ? `<button class="thumb" data-action="img-view" data-id="${i.id}" aria-label="תמונה של ${esc(i.name)}"><img src="${img(i.id)}" alt=""></button>` : ''}<div class="row-main"><div class="row-title">${esc(i.name)}</div><div class="row-sub">
+        ${low && DS.lowHi ? '<span class="pill warn">מלאי נמוך</span>' : i.min > 0 ? `<span>מינימום ${i.min}</span>` : ''}
         ${manager && note(i.id) ? `<span class="pill acc">${ic('note', 'sm')}הערה</span>` : ''}
         ${p ? `<span class="pill pend">ממתין לאישור: ${p.to}</span>` : ''}</div></div>
         <div class="qty ${low && DS.lowHi ? 'low' : ''}">${i.qty}<small>יח׳</small></div>
-        <button class="btn sm" data-action="inv-update" data-id="${i.id}">עדכון</button></div>`;
+        ${ro ? '' : `<button class="btn sm" data-action="inv-update" data-id="${i.id}">עדכון</button>`}</div>`;
     };
     body = `<div class="list">${invTab === 'drinks' ? SUBS.map(s => { const g = sortItems(items.filter(i => i.sub === s)); return `<div class="group-h">${s} · ${g.length} פריטים</div>` + g.map(row).join(''); }).join('') : sortItems(items).map(row).join('') || '<div class="row muted">אין פריטים עדיין.</div>'}</div>`;
   }
-  const low = S.inventory.filter(i => (manager || i.cat === 'drinks') && i.qty <= i.min).length;
+  const low = S.inventory.filter(i => (manager || i.cat === 'drinks') && isLow(i)).length;
   return `<h2 class="vt">מלאי</h2>
-  ${manager ? `<div class="seg-wrap">${segs}</div>` : ''}
-  ${invTab === 'drinks' ? `<p class="lead">${manager ? 'כמנהל, עדכון שלך נכנס לתוקף מיד.' : 'כל עובד יכול לעדכן כמות שתייה. העדכון נכנס לתוקף אחרי אישור מנהל.'}</p>` : ''}
+  <div class="seg-wrap">${segs}</div>
+  ${invTab === 'drinks' ? `<p class="lead">${manager ? 'כמנהל, עדכון שלך נכנס לתוקף מיד.' : 'כל עובד יכול לעדכן כמות שתייה. העדכון נכנס לתוקף אחרי אישור מנהל.'}</p>` : ro ? '<p class="lead">לצפייה בלבד. עדכון הכמויות במחלקה הזו נעשה על ידי מנהל.</p>' : ''}
   ${low && DS.lowHi ? `<div class="banner info">${ic('box')}<span>${low} פריטים מתחת לכמות המינימום.</span></div>` : ''}
   ${body}
   ${manager ? `<button class="btn" data-action="item-new" data-cat="${invTab}">${ic('plus', 'sm')}הוספת פריט חדש למלאי</button>` : ''}`;
@@ -252,7 +290,12 @@ function vDeliv() {
 }
 
 function vAlerts() {
-  if (!manager) return `<h2 class="vt">התראות</h2>` + locked('התראות מנהל', 'אישורי שעות, עדכוני מלאי וסיכומי שכר מוצגים כאן למנהל המערכת.');
+  const mine = myTasks().sort((a, b) => (a.done - b.done) || ((b.ts || 0) - (a.ts || 0)));
+  const fresh = new Set(newTasks().map(t => t.id));
+  if (fresh.size) setTimeout(() => { myTasks().forEach(t => { if (fresh.has(t.id)) t.seen = true; }); save(); renderNav(); }, 1500);
+  const TK = mine.length ? `<h3 class="sec">המשימות שלי · ${mine.filter(t => !t.done).length} פתוחות</h3><div class="list">${mine.map(t => `<div class="row ${t.done ? 'done' : ''}"><button class="check ${t.done ? 'on' : ''}" data-action="my-task" data-id="${t.id}" aria-label="סימון כבוצע">${t.done ? ic('check', 'sm') : ''}</button>
+    <div class="row-main"><div class="row-title">${esc(t.title)} ${fresh.has(t.id) ? '<span class="pill acc">חדש</span>' : ''}</div><div class="row-sub num">${fmtH(t.hours)} ש׳ משוערות${t.ts ? ' · ' + ago(t.ts) : ''}</div></div></div>`).join('')}</div>` : '';
+  if (!manager) return `<h2 class="vt">התראות</h2>` + (TK || '<div class="list"><div class="row muted">אין כרגע משימות או התראות בשבילך.</div></div>');
   const { long, reqs, drinks, pins, count } = alerts();
   const sums = S.notifications.filter(n => n.type === 'summary').sort((a, b) => b.key.localeCompare(a.key));
   const info = S.notifications.filter(n => (n.type === 'info' && n.kind !== 'pin') || n.type === 'note').sort((a, b) => b.ts - a.ts).slice(0, 12);
@@ -278,6 +321,7 @@ function vAlerts() {
       ${n.rows.map(r => `<tr><td>${esc(r.num || '')}</td><td>${esc(r.name)}</td><td>${r.count}</td><td>${fmtH(r.hours)}</td><td>${money(r.wage)}</td><td class="l">${money(r.pay)}</td></tr>`).join('')}
       <tr class="tot"><td></td><td>סה״כ</td><td>${sum(n.rows.map(r => r.count))}</td><td>${fmtH(n.hours)}</td><td></td><td class="l">${money(n.total)}</td></tr></tbody></table></div></details></div>`).join('');
   return `<h2 class="vt">התראות</h2>
+  ${TK}
   <h3 class="sec">דורש טיפול · ${count}</h3>
   ${count ? PF + L + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
   <h3 class="sec">סיכומי שכר · נוצרים אוטומטית מה-1 לחודש</h3>
@@ -288,8 +332,8 @@ function vAlerts() {
 function vMore() {
   const it = (v, i, l, lockd) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${lockd && !manager ? ic('lock', 'sm') : ''}${ic('chev', 'sm chev')}</button>`;
   return `<h2 class="vt">תפריט</h2>
-  ${manager ? `<div class="list">${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
-  <div class="list">${it('display', 'eye', 'הגדרות תצוגה', 0)}
+  ${manager ? `<div class="list">${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
+  <div class="list">${it('avail', 'cal', manager ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד', 0)}${it('display', 'eye', 'הגדרות תצוגה', 0)}
   ${manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
   <p class="lead">${local() ? 'גרסת דמו: הנתונים נשמרים בטלפון הזה בלבד.' : 'הנתונים נשמרים בענן ומשותפים לכל הטלפונים של העובדים.'}</p>`;
@@ -308,7 +352,8 @@ function vHours() {
     <div class="row-sub num">${r.sh.length} משמרות · ${fmtH(r.h)} ש׳ · ${money(r.e.wage)} לשעה</div>
     ${hoursRange === 'week' ? `<div class="row-sub num">${days.map(d => { const x = sum(r.sh.filter(s => sameDay(s.start, d)).map(dur)); return `<span class="pill ${x ? 'acc' : ''}">${new Date(d).toLocaleDateString('he-IL', { weekday: 'narrow' })} ${x ? fmtH(x) : '–'}</span>`; }).join('')}</div>` : ''}</div>
     <div class="num" style="font-weight:700">${money(r.pay)}</div></div>`).join('')}</div>
-  <p class="lead">כולל משמרות פתוחות עד לרגע זה. בקשות שעדיין ממתינות לאישור לא נספרות.</p>`;
+  <p class="lead">כולל משמרות פתוחות עד לרגע זה. בקשות שעדיין ממתינות לאישור לא נספרות.</p>
+  <button class="btn primary" data-action="report-new">${ic('chart', 'sm')}דוח שכר מפורט</button>`;
 }
 
 function vTasks() {
@@ -317,7 +362,7 @@ function vTasks() {
   return back() + `<h2 class="vt">משימות וציונים</h2>
   <h3 class="sec">משימות</h3>
   <div class="list">${S.tasks.map(t => `<div class="row ${t.done ? 'done' : ''}"><button class="check ${t.done ? 'on' : ''}" data-action="task-toggle" data-id="${t.id}" aria-label="סימון כבוצע">${t.done ? ic('check', 'sm') : ''}</button>
-    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub num">${esc(emp(t.empId).name)} · ${fmtH(t.hours)} ש׳</div></div>
+    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub num">${esc(emp(t.empId).name)} · ${fmtH(t.hours)} ש׳${t.done ? ' · בוצע' : t.seen ? ' · העובד ראה' : ' · טרם נצפתה'}</div></div>
     <button class="btn sm danger" data-action="task-del" data-id="${t.id}">מחיקה</button></div>`).join('') || '<div class="row muted">אין משימות.</div>'}</div>
   <form class="card form" data-form="task"><b>משימה חדשה</b>
     <div class="field"><label for="tk-t">מה צריך לעשות</label><input id="tk-t" name="title" required placeholder="למשל: סידור מדף החטיפים"></div>
@@ -331,6 +376,21 @@ function vTasks() {
   }).join('')}</div>`;
 }
 
+const supForm = s => `<form class="form" data-form="sup" data-id="${s.id || ''}" style="margin-top:12px"><div class="field"><label for="sp-n">שם הספק</label><input id="sp-n" name="name" required value="${esc(s.name || '')}"></div>
+  <div class="field"><label for="sp-p">טלפון (לשליחת הזמנות בוואטסאפ)</label><input id="sp-p" class="ltr" style="text-align:right" name="phone" type="tel" inputmode="tel" placeholder="050-000-0000" value="${esc(s.phone ? fmtPhone(s.phone) : '')}"></div>
+  <div class="field"><label for="sp-o">הערות</label><input id="sp-o" name="note" placeholder="למשל: מגיע בימי ראשון" value="${esc(s.note || '')}"></div>
+  <button class="btn primary block">שמירה</button></form>`;
+const prodForm = p => `<form class="form" data-form="prod" data-id="${p.id || ''}" style="margin-top:12px"><div class="field"><label for="pr-n">שם המוצר</label><input id="pr-n" name="name" required list="inv-names" value="${esc(p.name || '')}"><datalist id="inv-names">${S.inventory.map(i => `<option value="${esc(i.name)}">`).join('')}</datalist></div>
+  <div class="field"><label for="pr-p">מחיר מהספק (₪)</label><input id="pr-p" name="price" type="number" min="0" step="0.01" inputmode="decimal" required value="${p.price ?? ''}" data-calc></div>
+  <div class="seg-wrap" role="radiogroup"><label class="seg ${!p.vatIncl ? 'on' : ''}"><input type="radio" name="vat" value="plus" ${!p.vatIncl ? 'checked' : ''} hidden data-calc>לפני מע״מ · להוסיף 18%</label><label class="seg ${p.vatIncl ? 'on' : ''}"><input type="radio" name="vat" value="incl" ${p.vatIncl ? 'checked' : ''} hidden data-calc>המחיר כבר כולל מע״מ</label></div>
+  <div class="calc" id="pr-calc"></div>
+  <button class="btn primary block">שמירה</button></form>`;
+function drawCalc() {
+  const f = document.querySelector('form[data-form=prod]'), out = document.getElementById('pr-calc'); if (!f || !out) return;
+  const price = parseFloat(f.price.value) || 0, incl = f.querySelector('input[name=vat]:checked')?.value === 'incl', p = { price, vatIncl: incl };
+  f.querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+  out.innerHTML = `<div><span>כולל מע״מ</span><b class="num">${money(withVat(p))}</b></div><div><span>מחיר מכירה (×1.5)</span><b class="num">${money(sellPrice(p))}</b></div>`;
+}
 const delivForm = () => `<form class="form" data-form="deliv">
   <div class="field"><label for="dv-n">מה אמור להגיע</label><input id="dv-n" name="name" required placeholder="למשל: ארגזי קוקה קולה"></div>
   <div class="two"><div class="field"><label for="dv-q">כמות</label><input id="dv-q" name="qty" required placeholder="4 ארגזים"></div>
@@ -343,7 +403,9 @@ const empFields = (e, p) => `
   <div class="two"><div class="field"><label for="${p}-u">מספר עובד</label><input id="${p}-u" name="num" inputmode="numeric" required value="${esc(e.num || nextNum())}"></div>
   <div class="field"><label for="${p}-w">שכר לשעה (₪)</label><input id="${p}-w" name="wage" type="number" min="0" step="0.5" value="${e.wage ?? 50}" required></div></div>
   <div class="field"><label for="${p}-p">טלפון נייד</label><input id="${p}-p" class="ltr" style="text-align:right" name="phone" type="tel" inputmode="tel" placeholder="050-000-0000" required value="${esc(e.phone ? fmtPhone(e.phone) : '')}"><small>העובד מתחבר עם מספר הטלפון ומספר העובד.</small></div>
-  ${e.id && e.id === session() && e.admin
+  ${e.owner ? `<p class="hint">${ic('crown', 'sm')} בעל הבית: גישה מלאה לכל הנתונים. אי אפשר להסיר את ההרשאה.</p>`
+    : !canSetFlags() ? (e.admin ? '<p class="hint">מנהל קבוע. רק בעל הבית יכול לשנות את ההרשאה.</p>' : '')
+    : e.id && e.id === session() && e.admin
     ? `<p class="hint">יש לך הרשאת ניהול קבועה. מנהל אחר יכול להסיר אותה.</p>`
     : `<label class="check-row"><input type="checkbox" name="admin" ${e.admin ? 'checked' : ''}><span class="grow"><b>הרשאת ניהול קבועה</b><small>העובד נכנס תמיד במצב מנהל, בלי להקיש סיסמה. נכנס לתוקף בפתיחה הבאה של האפליקציה.</small></span></label>`}`;
 function validateEmp(f, id) {
@@ -377,7 +439,9 @@ function vAdmin() {
   return back() + `<h2 class="vt">ניהול חנות</h2>
   <div class="list">
     ${row('nav', 'user', 'עובדים', `${S.employees.length} עובדים · הוספה, עריכה ושכר`, 'data-view="staff"')}
+    ${row('nav', 'users', 'ספקים ומחירים', `${S.suppliers.length} ספקים · מוצרים, מחירים, מע״מ והזמנות`, 'data-view="suppliers"')}
     ${row('item-new', 'box', 'הוספת פריט למלאי', 'שתייה, חטיפים וסלטים')}
+    ${row('item-bulk', 'note', 'הוספת פריטים מרשימה', 'מדביקים רשימה, כל שורה פריט')}
     ${row('new-deliv', 'truck', 'אספקה חדשה', 'פריטים שאמורים להגיע')}
     ${row('pin-sheet', 'lock', 'שינוי סיסמת מנהל', 'חלה על כל הטלפונים')}
   </div>
@@ -387,10 +451,90 @@ function vAdmin() {
 function vStaff() {
   if (!manager) return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים</h2>` + locked('עובדים');
   return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים · ${S.employees.length}</h2>
-  <div class="list">${S.employees.map(e => `<div class="row tap" data-action="emp-edit" data-id="${e.id}"><span class="av lg">${esc((e.name || '?')[0])}</span><div class="row-main"><div class="row-title">${esc(e.name)}</div>
-    <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
+  ${!hasOwner() ? `<div class="card"><b>${ic('crown', 'sm')} בעל הבית</b><p class="muted" style="margin:6px 0 10px">בעל הבית הוא מנהל קבוע שאי אפשר להסיר, והוא היחיד שקובע מי מנהל קבוע. עדיין לא נקבע.</p><button class="btn brass" data-action="owner-claim">אני בעל הבית</button></div>` : ''}
+  <div class="list">${S.employees.map(e => `<div class="row tap" data-action="emp-edit" data-id="${e.id}">${avatar(e, 'lg')}<div class="row-main"><div class="row-title">${esc(e.name)}</div>
+    <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.owner ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
     <span class="btn sm">עריכה</span></div>`).join('')}</div>
   <button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>`;
+}
+
+/* ---------- suppliers & orders (managers) ---------- */
+const vatLabel = p => p.vatIncl ? 'כולל מע״מ' : 'לפני מע״מ';
+const ORDER_ST = { draft: ['טיוטה', ''], sent: ['נשלחה', 'pend'], received: ['התקבלה', 'ok'] };
+function vSuppliers() {
+  return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">ספקים · ${S.suppliers.length}</h2>
+  <p class="lead">לכל מוצר: המחיר מהספק, מע״מ 18% ומחיר מכירה מומלץ (פי 1.5 כולל מע״מ).</p>
+  <div class="list">${S.suppliers.map(s => `<div class="row tap" data-action="sup-open" data-id="${s.id}"><span class="av lg">${esc((s.name || '?')[0])}</span><div class="row-main"><div class="row-title">${esc(s.name)}</div>
+    <div class="row-sub"><span>${(s.products || []).length} מוצרים</span>${s.phone ? `<span class="ltr">${fmtPhone(s.phone)}</span>` : ''}<span>${S.orders.filter(o => o.supplierId === s.id).length} הזמנות</span></div></div>${ic('chev', 'sm chev')}</div>`).join('') || '<div class="row muted">עדיין אין ספקים.</div>'}</div>
+  <button class="btn primary" data-action="sup-new">${ic('plus', 'sm')}ספק חדש</button>`;
+}
+function vSupplier() {
+  const s = byId(S.suppliers, supId); if (!s) { view = 'suppliers'; return vSuppliers(); }
+  const ps = s.products || [], os = S.orders.filter(o => o.supplierId === s.id).sort((a, b) => b.ts - a.ts);
+  return back('suppliers', 'חזרה לספקים') + `<h2 class="vt">${esc(s.name)}</h2>
+  <div class="row-sub" style="margin:-6px 0 12px">${s.phone ? `<span class="ltr">${fmtPhone(s.phone)}</span>` : ''}${s.note ? `<span>${esc(s.note)}</span>` : ''}<button class="link-btn" data-action="sup-edit" data-id="${s.id}">עריכת פרטי הספק</button></div>
+  <h3 class="sec">מוצרים ומחירים · ${ps.length}</h3>
+  <div class="list">${ps.map(p => `<div class="row tap" data-action="prod-edit" data-id="${p.id}"><div class="row-main"><div class="row-title">${esc(p.name)}</div>
+    <div class="row-sub num"><span>${money(+p.price)} ${vatLabel(p)}</span>${p.vatIncl ? '' : `<span>כולל מע״מ ${money(withVat(p))}</span>`}</div></div>
+    <div class="price-sell"><small>מכירה ×1.5</small><b class="num">${money(sellPrice(p))}</b></div></div>`).join('') || '<div class="row muted">עדיין אין מוצרים לספק הזה.</div>'}</div>
+  <div class="actions"><button class="btn" data-action="prod-new">${ic('plus', 'sm')}מוצר חדש</button>${ps.length ? `<button class="btn" data-action="sup-export" data-id="${s.id}">${ic('down', 'sm')}ייצוא מחירון</button>` : ''}</div>
+  <h3 class="sec">הזמנות · ${os.length}</h3>
+  <div class="list">${os.map(orderRow).join('') || '<div class="row muted">עדיין אין הזמנות מהספק הזה.</div>'}</div>
+  ${ps.length ? `<button class="btn primary" data-action="order-new" data-id="${s.id}">${ic('cart', 'sm')}הזמנה חדשה מ${esc(s.name)}</button>` : ''}`;
+}
+const orderTotal = o => sum((o.lines || []).map(l => withVat(l) * l.qty));
+const orderRow = o => { const s = byId(S.suppliers, o.supplierId) || { name: 'ספק שנמחק' }, st = ORDER_ST[o.status] || ORDER_ST.draft; return `<div class="row tap" data-action="order-open" data-id="${o.id}"><div class="row-main"><div class="row-title">${esc(s.name)} · ${fmtD(o.ts)}</div>
+  <div class="row-sub num"><span class="pill ${st[1]}">${st[0]}</span><span>${(o.lines || []).length} שורות</span><span>${money(orderTotal(o))} כולל מע״מ</span></div></div>${ic('chev', 'sm chev')}</div>`; };
+function vOrders() {
+  const os = [...S.orders].sort((a, b) => b.ts - a.ts);
+  return back() + `<h2 class="vt">הזמנות מספקים</h2>
+  ${S.suppliers.length ? `<div class="actions" style="margin-bottom:12px">${S.suppliers.filter(s => (s.products || []).length).map(s => `<button class="btn sm" data-action="order-new" data-id="${s.id}">${ic('plus', 'sm')}${esc(s.name)}</button>`).join('')}</div>` : '<p class="lead">כדי להזמין, מוסיפים קודם ספק ומוצרים בניהול חנות › ספקים ומחירים.</p>'}
+  <div class="list">${os.map(orderRow).join('') || '<div class="row muted">עדיין אין הזמנות.</div>'}</div>
+  <button class="btn" data-action="nav" data-view="suppliers">${ic('users', 'sm')}ספקים ומחירים</button>`;
+}
+const orderText = o => { const s = byId(S.suppliers, o.supplierId) || { name: '' };
+  return `הזמנה משאבעס מרקט · ${new Date(o.ts).toLocaleDateString('he-IL')}\nלכבוד: ${s.name}\n\n` + (o.lines || []).map(l => `• ${l.name} – ${l.qty}`).join('\n') + (o.note ? `\n\nהערות: ${o.note}` : '') + '\n\nתודה!'; };
+const orderCsv = o => { const s = byId(S.suppliers, o.supplierId) || { name: '' };
+  return [['ספק', s.name], ['תאריך', new Date(o.ts).toLocaleDateString('he-IL')], [], ['מוצר', 'כמות', 'מחיר ליחידה', 'מע״מ', 'מחיר כולל מע״מ', 'סה״כ כולל מע״מ'],
+    ...(o.lines || []).map(l => [l.name, l.qty, (+l.price).toFixed(2), vatLabel(l), withVat(l).toFixed(2), (withVat(l) * l.qty).toFixed(2)]), [], ['סה״כ', '', '', '', '', orderTotal(o).toFixed(2)]]; };
+
+/* ---------- detailed payroll report ---------- */
+function reportData() {
+  const { from, to, emp: who } = repCfg, a = new Date(from + 'T00:00').getTime(), b = new Date(to + 'T23:59:59').getTime();
+  return S.employees.filter(e => !who || e.id === who).map(e => {
+    const sh = S.shifts.filter(s => s.empId === e.id && (s.status === 'approved' || s.status === 'open') && s.start >= a && s.start <= b).sort((x, y) => x.start - y.start);
+    const h = sum(sh.map(dur)); return { e, sh, h, pay: h * e.wage };
+  }).filter(r => r.sh.length);
+}
+function vReport() {
+  if (!repCfg) { view = 'hours'; return vHours(); }
+  const rows = reportData(), range = `${new Date(repCfg.from).toLocaleDateString('he-IL')} – ${new Date(repCfg.to).toLocaleDateString('he-IL')}`;
+  return back('hours', 'חזרה לשעות ושכר') + `<h2 class="vt">דוח שכר מפורט</h2>
+  <p class="lead">${range} · משמרות מאושרות ומשמרות פתוחות (עד עכשיו). בקשות שממתינות לאישור לא נכללות.</p>
+  <div class="stats"><div class="stat"><span>סה״כ שעות</span><b class="num">${fmtH(sum(rows.map(r => r.h)))}</b></div><div class="stat"><span>סה״כ לתשלום</span><b class="num">${money(sum(rows.map(r => r.pay)))}</b></div></div>
+  <div class="actions" style="margin:12px 0"><button class="btn" data-action="report-copy">${ic('copy', 'sm')}העתקה</button><button class="btn" data-action="report-csv">${ic('down', 'sm')}קובץ לאקסל</button><button class="btn" data-action="report-new">שינוי טווח</button></div>
+  ${rows.map(r => `<div class="card rep"><div class="card-head"><b>${esc(r.e.name)} <span class="muted num">#${esc(r.e.num)}</span></b><span class="num">${fmtH(r.h)} ש׳ · <b>${money(r.pay)}</b></span></div>
+    <div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th class="l">שכר</th></tr></thead><tbody>
+    ${r.sh.map(s => `<tr><td>${fmtD(s.start)}</td><td>${fmtT(s.start)}</td><td>${s.end ? fmtT(s.end) + (sameDay(s.start, s.end) ? '' : ' (+1)') : 'פתוחה'}</td><td>${fmtH(dur(s))}</td><td class="l">${money(dur(s) * r.e.wage)}</td></tr>`).join('')}
+    <tr class="tot"><td>${r.sh.length} משמרות</td><td></td><td></td><td>${fmtH(r.h)}</td><td class="l">${money(r.pay)}</td></tr></tbody></table></div>
+    <div class="muted num" style="font-size:.8rem;margin-top:6px">${money(r.e.wage)} לשעה</div></div>`).join('') || '<div class="list"><div class="row muted">אין משמרות בטווח הזה.</div></div>'}`;
+}
+const reportText = () => { const rows = reportData(); return `דוח שכר · שאבעס מרקט · ${new Date(repCfg.from).toLocaleDateString('he-IL')} – ${new Date(repCfg.to).toLocaleDateString('he-IL')}\n\n` + rows.map(r => `${r.e.name} (#${r.e.num}) · ${fmtH(r.h)} שעות · ${money(r.pay)}\n` + r.sh.map(s => `  ${new Date(s.start).toLocaleDateString('he-IL')} ${fmtT(s.start)}–${s.end ? fmtT(s.end) : 'פתוחה'} · ${fmtH(dur(s))} ש׳ · ${money(dur(s) * r.e.wage)}`).join('\n')).join('\n\n') + `\n\nסה״כ: ${fmtH(sum(rows.map(r => r.h)))} שעות · ${money(sum(rows.map(r => r.pay)))}`; };
+
+/* ---------- days an employee cannot work ---------- */
+function vAvail() {
+  const today = sod(Date.now()), days = [...Array(28)].map((_, i) => dateKey(today + i * DAY + 3 * H));
+  if (!manager) {
+    const mine = new Map(S.unavail.filter(u => u.empId === session()).map(u => [u.date, u]));
+    return back() + `<h2 class="vt">ימים שאני לא יכול לעבוד</h2>
+    <p class="lead">מסמנים יום, והמנהל רואה את זה כשהוא מסדר משמרות. אפשר לבטל בלחיצה נוספת.</p>
+    <div class="list">${days.map(k => { const u = mine.get(k); return `<button class="row tap av-day ${u ? 'off' : ''}" data-action="avail-day" data-date="${k}"><div class="row-main"><div class="row-title">${fmtLong(new Date(k + 'T12:00'))}</div>${u && u.note ? `<div class="row-sub">${esc(u.note)}</div>` : ''}</div>${u ? '<span class="pill bad">לא יכול</span>' : '<span class="pill">פנוי</span>'}</button>`; }).join('')}</div>`;
+  }
+  const by = k => S.unavail.filter(u => u.date === k);
+  return back() + `<h2 class="vt">אילוצים של עובדים</h2>
+  <p class="lead">העובדים מסמנים בטלפון ימים שהם לא יכולים לעבוד. מוצגים 4 השבועות הקרובים.</p>
+  <div class="list">${days.map(k => { const g = by(k); return `<div class="row"><div class="row-main"><div class="row-title">${fmtLong(new Date(k + 'T12:00'))}</div>
+    <div class="row-sub">${g.length ? g.map(u => `<span class="pill bad">${esc(emp(u.empId).name)}${u.note ? ' · ' + esc(u.note) : ''}</span>`).join('') : '<span class="muted">כולם פנויים</span>'}</div></div></div>`; }).join('')}</div>`;
 }
 
 /* ---------- display settings view ---------- */
@@ -489,6 +633,49 @@ const byId = (arr, id) => arr.find(x => x.id === id);
 const ACT = {
   nav: d => go(d.view === 'login' ? 'clock' : d.view),
   back: d => { if (history.state && history.state.d > 0) history.back(); else go(d.view === 'login' ? 'clock' : d.view, true); },
+  'item-bulk': () => needMgr(() => sheet(`<h3>הוספת פריטים מרשימה</h3><form class="form" data-form="bulk" style="margin-top:12px">
+    <div class="field"><label for="bk-c">מחלקה</label><select id="bk-c" name="cat">${catOpts('drinks', SUBS[0])}</select></div>
+    <div class="field"><label for="bk-t">רשימת פריטים · כל שורה פריט</label><textarea id="bk-t" name="list" rows="10" required placeholder="קולה פחית&#10;ספרייט פחית"></textarea><small>שורות ריקות ופריטים שכבר קיימים במחלקה מדולגים. הכמות מתחילה ב-0.</small></div>
+    <button class="btn primary block">הוספה למלאי</button></form>`)),
+  'owner-claim': () => needMgr(() => sheet(`<h3>${ic('crown', 'sm')} לקבוע אותך כבעל הבית?</h3><p class="muted" style="margin:8px 0 16px">${esc(cur().name)} יהיה מנהל קבוע שאי אפשר להסיר, והיחיד שיכול לתת או להסיר הרשאת ניהול קבועה לעובדים אחרים.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn brass" data-action="owner-yes">כן, אני בעל הבית</button></div>`)),
+  'owner-yes': async () => { const r = await store.claimOwner(); closeSheet(); render(); toast(r.error || 'נקבעת כבעל הבית'); },
+  'my-task': d => { const t = byId(S.tasks, d.id); if (!t || t.empId !== session()) return; t.done = !t.done; t.seen = true; if (t.done) t.doneAt = Date.now(); else delete t.doneAt; save(); render(); toast(t.done ? 'כל הכבוד! המשימה סומנה כבוצעה' : 'המשימה חזרה לפתוחות'); },
+  'report-new': () => needMgr(() => { const d = new Date(), f = repCfg ? repCfg.from : dateKey(new Date(d.getFullYear(), d.getMonth(), 1)), t = repCfg ? repCfg.to : dateKey(d);
+    sheet(`<h3>דוח שכר מפורט</h3><form class="form" data-form="report" style="margin-top:12px"><div class="two"><div class="field"><label for="rp-f">מתאריך</label><input id="rp-f" name="from" type="date" value="${f}" required></div><div class="field"><label for="rp-t">עד תאריך</label><input id="rp-t" name="to" type="date" value="${t}" required></div></div>
+    <div class="field"><label for="rp-e">עובד</label><select id="rp-e" name="emp"><option value="">כל העובדים</option>${S.employees.map(e => `<option value="${e.id}" ${repCfg && repCfg.emp === e.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div>
+    <button class="btn primary block">הפקת הדוח</button></form>`); }),
+  'report-copy': () => copyText(reportText()),
+  'report-csv': () => { const rows = [['עובד', 'מס׳ עובד', 'תאריך', 'כניסה', 'יציאה', 'שעות', 'שכר לשעה', 'שכר']];
+    reportData().forEach(r => { r.sh.forEach(s => rows.push([r.e.name, r.e.num, new Date(s.start).toLocaleDateString('he-IL'), fmtT(s.start), s.end ? fmtT(s.end) : 'פתוחה', (dur(s)).toFixed(2), r.e.wage, (dur(s) * r.e.wage).toFixed(2)])); rows.push([r.e.name, r.e.num, 'סה״כ', '', '', r.h.toFixed(2), '', r.pay.toFixed(2)]); rows.push([]); });
+    downloadCsv(`דוח-שכר-${repCfg.from}-עד-${repCfg.to}`, rows); },
+  'sup-open': d => { supId = d.id; go('supplier'); },
+  'sup-new': () => needMgr(() => sheet(`<h3>ספק חדש</h3>${supForm({})}`)),
+  'sup-edit': d => needMgr(() => { const s = byId(S.suppliers, d.id); sheet(`<h3>עריכת ספק</h3>${supForm(s)}<button class="btn danger block" style="margin-top:10px" data-action="sup-del" data-id="${s.id}">מחיקת הספק</button>`); }),
+  'sup-del': d => { const s = byId(S.suppliers, d.id); sheet(`<h3>למחוק את ${esc(s.name)}?</h3><p class="muted" style="margin-bottom:16px">הספק והמחירון שלו יימחקו. הזמנות קודמות יישארו.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="sup-del-yes" data-id="${s.id}">מחיקה</button></div>`); },
+  'sup-del-yes': d => needMgr(() => { S.suppliers = S.suppliers.filter(x => x.id !== d.id); save(); closeSheet(); go('suppliers', true); toast('הספק נמחק'); }),
+  'sup-export': d => { const s = byId(S.suppliers, d.id); downloadCsv(`מחירון-${s.name}`, [['מוצר', 'מחיר מהספק', 'מע״מ', 'מחיר כולל מע״מ', 'מחיר מכירה (×1.5)'], ...(s.products || []).map(p => [p.name, (+p.price).toFixed(2), vatLabel(p), withVat(p).toFixed(2), sellPrice(p).toFixed(2)])]); },
+  'prod-new': () => needMgr(() => sheet(`<h3>מוצר חדש</h3>${prodForm({})}`)),
+  'prod-edit': d => needMgr(() => { const p = (byId(S.suppliers, supId).products || []).find(x => x.id === d.id); sheet(`<h3>עריכת מוצר</h3>${prodForm(p)}<button class="btn danger block" style="margin-top:10px" data-action="prod-del" data-id="${p.id}">מחיקת המוצר</button>`); }),
+  'prod-del': d => needMgr(() => { const s = byId(S.suppliers, supId); s.products = (s.products || []).filter(p => p.id !== d.id); save(); closeSheet(); render(); toast('המוצר נמחק'); }),
+  'order-new': d => needMgr(() => { const s = byId(S.suppliers, d.id);
+    sheet(`<h3>הזמנה מ${esc(s.name)}</h3><p class="muted" style="margin-bottom:10px">ממלאים כמות רק במה שמזמינים.</p><form class="form" data-form="order" data-sup="${s.id}">
+    <div class="list ord">${(s.products || []).map(p => `<div class="row"><div class="row-main"><div class="row-title">${esc(p.name)}</div><div class="row-sub num">${money(withVat(p))} כולל מע״מ</div></div><input class="ord-q" name="q_${p.id}" type="number" min="0" step="1" inputmode="numeric" placeholder="0" aria-label="כמות ${esc(p.name)}"></div>`).join('')}</div>
+    <div class="field"><label for="or-n">הערות לספק</label><textarea id="or-n" name="note" placeholder="למשל: להביא עד יום שלישי"></textarea></div>
+    <button class="btn primary block">שמירת ההזמנה</button></form>`); }),
+  'order-open': d => needMgr(() => { const o = byId(S.orders, d.id); if (!o) return; const s = byId(S.suppliers, o.supplierId) || { name: 'ספק שנמחק' };
+    sheet(`<h3>הזמנה מ${esc(s.name)}</h3><p class="muted">${fmtLong(o.ts)} · ${fmtT(o.ts)}</p>
+    <div class="tbl-wrap" style="margin:10px 0"><table><thead><tr><th>מוצר</th><th>כמות</th><th class="l">כולל מע״מ</th></tr></thead><tbody>${(o.lines || []).map(l => `<tr><td>${esc(l.name)}</td><td>${l.qty}</td><td class="l">${money(withVat(l) * l.qty)}</td></tr>`).join('')}<tr class="tot"><td>סה״כ</td><td></td><td class="l">${money(orderTotal(o))}</td></tr></tbody></table></div>
+    ${o.note ? `<p class="muted">הערות: ${esc(o.note)}</p>` : ''}
+    <div class="seg-wrap" style="margin:10px 0">${Object.entries(ORDER_ST).map(([k, v]) => `<button class="seg ${o.status === k ? 'on' : ''}" data-action="order-st" data-id="${o.id}" data-st="${k}">${v[0]}</button>`).join('')}</div>
+    <div class="actions"><button class="btn" data-action="order-copy" data-id="${o.id}">${ic('copy', 'sm')}העתקה</button><a class="btn" href="${waLink(s.phone, orderText(o))}" target="_blank" rel="noopener">${ic('share', 'sm')}וואטסאפ${s.phone ? ' לספק' : ''}</a><button class="btn" data-action="order-csv" data-id="${o.id}">${ic('down', 'sm')}קובץ לאקסל</button></div>
+    <button class="btn danger block" style="margin-top:12px" data-action="order-del" data-id="${o.id}">מחיקת ההזמנה</button>`); }),
+  'order-st': d => { const o = byId(S.orders, d.id); o.status = d.st; save(); render(); ACT['order-open']({ id: o.id }); },
+  'order-copy': d => copyText(orderText(byId(S.orders, d.id))),
+  'order-csv': d => { const o = byId(S.orders, d.id), s = byId(S.suppliers, o.supplierId) || { name: 'ספק' }; downloadCsv(`הזמנה-${s.name}-${dateKey(o.ts)}`, orderCsv(o)); },
+  'order-del': d => needMgr(() => { S.orders = S.orders.filter(o => o.id !== d.id); save(); closeSheet(); render(); toast('ההזמנה נמחקה'); }),
+  'avail-day': d => { const u = S.unavail.find(x => x.empId === session() && x.date === d.date);
+    if (u) { S.unavail = S.unavail.filter(x => x !== u); save(); render(); toast('היום סומן כפנוי'); return; }
+    sheet(`<h3>${fmtLong(new Date(d.date + 'T12:00'))}</h3><p class="muted" style="margin-bottom:12px">לסמן שאתה לא יכול לעבוד ביום הזה?</p><form class="form" data-form="avail" data-date="${d.date}"><div class="field"><label for="av-n">סיבה (לא חובה)</label><input id="av-n" name="note" placeholder="למשל: מבחן, אירוע משפחתי"></div><button class="btn primary block">סימון שאני לא יכול</button></form>`); },
   'item-new': d => needMgr(() => sheet(`<h3>פריט חדש</h3>${itemForm(d.cat)}`)),
   'emp-new': () => needMgr(() => sheet(`<h3>עובד חדש</h3><form class="form" data-form="emp" style="margin-top:12px">${empFields({}, 'em')}<button class="btn primary block">הוספת עובד</button></form>`)),
   'pin-sheet': () => needMgr(() => sheet(`<h3>שינוי סיסמת מנהל</h3>${pinForm()}`)),
@@ -499,7 +686,7 @@ const ACT = {
   close: closeSheet,
   'fill-login': d => { const p = document.getElementById('lg-p'), n = document.getElementById('lg-n'); if (p) p.value = fmtPhone(d.p); if (n) n.value = d.n; },
   account: () => {
-    const e = cur(); sheet(`<div style="display:flex;gap:12px;align-items:center;margin-bottom:14px"><span class="av lg">${esc((e.name || '?')[0])}</span><div><h3>${esc(e.name)}</h3><div class="muted num">עובד מס׳ ${esc(e.num)} · <span class="ltr">${fmtPhone(e.phone)}</span></div></div></div>
+    const e = cur(); sheet(`<div class="emp-head" style="margin-bottom:14px">${avatar(e, 'xl')}<div><h3>${esc(e.name)}</h3><div class="muted num">עובד מס׳ ${esc(e.num)} · <span class="ltr">${fmtPhone(e.phone)}</span></div><label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת התמונה שלי' : 'הוספת תמונה שלי'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div>
     <div class="list"><button class="menu-item" data-action="nav-close" data-view="display">${ic('eye')}<span class="grow">הגדרות תצוגה</span>${ic('chev', 'sm chev')}</button><button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span></button></div>`);
   },
   'nav-close': d => { closeSheet(); view = d.view; render(); window.scrollTo(0, 0); },
@@ -511,11 +698,12 @@ const ACT = {
     save(); render();
   },
   'req-hours': () => sheet(`<h3>בקשת אישור שעות</h3><p class="muted" style="margin-bottom:14px">לשעות שלא הוחתמו בשעון. הבקשה תישלח למנהל המערכת.</p>
-    <form class="form" data-form="req"><div class="field"><label for="rq-d">תאריך</label><input id="rq-d" name="date" type="date" max="${dateKey(Date.now())}" value="${dateKey(Date.now())}" required></div>
-    <div class="two"><div class="field"><label for="rq-f">משעה</label><input id="rq-f" name="from" type="time" value="08:00" required></div><div class="field"><label for="rq-t">עד שעה</label><input id="rq-t" name="to" type="time" value="16:00" required></div></div>
+    <form class="form" data-form="req"><div class="field"><label for="rq-d">תאריך כניסה</label><input id="rq-d" name="date" type="date" max="${dateKey(Date.now())}" value="${dateKey(Date.now())}" required></div>
+    <div class="two"><div class="field"><label for="rq-f">שעת כניסה</label><input id="rq-f" name="from" type="time" value="08:00" required></div><div class="field"><label for="rq-t">שעת יציאה</label><input id="rq-t" name="to" type="time" value="16:00" required></div></div>
+    <div class="field"><label for="rq-e">תאריך יציאה</label><input id="rq-e" name="endDate" type="date" max="${dateKey(Date.now())}" value="${dateKey(Date.now())}" required><small>אם המשמרת נגמרה אחרי חצות, בוחרים כאן את היום שאחרי.</small></div>
     <div class="field"><label for="rq-n">הסבר קצר</label><textarea id="rq-n" name="note" placeholder="למשל: הטלפון נגמר לי בסוללה"></textarea></div>
     <button class="btn primary block">שליחה לאישור</button></form>`),
-  'inv-tab': d => { if (d.tab !== 'drinks' && !store.isManager()) { openPin(() => { invTab = d.tab; render(); }); return; } invTab = d.tab; render(); },
+  'inv-tab': d => { if (d.tab === 'snacks' && !store.isManager()) { openPin(() => { invTab = d.tab; render(); }); return; } invTab = d.tab; render(); },
   'inv-update': d => {
     const i = byId(S.inventory, d.id); const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending');
     const n = note(i.id);
@@ -534,7 +722,7 @@ const ACT = {
       <button class="btn block">שמירת הערה</button></form>
       <button class="btn danger block" data-action="item-del" data-id="${i.id}">מחיקת הפריט</button></div>` : ''}`);
   },
-  'img-view': d => { const i = byId(S.inventory, d.id); sheet(`<img class="item-photo lg" src="${img(d.id)}" alt=""><h3>${esc(i.name)}</h3><div class="actions" style="margin-top:12px"><button class="btn block" data-action="inv-update" data-id="${d.id}">עדכון כמות</button></div>`); },
+  'img-view': d => { const i = byId(S.inventory, d.id); if (!i || !img(d.id)) return; const ro = !manager && i.cat !== 'drinks'; sheet(`<img class="item-photo lg" src="${img(d.id)}" alt=""><h3>${esc(i.name)}</h3>${ro ? '' : `<div class="actions" style="margin-top:12px"><button class="btn block" data-action="inv-update" data-id="${d.id}">עדכון כמות</button></div>`}`); },
   'img-del': d => needMgr(() => { delete S.images[d.id]; save(); render(); ACT['inv-update'](d); toast('התמונה הוסרה'); }),
   'item-del': d => { const i = byId(S.inventory, d.id); sheet(`<h3>למחוק את ${esc(i.name)}?</h3><p class="muted" style="margin-bottom:16px">הפריט יימחק מהמלאי יחד עם התמונה וההערות שלו.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="item-del-yes" data-id="${i.id}">מחיקה</button></div>`); },
   'item-del-yes': d => needMgr(() => { const i = byId(S.inventory, d.id); S.inventory = S.inventory.filter(x => x.id !== d.id); delete S.images[d.id]; delete S.notes[d.id]; save(); closeSheet(); render(); toast(`${i.name} נמחק/ה מהמלאי`); }),
@@ -561,8 +749,8 @@ const ACT = {
   'task-del': d => { S.tasks = S.tasks.filter(t => t.id !== d.id); save(); render(); },
   grade: d => { S.grades[d.emp] = +d.v; save(); render(); },
   'emp-edit': d => needMgr(() => {
-    const e = byId(S.employees, d.id); sheet(`<h3>עריכת עובד</h3><form class="form" data-form="emp-edit" data-id="${e.id}" style="margin-top:12px">${empFields(e, 'ee')}<button class="btn primary block">שמירה</button></form>
-    ${e.id !== session() ? `<button class="btn danger block" style="margin-top:10px" data-action="emp-del" data-id="${e.id}">הסרת העובד</button>` : '<p class="hint" style="margin-top:10px">אי אפשר להסיר את המשתמש שמחובר כרגע.</p>'}`);
+    const e = byId(S.employees, d.id); sheet(`<div class="emp-head">${avatar(e, 'xl')}<div><h3>עריכת עובד</h3><label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת תמונה' : 'הוספת תמונה'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div><form class="form" data-form="emp-edit" data-id="${e.id}" style="margin-top:12px">${empFields(e, 'ee')}<button class="btn primary block">שמירה</button></form>
+    ${e.owner ? '' : e.id !== session() ? `<button class="btn danger block" style="margin-top:10px" data-action="emp-del" data-id="${e.id}">הסרת העובד</button>` : '<p class="hint" style="margin-top:10px">אי אפשר להסיר את המשתמש שמחובר כרגע.</p>'}`);
   }),
   'emp-del': d => { const e = byId(S.employees, d.id); sheet(`<h3>להסיר את ${esc(e.name)}?</h3><p class="muted" style="margin-bottom:16px">העובד לא יוכל להתחבר יותר. המשמרות שכבר נרשמו יישארו בסיכומי השכר.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="emp-del-yes" data-id="${e.id}">הסרה</button></div>`); },
   'emp-del-yes': d => needMgr(() => { const e = byId(S.employees, d.id); S.employees = S.employees.filter(x => x.id !== d.id); save(); closeSheet(); render(); toast(`${e.name} הוסר/ה מרשימת העובדים`); }),
@@ -598,11 +786,46 @@ const FORMS = {
     view = 'admin'; render(); toast('החנות נוצרה. עכשיו אפשר להוסיף עובדים');
   },
   req: f => {
-    const s = new Date(f.date + 'T' + f.from).getTime(), e = new Date(f.date + 'T' + f.to).getTime();
-    if (!(e > s)) return toast('שעת הסיום חייבת להיות אחרי שעת ההתחלה');
+    const s = new Date(f.date + 'T' + f.from).getTime(), e = new Date((f.endDate || f.date) + 'T' + f.to).getTime();
+    if (!(e > s)) return toast('היציאה חייבת להיות אחרי הכניסה. אם המשמרת נגמרה אחרי חצות, בחרו תאריך יציאה של היום שאחרי');
+    if (e - s > 20 * H) return toast('משמרת של יותר מ-20 שעות. בדקו את התאריכים');
     if (e > Date.now()) return toast('אי אפשר לבקש שעות עתידיות');
     S.shifts.push({ id: uid(), empId: session(), start: s, end: e, status: 'pending', source: 'request', note: f.note.trim() });
     save(); closeSheet(); render(); toast('הבקשה נשלחה למנהל');
+  },
+  bulk: f => {
+    if (!manager) return openPin(); const [cat, sub] = f.cat.split('|');
+    const have = new Set(S.inventory.filter(i => i.cat === cat).map(i => i.name.trim()));
+    const names = [...new Set(String(f.list || '').split(/\r?\n/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean))].filter(n => !have.has(n));
+    names.forEach(name => S.inventory.push({ id: uid(), cat, sub: cat === 'drinks' ? sub : null, name, qty: 0, min: 0 }));
+    save(); closeSheet(); invTab = cat; go('inv'); toast(`נוספו ${names.length} פריטים`);
+  },
+  report: f => { if (!f.from || !f.to || f.to < f.from) return toast('טווח התאריכים לא תקין'); repCfg = { from: f.from, to: f.to, emp: f.emp || '' }; closeSheet(); go('report'); },
+  sup: (f, el) => {
+    if (!manager) return openPin(); if (!f.name.trim()) return toast('צריך למלא שם ספק');
+    const data = { name: f.name.trim(), phone: normPhone(f.phone), note: f.note.trim() };
+    if (el.dataset.id) Object.assign(byId(S.suppliers, el.dataset.id), data); else { const s = { id: uid(), products: [], ...data }; S.suppliers.push(s); supId = s.id; }
+    save(); closeSheet(); if (!el.dataset.id) go('supplier'); else render(); toast('הספק נשמר');
+  },
+  prod: (f, el) => {
+    if (!manager) return openPin(); const s = byId(S.suppliers, supId); if (!s) return; const price = parseFloat(f.price);
+    if (!f.name.trim() || !(price >= 0)) return toast('צריך שם ומחיר תקין');
+    const data = { name: f.name.trim(), price: Math.round(price * 100) / 100, vatIncl: f.vat === 'incl' };
+    s.products = s.products || [];
+    if (el.dataset.id) Object.assign(s.products.find(p => p.id === el.dataset.id), data); else s.products.push({ id: uid(), ...data });
+    save(); closeSheet(); render(); toast('המוצר נשמר');
+  },
+  order: (f, el) => {
+    if (!manager) return openPin(); const s = byId(S.suppliers, el.dataset.sup);
+    const lines = (s.products || []).map(p => ({ p, q: parseFloat(f['q_' + p.id]) || 0 })).filter(x => x.q > 0).map(({ p, q }) => ({ name: p.name, qty: q, price: p.price, vatIncl: !!p.vatIncl }));
+    if (!lines.length) return toast('לא נבחרה כמות לאף מוצר');
+    const o = { id: uid(), supplierId: s.id, ts: Date.now(), lines, note: (f.note || '').trim(), status: 'draft', by: session() };
+    S.orders.push(o); save(); render(); ACT['order-open']({ id: o.id }); toast('ההזמנה נשמרה. אפשר לשלוח אותה לספק');
+  },
+  avail: (f, el) => {
+    S.unavail.push({ id: uid(), empId: session(), date: el.dataset.date, note: (f.note || '').trim(), ts: Date.now() });
+    S.notifications.push({ id: uid(), type: 'info', ts: Date.now(), text: `${cur().name} סימן/ה שלא יוכל/תוכל לעבוד ב${fmtLong(new Date(el.dataset.date + 'T12:00'))}${f.note.trim() ? ': ' + f.note.trim() : ''}` });
+    save(); closeSheet(); render(); toast('סומן. המנהל יראה את זה בסידור');
   },
   note: (f, el) => {
     if (!manager) return openPin(); const i = byId(S.inventory, el.dataset.id), t = (f.text || '').trim(), old = note(i.id);
@@ -637,14 +860,14 @@ const FORMS = {
   },
   emp: f => {
     if (!manager) return openPin(); const err = validateEmp(f, null); if (err) return toast(err);
-    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage), ...(f.admin ? { admin: true } : {}) });
+    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage), ...(f.admin && canSetFlags() ? { admin: true } : {}) });
     save(); closeSheet(); render(); toast(`${f.name.trim()} נוסף/ה. התחברות: ${fmtPhone(f.phone)} + מספר עובד ${String(f.num).trim()}`);
   },
   'emp-edit': (f, el) => {
     if (!manager) return openPin(); const e = byId(S.employees, el.dataset.id), err = validateEmp(f, e.id); if (err) return toast(err);
-    const keepAdmin = e.id === session() && e.admin;
+    const keepAdmin = (e.id === session() && e.admin) || e.owner || (!canSetFlags() && e.admin);
     Object.assign(e, { name: f.name.trim(), num: String(f.num).trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage) });
-    if (f.admin || keepAdmin) e.admin = true; else delete e.admin;
+    if (keepAdmin || (f.admin && canSetFlags())) e.admin = true; else delete e.admin;
     save(); closeSheet(); render(); toast('פרטי העובד נשמרו');
   },
   'pin-change': async f => {
@@ -655,12 +878,14 @@ const FORMS = {
     if (r.error) return toast(r.error);
     closeSheet(); render(); toast('סיסמת המנהל עודכנה');
   },
-  task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false }); save(); render(); toast('המשימה נוספה'); }
+  task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (a) { e.preventDefault(); a(b.dataset, b); } });
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
-document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); });
+document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); if (e.target.closest('[data-calc]')) drawCalc(); });
+document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); });
+new MutationObserver(() => { if (document.getElementById('pr-calc') && !document.getElementById('pr-calc').innerHTML) drawCalc(); }).observe(document.getElementById('layer') || document.body, { childList: true, subtree: true });
 // Item photos are shrunk on the phone before saving, so the shared database stays small and fast.
 function shrinkImage(file, max = 360) {
   return new Promise((res, rej) => {
@@ -685,6 +910,12 @@ document.addEventListener('change', async e => {
     const data = await shrinkImage(inp.files[0]);
     S.images[id] = { cat: i.cat, data }; save(); render(); ACT['inv-update']({ id }); toast('התמונה נשמרה');
   } catch (err) { toast('לא הצלחתי לקרוא את התמונה. נסו תמונה אחרת'); }
+});
+document.addEventListener('change', async e => {
+  const inp = e.target.closest('input[data-emp-photo]'); if (!inp || !inp.files || !inp.files[0]) return;
+  const id = inp.dataset.empPhoto; if (id !== session() && !store.isManager()) return openPin();
+  try { const data = await shrinkImage(inp.files[0], 240); S.empPhotos[id] = { data }; save(); closeSheet(); render(); toast('התמונה נשמרה'); }
+  catch (err) { toast('לא הצלחתי לקרוא את התמונה. נסו תמונה אחרת'); }
 });
 document.addEventListener('keydown', e => { if (!document.getElementById('pin')) return; if (/^\d$/.test(e.key)) pinKey(e.key); else if (e.key === 'Backspace') pinKey('del'); else if (e.key === 'Escape') closeSheet(); });
 
