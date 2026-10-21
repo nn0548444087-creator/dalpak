@@ -67,7 +67,8 @@ service cloud.firestore {
 
     match /config/owner {
       allow read: if isEmp();
-      allow create: if isMgr() && request.resource.data.empId == myEmpId();
+      // Set once by a manager; after that only the owner can change it.
+      allow create: if isMgr() && exists(/databases/$(database)/documents/employees/$(request.resource.data.empId));
       allow update, delete: if isOwner();
     }
 
@@ -107,13 +108,17 @@ service cloud.firestore {
             && math.abs(request.resource.data.start - nowMs()) < 300000)
           || (request.resource.data.status == 'pending' && request.resource.data.end <= nowMs()
             && request.resource.data.start < request.resource.data.end)));
+      // Only the owner may edit recorded times. Managers approve, reject, extend or close an open shift.
       // An employee may only close their own open shift, without moving its start.
-      allow update: if isMgr() || (isStaff() && resource.data.empId == myEmpId()
+      allow update: if isOwner()
+        || (isMgr() && (onlyChanges(['status', 'allowUntil'])
+            || (resource.data.status == 'open' && onlyChanges(['end', 'status', 'allowUntil']))))
+        || (isStaff() && resource.data.empId == myEmpId()
           && resource.data.status == 'open' && request.resource.data.status == 'approved'
           && request.resource.data.empId == resource.data.empId
           && request.resource.data.start == resource.data.start
           && request.resource.data.end <= nowMs() + 300000);
-      allow delete: if isMgr();
+      allow delete: if isOwner();
     }
 
     match /inventory/{id} {
