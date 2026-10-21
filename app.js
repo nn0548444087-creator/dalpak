@@ -732,6 +732,18 @@ async function compressVideo(file, onProg) {
   rec.stop(); await done; URL.revokeObjectURL(url);
   return { blob: new Blob(chunks, { type: mime.split(';')[0] }), mime: mime.split(';')[0], poster, dur, orig: v.duration };
 }
+// A small still for the feed. Gives up after 4 seconds so a phone that can't read the video never gets stuck.
+function videoPoster(file) {
+  return new Promise(res => {
+    const url = URL.createObjectURL(file), v = document.createElement('video'); let done = false;
+    const end = p => { if (done) return; done = true; URL.revokeObjectURL(url); res(p || ''); };
+    setTimeout(() => end(''), 4000);
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+    v.onloadeddata = () => { try { v.currentTime = Math.min(0.3, (v.duration || 1) / 2); } catch (e) { end(''); } };
+    v.onseeked = () => { try { const k = Math.min(1, 240 / Math.max(v.videoWidth || 240, v.videoHeight || 240)), c = document.createElement('canvas'); c.width = Math.round((v.videoWidth || 240) * k); c.height = Math.round((v.videoHeight || 240) * k); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); end(c.toDataURL('image/jpeg', 0.6)); } catch (e) { end(''); } };
+    v.onerror = () => end('');
+  });
+}
 const blobB64 = b => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(b); });
 const chunk = (s, n) => { const a = []; for (let i = 0; i < s.length; i += n) a.push(s.slice(i, i + n)); return a; };
 function uploadSheet(type) {
@@ -739,7 +751,7 @@ function uploadSheet(type) {
   const left = leftToday(type);
   sheet(`<h3>העלאה לרילס</h3>
     <div class="seg-wrap" style="margin:10px 0">${[['video', '🎬 סרטון'], ['photos', '🖼 פוסט תמונות']].map(([k, l]) => `<button class="seg ${type === k ? 'on' : ''}" data-action="reel-type" data-t="${k}">${l}</button>`).join('')}</div>
-    <p class="muted" style="font-size:.85rem">${type === 'video' ? `עד ${REEL_MAX_SEC} שניות. הסרטון נדחס בטלפון לפני ההעלאה.` : 'עד 5 תמונות. התמונות נדחסות לפני ההעלאה.'} ${left === Infinity ? '' : `נשארו לך היום: ${left}`}</p>
+    <p class="muted" style="font-size:.85rem">${type === 'video' ? 'הסרטון עולה באיכות המקורית. סרטון ארוך לוקח יותר זמן להעלות.' : 'עד 5 תמונות. התמונות נדחסות לפני ההעלאה.'} ${left === Infinity ? '' : `נשארו לך היום: ${left}`}</p>
     ${left === 0 ? '<p class="banner info">הגעת למכסה היומית. אפשר להעלות שוב מחר.</p>' : `
     <form class="form" data-form="reel" data-type="${type}">
       <label class="btn block">${ic(type === 'video' ? 'camera' : 'plus', 'sm')}${type === 'video' ? 'בחירת סרטון' : 'בחירת תמונות'}<input id="up-f" type="file" accept="${type === 'video' ? 'video/*' : 'image/*'}" ${type === 'photos' ? 'multiple' : ''} hidden data-up="${type}"></label>
@@ -753,13 +765,14 @@ async function prepUpload(inp) {
   const go = document.getElementById('up-go'), prev = document.getElementById('up-prev'); go.disabled = true; pendingUpload = null;
   try {
     if (type === 'video') {
-      setProg(0, 'מכין את הסרטון…');
-      const r = await compressVideo(files[0], f => setProg(f, `דוחס… ${Math.round(f * 100)}%`));
-      if (r.blob.size > 3.2e6) { setProg(1, 'הסרטון עדיין גדול מדי. נסו סרטון קצר יותר'); return; }
-      const b64 = await blobB64(r.blob);
-      pendingUpload = { type, parts: chunk(b64, 700000), meta: { type, mime: r.mime, poster: r.poster, size: r.blob.size, dur: Math.round(r.dur) } };
-      prev.innerHTML = `<video src="${URL.createObjectURL(r.blob)}" playsinline controls muted></video>`;
-      setProg(1, `מוכן · ${(r.blob.size / 1e6).toFixed(1)}MB · ${Math.round(r.dur)} שניות${(r.orig || 0) > REEL_MAX_SEC + 0.5 ? ' (קוצר ל-30 שניות)' : ''}`);
+      // The video goes up exactly as it is: no compression and no length or size limit.
+      const f = files[0]; setProg(0.1, 'מכין את הסרטון…');
+      const poster = await videoPoster(f);
+      const b64 = await blobB64(f);
+      const mime = !f.type || f.type === 'video/quicktime' ? 'video/mp4' : f.type;
+      pendingUpload = { type, parts: chunk(b64, 700000), meta: { type, mime, poster, size: f.size } };
+      prev.innerHTML = `<video src="${URL.createObjectURL(f)}" playsinline controls muted></video>`;
+      setProg(1, `מוכן · ${(f.size / 1e6).toFixed(1)}MB${f.size > 20e6 ? ' · סרטון גדול, ההעלאה תיקח כמה דקות' : ''}`);
     } else {
       const pick = files.slice(0, 5); setProg(0, 'דוחס תמונות…'); const imgs = [];
       for (let i = 0; i < pick.length; i++) { imgs.push(await shrinkImage(pick[i], 1080)); setProg((i + 1) / pick.length, `דוחס תמונות… ${i + 1}/${pick.length}`); }
