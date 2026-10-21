@@ -274,3 +274,53 @@ label.seg{cursor:pointer;text-align:center}
 button.row.av-day{width:100%;border-left:0;border-right:0;border-bottom:0;background:none;text-align:right;font:inherit;color:inherit}
 .av-day.off{background:var(--bad-soft)}
 a.btn{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+
+/* reels */
+.reels-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.reels{display:flex;flex-direction:column;gap:14px}
+.reel{position:relative;border-radius:var(--r);overflow:hidden;background:#000;scroll-snap-align:start;scroll-margin-top:72px}
+.reel-media{position:relative;width:100%;aspect-ratio:9/14;max-height:72vh;background:#0b0f17;display:flex;align-items:center;justify-content:center}
+.reel-media video,.reel-media img{width:100%;height:100%;object-fit:contain;display:block}
+.reel-load{position:absolute;color:#fff9;font-size:.8rem;pointer-events:none}
+.reel.ready .reel-load{display:none}
+.rv-sound{position:absolute;top:10px;left:10px;font-size:1rem;background:#0008;border-radius:999px;padding:4px 8px;pointer-events:none}
+.rp-track{display:flex;width:100%;height:100%;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+.rp-track::-webkit-scrollbar{display:none}
+.rp-slide{flex:0 0 100%;height:100%;scroll-snap-align:center;display:flex;align-items:center;justify-content:center}
+.rp-dots{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:5px;pointer-events:none}
+.rp-dots i{width:6px;height:6px;border-radius:50%;background:#fff6}
+.rp-dots i.on{background:#fff}
+.reel-side{position:absolute;left:8px;bottom:84px;display:flex;flex-direction:column;gap:8px;z-index:2}
+.rx{display:flex;flex-direction:column;align-items:center;gap:1px;background:#0007;border:0;border-radius:999px;color:#fff;width:2.6rem;padding:6px 0;font:inherit}
+.rx span{font-size:1.25rem;line-height:1}
+.rx small{font-size:.7rem;min-height:.8rem}
+.rx.on{background:#fff;color:#111;box-shadow:0 0 0 2px var(--brass)}
+.rx .ic{color:#fff}
+.reel-info{position:absolute;right:0;left:0;bottom:0;padding:34px 12px 12px 60px;background:linear-gradient(transparent,#000c);color:#fff;pointer-events:none}
+.reel-who{display:flex;align-items:center;gap:8px}
+.reel-who small{opacity:.8;font-size:.75rem}
+.reel-cap{margin:6px 0 0;font-size:.9rem;line-height:1.45}
+.mention{color:var(--brass)}
+.reel-info .mention{color:#F2CF8E}
+.cms{max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:12px;margin:10px 0}
+.cm{display:flex;gap:10px;align-items:flex-start}
+.cm.sub{margin-right:34px}
+.cm-b{flex:1;min-width:0;font-size:.9rem;line-height:1.45}
+.cm-act{display:flex;gap:12px}
+.cm-act .link-btn{font-size:.8rem;padding:0}
+.danger-t{color:var(--bad)!important}
+.cm-reply{font-size:.8rem;color:var(--muted);display:flex;gap:8px;align-items:center}
+.mention-wrap{position:relative}
+.mention-box{position:absolute;bottom:100%;right:0;left:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--rb);box-shadow:var(--shadow);max-height:12rem;overflow:auto;z-index:5}
+.mention-box button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;padding:8px 10px;font:inherit;text-align:right;color:var(--ink)}
+.mention-box button+button{border-top:1px solid var(--line)}
+.up-prev{display:flex;gap:6px;overflow-x:auto}
+.up-prev img{height:84px;border-radius:8px}
+.up-prev video{max-height:200px;max-width:100%;border-radius:8px;background:#000}
+.up-prog{position:relative;height:26px;border-radius:999px;background:var(--sunk);overflow:hidden}
+.up-prog i{position:absolute;inset:0 auto 0 0;width:0;background:var(--accent-soft);transition:width .2s}
+.up-prog span{position:relative;display:block;text-align:center;font-size:.8rem;line-height:26px;font-weight:600}
+.crew-p.me .av{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--brass)}
+/* read-only "בקרה" account: hide controls that change data */
+.is-viewer .btn.primary:not([data-action=nav]),.is-viewer .btn.danger,.is-viewer .btn.brass,.is-viewer form .btn,.is-viewer a.btn,.is-viewer label.btn,.is-viewer .check,.is-viewer .stars button{display:none!important}
+.is-viewer .rx[data-action=react]{pointer-events:none}
