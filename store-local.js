@@ -65,13 +65,16 @@ export function createLocalStore() {
   const load = () => {
     try { const raw = localStorage.getItem(LS); S = raw ? JSON.parse(raw) : seed(); } catch (e) { S = seed(); }
     S.settings = S.settings || { pin: '0000' };
-    S.notes = S.notes || {}; S.images = S.images || {};
+    S.notes = S.notes || {}; S.images = S.images || {}; S.empPhotos = S.empPhotos || {};
+    S.suppliers = S.suppliers || []; S.orders = S.orders || []; S.unavail = S.unavail || [];
     try { session = localStorage.getItem(LS_SESSION); } catch (e) { session = null; }
     if (session && !S.employees.some(e => e.id === session)) session = null;
     S.currentUser = session; persist();
   };
   load();
-  mgr = !!(S.employees.find(e => e.id === session) || {}).admin;
+  mgr = store_perm();
+  function store_perm() { const e = S.employees.find(x => x.id === session) || {}; return !!(e.admin || e.owner); }
+  S.openShifts = S.shifts.filter(s => s.status === 'open');
   const store = {
     mode: 'local',
     get S() { return S; },
@@ -79,17 +82,19 @@ export function createLocalStore() {
     needsSetup: () => false,
     session: () => session,
     isManager: () => mgr,
-    isPermAdmin: () => !!(S.employees.find(e => e.id === session) || {}).admin,
+    isPermAdmin: () => { const e = S.employees.find(x => x.id === session) || {}; return !!(e.admin || e.owner); },
+    isOwner: () => !!(S.employees.find(e => e.id === session) || {}).owner,
+    async claimOwner() { const e = S.employees.find(x => x.id === session); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; mgr = true; persist(); return { ok: true }; },
     loaded: () => true,
     pinLength: () => S.settings.pin.length,
     onChange: cb => listeners.push(cb),
     onError: () => { },
-    save: () => { persist(); },
+    save: () => { S.openShifts = S.shifts.filter(s => s.status === 'open'); persist(); },
     async login(phone, num) {
       const p = normPhone(phone), n = String(num).trim();
       const e = S.employees.find(x => normPhone(x.phone) === p && String(x.num) === n);
       if (!e) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
-      setSession(e.id); mgr = !!e.admin; persist(); return { ok: true };
+      setSession(e.id); mgr = !!(e.admin || e.owner); persist(); return { ok: true };
     },
     async logout() { setSession(null); mgr = false; persist(); },
     async enterManager(pin) { if (store.isPermAdmin() || pin === S.settings.pin) { mgr = true; return true; } return false; },
