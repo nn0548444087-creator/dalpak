@@ -87,7 +87,7 @@ const local = () => store.mode === 'local';
 const ePhoto = id => (S.empPhotos && S.empPhotos[id] && S.empPhotos[id].data) || '';
 const avatar = (e, cls = '') => ePhoto(e.id) ? `<span class="av ${cls} ph"><img src="${ePhoto(e.id)}" alt=""></span>` : `<span class="av ${cls}">${esc((e.name || '?')[0])}</span>`;
 const onShiftNow = () => (local() ? S.shifts : (S.openShifts || [])).filter(s => s.status === 'open');
-const hasOwner = () => S.employees.some(e => e.owner);
+const hasOwner = () => store.hasOwner ? store.hasOwner() : S.employees.some(e => e.owner);
 const canSetFlags = () => !!(store.isOwner?.() || !hasOwner());
 const VAT = 0.18;
 // Deliveries and bonuses are added on top of the hourly pay.
@@ -382,7 +382,7 @@ function vHours() {
   return back() + `<h2 class="vt">שעות עובדים ושכר</h2>
   <div class="seg-wrap"><button class="seg ${hoursRange === 'week' ? 'on' : ''}" data-action="range" data-r="week">השבוע</button><button class="seg ${hoursRange === 'month' ? 'on' : ''}" data-action="range" data-r="month">${monthName(mk)}</button></div>
   <div class="stats"><div class="stat"><span>סה״כ שעות</span><b class="num">${fmtH(sum(rows.map(r => r.h)))}</b></div><div class="stat"><span>סה״כ שכר</span><b class="num">${money(sum(rows.map(r => r.pay)))}</b></div></div>
-  <div class="list">${rows.map(r => `<div class="row tap" data-action="emp-shifts" data-id="${r.e.id}"><div class="row-main"><div class="row-title">${esc(r.e.name)} <span class="muted num">#${esc(r.e.num)}</span> ${r.open ? '<span class="pill ok">במשמרת</span>' : ''}</div>
+  <div class="list">${rows.map(r => `<div class="row tap" data-action="emp-shifts" data-id="${r.e.id}"><div class="row-main"><div class="row-title">${esc(r.e.name)} ${r.e.num ? `<span class="muted num">#${esc(r.e.num)}</span>` : ''} ${r.open ? '<span class="pill ok">במשמרת</span>' : ''}</div>
     <div class="row-sub num">${r.sh.length} משמרות · ${fmtH(r.h)} ש׳ · ${money(r.e.wage)} לשעה${r.dl ? ` · משלוחים ${money(r.dl)}` : ''}${r.bn ? ` · בונוסים ${money(r.bn)}` : ''}</div>
     ${hoursRange === 'week' ? `<div class="row-sub num">${days.map(d => { const x = sum(r.sh.filter(s => sameDay(s.start, d)).map(dur)); return `<span class="pill ${x ? 'acc' : ''}">${new Date(d).toLocaleDateString('he-IL', { weekday: 'narrow' })} ${x ? fmtH(x) : '–'}</span>`; }).join('')}</div>` : ''}</div>
     <div class="num" style="font-weight:700">${money(r.pay)}</div></div>`).join('')}</div>
@@ -432,7 +432,11 @@ const delivForm = () => `<form class="form" data-form="deliv">
   <div class="field"><label for="dv-s">ספק</label><input id="dv-s" name="supplier" placeholder="לא חובה"></div>
   <button class="btn primary">הוספה לאספקה</button></form>`;
 const nextNum = () => String(Math.max(100, ...S.employees.map(e => parseInt(e.num) || 0)) + 1);
-const empFields = (e, p) => `
+// An employee whose login details are private (no phone in the shared list) shows only name and wage.
+const isPriv = e => !!(e && e.id && !e.phone);
+const empFields = (e, p) => isPriv(e) ? `
+  <div class="field"><label for="${p}-n">שם מלא</label><input id="${p}-n" name="name" required value="${esc(e.name || '')}"></div>
+  <div class="field"><label for="${p}-w">שכר לשעה (₪)</label><input id="${p}-w" name="wage" type="number" min="0" step="0.5" value="${e.wage ?? 50}" required></div>` : `
   <div class="field"><label for="${p}-n">שם מלא</label><input id="${p}-n" name="name" required value="${esc(e.name || '')}"></div>
   <div class="two"><div class="field"><label for="${p}-u">מספר עובד</label><input id="${p}-u" name="num" inputmode="numeric" required value="${esc(e.num || nextNum())}"></div>
   <div class="field"><label for="${p}-w">שכר לשעה (₪)</label><input id="${p}-w" name="wage" type="number" min="0" step="0.5" value="${e.wage ?? 50}" required></div></div>
@@ -443,6 +447,7 @@ const empFields = (e, p) => `
     ? `<p class="hint">יש לך הרשאת ניהול קבועה. מנהל אחר יכול להסיר אותה.</p>`
     : `<label class="check-row"><input type="checkbox" name="admin" ${e.admin ? 'checked' : ''}><span class="grow"><b>הרשאת ניהול קבועה</b><small>העובד נכנס תמיד במצב מנהל, בלי להקיש סיסמה. נכנס לתוקף בפתיחה הבאה של האפליקציה.</small></span></label>`}`;
 function validateEmp(f, id) {
+  if (f.phone === undefined) return !f.name.trim() ? 'צריך למלא שם' : !(parseFloat(f.wage) >= 0) ? 'הזן שכר תקין' : null;
   const ph = normPhone(f.phone), num = String(f.num).trim();
   if (!f.name.trim()) return 'צריך למלא שם';
   if (!/^\d{1,6}$/.test(num)) return 'מספר עובד צריך להיות עד 6 ספרות';
@@ -487,7 +492,7 @@ function vStaff() {
   return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים · ${S.employees.length}</h2>
   ${!hasOwner() ? `<div class="card"><b>${ic('crown', 'sm')} בעל הבית</b><p class="muted" style="margin:6px 0 10px">בעל הבית הוא מנהל קבוע שאי אפשר להסיר, והוא היחיד שקובע מי מנהל קבוע. עדיין לא נקבע.</p><div class="field" style="margin-bottom:10px"><label for="ow-e">מי בעל הבית?</label><select id="ow-e">${S.employees.map(e => `<option value="${e.id}" ${e.id === session() ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div><button class="btn brass" data-action="owner-claim">קביעה כבעל הבית</button></div>` : ''}
   <div class="list">${S.employees.map(e => `<div class="row tap" data-action="emp-edit" data-id="${e.id}">${avatar(e, 'lg')}<div class="row-main"><div class="row-title">${esc(e.name)}</div>
-    <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.owner ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
+    <div class="row-sub num">${e.num ? `<span>מס׳ ${esc(e.num)}</span>` : ''}${e.phone ? `<span class="ltr">${fmtPhone(e.phone)}</span>` : ''}<span>${money(e.wage)} לשעה</span>${e.owner ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
     <span class="btn sm">עריכה</span></div>`).join('')}</div>
   <button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>
   ${viewer ? '' : `<div class="card" style="margin-top:14px"><b>${ic('eye', 'sm')} משתמש בקרה (צפייה בלבד)</b>
@@ -551,7 +556,7 @@ function vReport() {
   <p class="lead">${range} · משמרות מאושרות ומשמרות פתוחות (עד עכשיו). בקשות שממתינות לאישור לא נכללות.</p>
   <div class="stats"><div class="stat"><span>סה״כ שעות</span><b class="num">${fmtH(sum(rows.map(r => r.h)))}</b></div><div class="stat"><span>סה״כ לתשלום</span><b class="num">${money(sum(rows.map(r => r.pay)))}</b></div></div>
   <div class="actions" style="margin:12px 0"><button class="btn" data-action="report-copy">${ic('copy', 'sm')}העתקה</button><button class="btn" data-action="report-csv">${ic('down', 'sm')}קובץ לאקסל</button><button class="btn" data-action="report-new">שינוי טווח</button></div>
-  ${rows.map(r => `<div class="card rep"><div class="card-head"><b>${esc(r.e.name)} <span class="muted num">#${esc(r.e.num)}</span></b><span class="num">${fmtH(r.h)} ש׳ · <b>${money(r.pay)}</b></span></div>
+  ${rows.map(r => `<div class="card rep"><div class="card-head"><b>${esc(r.e.name)} ${r.e.num ? `<span class="muted num">#${esc(r.e.num)}</span>` : ''}</b><span class="num">${fmtH(r.h)} ש׳ · <b>${money(r.pay)}</b></span></div>
     <div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th class="l">שכר</th></tr></thead><tbody>
     ${r.sh.map(s => `<tr><td>${fmtD(s.start)}</td><td>${fmtT(s.start)}</td><td>${s.end ? fmtT(s.end) + (sameDay(s.start, s.end) ? '' : ' (+1)') : 'פתוחה'}</td><td>${fmtH(dur(s))}</td><td class="l">${money(dur(s) * r.e.wage)}</td></tr>`).join('')}
     <tr class="tot"><td>${r.sh.length} משמרות</td><td></td><td></td><td>${fmtH(r.h)}</td><td class="l">${money(r.hp)}</td></tr></tbody></table></div>
@@ -559,7 +564,7 @@ function vReport() {
     <div class="rep-sum num"><span>שעות ${money(r.hp)}</span><span>משלוחים ${money(r.dl)}</span><span>בונוסים ${money(r.bn)}</span><b>סה״כ ${money(r.pay)}</b></div>
     <div class="muted num" style="font-size:.8rem;margin-top:6px">${money(r.e.wage)} לשעה</div></div>`).join('') || '<div class="list"><div class="row muted">אין משמרות בטווח הזה.</div></div>'}`;
 }
-const reportText = () => { const rows = reportData(); return `דוח שכר · שאבעס מרקט · ${new Date(repCfg.from).toLocaleDateString('he-IL')} – ${new Date(repCfg.to).toLocaleDateString('he-IL')}\n\n` + rows.map(r => `${r.e.name} (#${r.e.num}) · ${fmtH(r.h)} שעות · שעות ${money(r.hp)} · משלוחים ${money(r.dl)} · בונוסים ${money(r.bn)} · סה״כ ${money(r.pay)}\n` + r.sh.map(s => `  ${new Date(s.start).toLocaleDateString('he-IL')} ${fmtT(s.start)}–${s.end ? fmtT(s.end) : 'פתוחה'} · ${fmtH(dur(s))} ש׳ · ${money(dur(s) * r.e.wage)}`).join('\n') + r.ex.map(x => `\n  ${new Date(x.ts).toLocaleDateString('he-IL')} ${EXTRA[x.kind] || ''}${x.note ? ' (' + x.note + ')' : ''} · ${money(+x.amount || 0)}`).join('')).join('\n\n') + `\n\nסה״כ: ${fmtH(sum(rows.map(r => r.h)))} שעות · ${money(sum(rows.map(r => r.pay)))}`; };
+const reportText = () => { const rows = reportData(); return `דוח שכר · שאבעס מרקט · ${new Date(repCfg.from).toLocaleDateString('he-IL')} – ${new Date(repCfg.to).toLocaleDateString('he-IL')}\n\n` + rows.map(r => `${r.e.name}${r.e.num ? ` (#${r.e.num})` : ''} · ${fmtH(r.h)} שעות · שעות ${money(r.hp)} · משלוחים ${money(r.dl)} · בונוסים ${money(r.bn)} · סה״כ ${money(r.pay)}\n` + r.sh.map(s => `  ${new Date(s.start).toLocaleDateString('he-IL')} ${fmtT(s.start)}–${s.end ? fmtT(s.end) : 'פתוחה'} · ${fmtH(dur(s))} ש׳ · ${money(dur(s) * r.e.wage)}`).join('\n') + r.ex.map(x => `\n  ${new Date(x.ts).toLocaleDateString('he-IL')} ${EXTRA[x.kind] || ''}${x.note ? ' (' + x.note + ')' : ''} · ${money(+x.amount || 0)}`).join('')).join('\n\n') + `\n\nסה״כ: ${fmtH(sum(rows.map(r => r.h)))} שעות · ${money(sum(rows.map(r => r.pay)))}`; };
 
 /* ---------- days an employee cannot work ---------- */
 function vAvail() {
@@ -1079,7 +1084,7 @@ const ACT = {
   grade: d => { S.grades[d.emp] = +d.v; save(); render(); },
   'emp-edit': d => needMgr(() => {
     const e = byId(S.employees, d.id); sheet(`<div class="emp-head">${avatar(e, 'xl')}<div><h3>עריכת עובד</h3><label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת תמונה' : 'הוספת תמונה'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div><form class="form" data-form="emp-edit" data-id="${e.id}" style="margin-top:12px">${empFields(e, 'ee')}<button class="btn primary block">שמירה</button></form>
-    ${e.owner ? '' : e.id !== session() ? `<button class="btn danger block" style="margin-top:10px" data-action="emp-del" data-id="${e.id}">הסרת העובד</button>` : '<p class="hint" style="margin-top:10px">אי אפשר להסיר את המשתמש שמחובר כרגע.</p>'}`);
+    ${e.owner || isPriv(e) ? '' : e.id !== session() ? `<button class="btn danger block" style="margin-top:10px" data-action="emp-del" data-id="${e.id}">הסרת העובד</button>` : '<p class="hint" style="margin-top:10px">אי אפשר להסיר את המשתמש שמחובר כרגע.</p>'}`);
   }),
   'emp-del': d => { const e = byId(S.employees, d.id); sheet(`<h3>להסיר את ${esc(e.name)}?</h3><p class="muted" style="margin-bottom:16px">העובד לא יוכל להתחבר יותר. המשמרות שכבר נרשמו יישארו בסיכומי השכר.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="emp-del-yes" data-id="${e.id}">הסרה</button></div>`); },
   'emp-del-yes': d => needMgr(() => { const e = byId(S.employees, d.id); S.employees = S.employees.filter(x => x.id !== d.id); save(); closeSheet(); render(); toast(`${e.name} הוסר/ה מרשימת העובדים`); }),
@@ -1230,6 +1235,7 @@ const FORMS = {
   },
   'emp-edit': (f, el) => {
     if (!manager) return openPin(); const e = byId(S.employees, el.dataset.id), err = validateEmp(f, e.id); if (err) return toast(err);
+    if (f.phone === undefined) { Object.assign(e, { name: f.name.trim(), wage: parseFloat(f.wage) }); save(); closeSheet(); render(); return toast('פרטי העובד נשמרו'); }
     const keepAdmin = (e.id === session() && e.admin) || e.owner || (!canSetFlags() && e.admin);
     Object.assign(e, { name: f.name.trim(), num: String(f.num).trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage) });
     if (keepAdmin || (f.admin && canSetFlags())) e.admin = true; else delete e.admin;
