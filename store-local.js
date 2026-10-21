@@ -59,6 +59,8 @@ function seed() {
 
 export function createLocalStore() {
   let S, session = null, mgr = false;
+  // Demo videos stay in memory only: phone storage is too small for them.
+  const PARTS = new Map();
   const listeners = [];
   const persist = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) { } };
   const setSession = id => { session = id; S.currentUser = id; try { id ? localStorage.setItem(LS_SESSION, id) : localStorage.removeItem(LS_SESSION); } catch (e) { } };
@@ -67,8 +69,9 @@ export function createLocalStore() {
     S.settings = S.settings || { pin: '0000' };
     S.notes = S.notes || {}; S.images = S.images || {}; S.empPhotos = S.empPhotos || {};
     S.suppliers = S.suppliers || []; S.orders = S.orders || []; S.unavail = S.unavail || [];
+    S.reels = (S.reels || []).filter(r => r.type === 'photos' || PARTS.has(r.id)); S.reelComments = S.reelComments || [];
     try { session = localStorage.getItem(LS_SESSION); } catch (e) { session = null; }
-    if (session && !S.employees.some(e => e.id === session)) session = null;
+    if (session && session !== 'viewer' && !S.employees.some(e => e.id === session)) session = null;
     S.currentUser = session; persist();
   };
   load();
@@ -83,6 +86,11 @@ export function createLocalStore() {
     session: () => session,
     isManager: () => mgr,
     isPermAdmin: () => { const e = S.employees.find(x => x.id === session) || {}; return !!(e.admin || e.owner); },
+    isViewer: () => session === 'viewer',
+    async setViewer(phone, num) { S.viewerLogin = phone ? { phone, num: String(num) } : null; persist(); return { ok: true }; },
+    async uploadReel(meta, parts, onProg) { const id = uid(); PARTS.set(id, parts); S.reels.push({ id, ...meta, by: session, ts: Date.now(), ready: true, parts: parts.length, ...(meta.type === 'photos' ? { inline: parts } : {}) }); onProg && onProg(1); persist(); return { ok: true, id }; },
+    async loadParts(id) { const r = S.reels.find(x => x.id === id); return PARTS.get(id) || (r && r.inline) || []; },
+    async deleteReel(r) { PARTS.delete(r.id); S.reels = S.reels.filter(x => x.id !== r.id); S.reelComments = S.reelComments.filter(c => c.reel !== r.id); persist(); },
     isOwner: () => !!(S.employees.find(e => e.id === session) || {}).owner,
     async claimOwner() { const e = S.employees.find(x => x.id === session); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; mgr = true; persist(); return { ok: true }; },
     loaded: () => true,
@@ -93,6 +101,7 @@ export function createLocalStore() {
     async login(phone, num) {
       const p = normPhone(phone), n = String(num).trim();
       const e = S.employees.find(x => normPhone(x.phone) === p && String(x.num) === n);
+      if (!e && S.viewerLogin && S.viewerLogin.phone === p && S.viewerLogin.num === n) { setSession('viewer'); mgr = false; persist(); return { ok: true }; }
       if (!e) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
       setSession(e.id); mgr = !!(e.admin || e.owner); persist(); return { ok: true };
     },
