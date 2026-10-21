@@ -9,10 +9,10 @@ import {
 } from 'firebase/firestore';
 import { uid as newId, normPhone } from './util.js';
 
-const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments'];
+const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras'];
 // Collections kept in S as plain objects keyed by document id.
 const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos' };
-const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments'];
+const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras'];
 // Shown to everyone, never written from this list (each phone writes only its own shifts).
 const READONLY = { openShifts: 'openShifts' };
 const PUBLIC_CATS = ['drinks', 'salads'];
@@ -36,7 +36,7 @@ export function createCloudStore(config) {
   const auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
   const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
-  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], currentUser: null };
+  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], extras: [], currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
   let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, owner = false, viewer = false, viewerLogins = [], setupDone = true, pinLen = 4;
   const changeCbs = [], errorCbs = [];
@@ -87,6 +87,7 @@ export function createCloudStore(config) {
         ['empPhotos', c('empPhotos')],
         ['reels', c('reels')],
         ['reelComments', c('reelComments')],
+        ['extras', query(c('extras'), where('empId', '==', empId))],
         ['itemImages', query(c('itemImages'), where('cat', 'in', PUBLIC_CATS))]];
     specs.forEach(([name, q]) => {
       unsubs.push(onSnapshot(q, snap => { apply(name, snap); emit(); }, e => fail(e)));
