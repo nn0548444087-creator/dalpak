@@ -41,10 +41,14 @@ service cloud.firestore {
         && request.resource.data.get('owner', false) == resource.data.get('owner', false)
         && request.resource.data.get('viewer', false) == resource.data.get('viewer', false);
     }
+    // Only the owner (or anyone, before an owner exists) may mark a login as the owner's.
     function ownerFlagOk() {
       return request.resource.data.get('owner', false) == false
-        || (existsAfter(ownerDoc()) && getAfter(ownerDoc()).data.empId == request.resource.data.empId);
+        || (canSetFlags() && existsAfter(ownerDoc()) && getAfter(ownerDoc()).data.empId == request.resource.data.empId);
     }
+    // The owner's own records: nobody but the owner may read or change them.
+    function notOwnerRec() { return resource.data.get('owner', false) != true || isOwner(); }
+    function isOwnerEmp(id) { return exists(ownerDoc()) && get(ownerDoc()).data.empId == id; }
     function noFlags() {
       return request.resource.data.get('admin', false) == false && request.resource.data.get('viewer', false) == false;
     }
@@ -65,19 +69,21 @@ service cloud.firestore {
         && request.resource.data.pin is string && request.resource.data.pin.matches('^[0-9]{4,6}$');
     }
 
+    // Who the owner is stays private; config/public only says that one exists.
     match /config/owner {
-      allow read: if isEmp();
+      allow read: if isOwner();
       // Set once by a manager; after that only the owner can change it.
       allow create: if isMgr() && exists(/databases/$(database)/documents/employees/$(request.resource.data.empId));
       allow update, delete: if isOwner();
     }
 
     // Login records hold the employee numbers used to sign in, so even the viewer cannot list them.
+    // The owner's record is hidden from other managers too: they list only records marked owner:false.
     match /logins/{phone} {
-      allow get: if isMgr() || (signedIn() && exists(sessDoc()) && sess().phone == phone);
-      allow list: if isMgr();
+      allow get: if (isMgr() && notOwnerRec()) || (signedIn() && exists(sessDoc()) && sess().phone == phone);
+      allow list: if isMgr() && resource.data.owner == false;
       allow create: if bootstrapping() || (isMgr() && ownerFlagOk() && (canSetFlags() || noFlags()));
-      allow update: if isMgr() && ownerFlagOk() && (canSetFlags() || flagsSame());
+      allow update: if isMgr() && notOwnerRec() && ownerFlagOk() && (canSetFlags() || flagsSame());
       allow delete: if isMgr() && (canSetFlags() || (resource.data.get('admin', false) == false
         && resource.data.get('owner', false) == false && resource.data.get('viewer', false) == false));
     }
@@ -95,9 +101,13 @@ service cloud.firestore {
         && getAfter(adminDoc()).data.pin == request.resource.data.pin;
     }
 
+    // The owner's employee record carries no phone, number or rights; other managers may change only its name and wage.
     match /employees/{id} {
       allow read: if isEmp();
-      allow write: if isMgr() || bootstrapping();
+      allow create: if isMgr() || bootstrapping();
+      allow update: if isMgr() && (!isOwnerEmp(id) || isOwner()
+        || !request.resource.data.keys().hasAny(['phone', 'num', 'admin', 'owner']));
+      allow delete: if isMgr() && (!isOwnerEmp(id) || isOwner());
     }
 
     match /shifts/{id} {
