@@ -186,8 +186,9 @@ service cloud.firestore {
       // The author may finish the upload; anyone may set only their own reaction; managers anything.
       allow update: if isMgr()
         || (isStaff() && resource.data.by == myEmpId() && onlyChanges(['ready', 'parts', 'size', 'caption', 'tags']))
-        || (isStaff() && onlyChanges(['reactions'])
-            && request.resource.data.get('reactions', {}).diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([myEmpId()]));
+        || (isStaff() && onlyChanges(['reactions', 'views'])
+            && request.resource.data.get('reactions', {}).diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([myEmpId()])
+            && request.resource.data.get('views', {}).diff(resource.data.get('views', {})).affectedKeys().hasOnly([myEmpId()]));
       allow delete: if isMgr() || (isStaff() && resource.data.by == myEmpId());
     }
     match /reelParts/{id} {
