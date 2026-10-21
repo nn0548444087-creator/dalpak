@@ -382,7 +382,7 @@ function vHours() {
   return back() + `<h2 class="vt">שעות עובדים ושכר</h2>
   <div class="seg-wrap"><button class="seg ${hoursRange === 'week' ? 'on' : ''}" data-action="range" data-r="week">השבוע</button><button class="seg ${hoursRange === 'month' ? 'on' : ''}" data-action="range" data-r="month">${monthName(mk)}</button></div>
   <div class="stats"><div class="stat"><span>סה״כ שעות</span><b class="num">${fmtH(sum(rows.map(r => r.h)))}</b></div><div class="stat"><span>סה״כ שכר</span><b class="num">${money(sum(rows.map(r => r.pay)))}</b></div></div>
-  <div class="list">${rows.map(r => `<div class="row"><div class="row-main"><div class="row-title">${esc(r.e.name)} <span class="muted num">#${esc(r.e.num)}</span> ${r.open ? '<span class="pill ok">במשמרת</span>' : ''}</div>
+  <div class="list">${rows.map(r => `<div class="row tap" data-action="emp-shifts" data-id="${r.e.id}"><div class="row-main"><div class="row-title">${esc(r.e.name)} <span class="muted num">#${esc(r.e.num)}</span> ${r.open ? '<span class="pill ok">במשמרת</span>' : ''}</div>
     <div class="row-sub num">${r.sh.length} משמרות · ${fmtH(r.h)} ש׳ · ${money(r.e.wage)} לשעה${r.dl ? ` · משלוחים ${money(r.dl)}` : ''}${r.bn ? ` · בונוסים ${money(r.bn)}` : ''}</div>
     ${hoursRange === 'week' ? `<div class="row-sub num">${days.map(d => { const x = sum(r.sh.filter(s => sameDay(s.start, d)).map(dur)); return `<span class="pill ${x ? 'acc' : ''}">${new Date(d).toLocaleDateString('he-IL', { weekday: 'narrow' })} ${x ? fmtH(x) : '–'}</span>`; }).join('')}</div>` : ''}</div>
     <div class="num" style="font-weight:700">${money(r.pay)}</div></div>`).join('')}</div>
@@ -485,7 +485,7 @@ function vAdmin() {
 function vStaff() {
   if (!manager) return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים</h2>` + locked('עובדים');
   return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים · ${S.employees.length}</h2>
-  ${!hasOwner() ? `<div class="card"><b>${ic('crown', 'sm')} בעל הבית</b><p class="muted" style="margin:6px 0 10px">בעל הבית הוא מנהל קבוע שאי אפשר להסיר, והוא היחיד שקובע מי מנהל קבוע. עדיין לא נקבע.</p><button class="btn brass" data-action="owner-claim">אני בעל הבית</button></div>` : ''}
+  ${!hasOwner() ? `<div class="card"><b>${ic('crown', 'sm')} בעל הבית</b><p class="muted" style="margin:6px 0 10px">בעל הבית הוא מנהל קבוע שאי אפשר להסיר, והוא היחיד שקובע מי מנהל קבוע. עדיין לא נקבע.</p><div class="field" style="margin-bottom:10px"><label for="ow-e">מי בעל הבית?</label><select id="ow-e">${S.employees.map(e => `<option value="${e.id}" ${e.id === session() ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div><button class="btn brass" data-action="owner-claim">קביעה כבעל הבית</button></div>` : ''}
   <div class="list">${S.employees.map(e => `<div class="row tap" data-action="emp-edit" data-id="${e.id}">${avatar(e, 'lg')}<div class="row-main"><div class="row-title">${esc(e.name)}</div>
     <div class="row-sub num"><span>מס׳ ${esc(e.num)}</span><span class="ltr">${fmtPhone(e.phone)}</span><span>${money(e.wage)} לשעה</span>${e.owner ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
     <span class="btn sm">עריכה</span></div>`).join('')}</div>
@@ -952,8 +952,20 @@ const ACT = {
     <div class="field"><label for="bk-c">מחלקה</label><select id="bk-c" name="cat">${catOpts('drinks', SUBS[0])}</select></div>
     <div class="field"><label for="bk-t">רשימת פריטים · כל שורה פריט</label><textarea id="bk-t" name="list" rows="10" required placeholder="קולה פחית&#10;ספרייט פחית"></textarea><small>שורות ריקות ופריטים שכבר קיימים במחלקה מדולגים. הכמות מתחילה ב-0.</small></div>
     <button class="btn primary block">הוספה למלאי</button></form>`)),
-  'owner-claim': () => needMgr(() => sheet(`<h3>${ic('crown', 'sm')} לקבוע אותך כבעל הבית?</h3><p class="muted" style="margin:8px 0 16px">${esc(cur().name)} יהיה מנהל קבוע שאי אפשר להסיר, והיחיד שיכול לתת או להסיר הרשאת ניהול קבועה לעובדים אחרים.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn brass" data-action="owner-yes">כן, אני בעל הבית</button></div>`)),
-  'owner-yes': async () => { const r = await store.claimOwner(); closeSheet(); render(); toast(r.error || 'נקבעת כבעל הבית'); },
+  'owner-claim': () => needMgr(() => { const id = (document.getElementById('ow-e') || {}).value || session(), e = emp(id);
+    sheet(`<h3>${ic('crown', 'sm')} לקבוע את ${esc(e.name)} כבעל הבית?</h3><p class="muted" style="margin:8px 0 16px">${esc(e.name)} יהיה מנהל קבוע שאי אפשר להסיר, היחיד שיכול לתת או להסיר הרשאת ניהול קבועה, והיחיד שיכול לערוך משמרות שנרשמו. אחרי הקביעה רק בעל הבית יכול לשנות אותה.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn brass" data-action="owner-yes" data-id="${e.id}">כן, לקבוע</button></div>`); }),
+  'owner-yes': async d => { const r = await (store.setOwner ? store.setOwner(d.id || session()) : store.claimOwner()); closeSheet(); render(); toast(r.error || `${emp(d.id || session()).name} נקבע/ה כבעל הבית`); },
+  'emp-shifts': d => { const e = emp(d.id), now = Date.now(), ws = weekStart(now), mk = monthKey(now), own = !!store.isOwner?.();
+    const list = S.shifts.filter(s => s.empId === e.id && s.status !== 'rejected' && (hoursRange === 'week' ? s.start >= ws : monthKey(s.start) === mk)).sort((a, b) => b.start - a.start);
+    sheet(`<h3>${esc(e.name)} · משמרות ${hoursRange === 'week' ? 'השבוע' : 'החודש'}</h3>${own ? '' : '<p class="hint">רק בעל הבית יכול לערוך משמרות.</p>'}<div class="list" style="margin-top:10px">${list.map(s => `<div class="row"><div class="row-main"><div class="row-title">${fmtD(s.start)} ${s.end && !sameDay(s.start, s.end) ? '→ ' + fmtD(s.end) : ''}</div><div class="row-sub num">${fmtT(s.start)} – ${s.end ? fmtT(s.end) : 'פתוחה'} · ${fmtH(dur(s))} ש׳ ${s.status === 'pending' ? '<span class="pill pend">ממתין</span>' : ''}${s.editedBy ? '<span class="pill">נערך</span>' : ''}</div></div>${own ? `<button class="btn sm" data-action="shift-edit" data-id="${s.id}">עריכה</button>` : ''}</div>`).join('') || '<div class="row muted">אין משמרות בטווח הזה.</div>'}</div>`); },
+  'shift-edit': d => { if (!store.isOwner?.()) return toast('רק בעל הבית יכול לערוך משמרות'); const s = byId(S.shifts, d.id); if (!s) return; const hm = t => { const x = new Date(t); return pad(x.getHours()) + ':' + pad(x.getMinutes()); };
+    sheet(`<h3>עריכת משמרת · ${esc(emp(s.empId).name)}</h3><form class="form" data-form="shift-edit" data-id="${s.id}" style="margin-top:12px">
+    <div class="two"><div class="field"><label for="se-d1">תאריך כניסה</label><input id="se-d1" name="d1" type="date" value="${dateKey(s.start)}" required></div><div class="field"><label for="se-t1">שעת כניסה</label><input id="se-t1" name="t1" type="time" value="${hm(s.start)}" required></div></div>
+    <div class="two"><div class="field"><label for="se-d2">תאריך יציאה</label><input id="se-d2" name="d2" type="date" value="${s.end ? dateKey(s.end) : ''}" ${s.end ? 'required' : ''}></div><div class="field"><label for="se-t2">שעת יציאה</label><input id="se-t2" name="t2" type="time" value="${s.end ? hm(s.end) : ''}" ${s.end ? 'required' : ''}></div></div>
+    ${s.end ? '' : '<p class="hint">המשמרת עדיין פתוחה. אם ממלאים יציאה, היא תיסגר.</p>'}
+    <button class="btn primary block">שמירת השינויים</button></form><button class="btn danger block" style="margin-top:10px" data-action="shift-del" data-id="${s.id}">מחיקת המשמרת</button>`); },
+  'shift-del': d => { const s = byId(S.shifts, d.id); if (!s) return; sheet(`<h3>למחוק את המשמרת?</h3><p class="muted" style="margin-bottom:16px">${esc(emp(s.empId).name)} · ${fmtD(s.start)} ${fmtT(s.start)}. השעות יירדו מהשכר.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="shift-del-yes" data-id="${s.id}">מחיקה</button></div>`); },
+  'shift-del-yes': d => { if (!store.isOwner?.()) return; S.shifts = S.shifts.filter(s => s.id !== d.id); save(); closeSheet(); render(); toast('המשמרת נמחקה'); },
   'my-task': d => { const t = byId(S.tasks, d.id); if (!t || t.empId !== session()) return; t.done = !t.done; t.seen = true; if (t.done) t.doneAt = Date.now(); else delete t.doneAt; save(); render(); toast(t.done ? 'כל הכבוד! המשימה סומנה כבוצעה' : 'המשימה חזרה לפתוחות'); },
   'report-new': () => needMgr(() => { const d = new Date(), f = repCfg ? repCfg.from : dateKey(new Date(d.getFullYear(), d.getMonth(), 1)), t = repCfg ? repCfg.to : dateKey(d);
     sheet(`<h3>דוח שכר מפורט</h3><form class="form" data-form="report" style="margin-top:12px"><div class="two"><div class="field"><label for="rp-f">מתאריך</label><input id="rp-f" name="from" type="date" value="${f}" required></div><div class="field"><label for="rp-t">עד תאריך</label><input id="rp-t" name="to" type="date" value="${t}" required></div></div>
@@ -1079,6 +1091,16 @@ const ACT = {
   'ds-reset': () => { DS = { ...DS_DEFAULT }; saveDS(); applyDisplay(); render(); toast('ההגדרות הוחזרו לברירת המחדל'); }
 };
 const FORMS = {
+  'shift-edit': (f, el) => {
+    if (!store.isOwner?.()) return toast('רק בעל הבית יכול לערוך משמרות'); const s = byId(S.shifts, el.dataset.id); if (!s) return;
+    const a = new Date(f.d1 + 'T' + f.t1).getTime(), hasEnd = f.d2 && f.t2, b = hasEnd ? new Date(f.d2 + 'T' + f.t2).getTime() : null;
+    if (!a) return toast('תאריך או שעת כניסה לא תקינים');
+    if (hasEnd && !(b > a)) return toast('היציאה חייבת להיות אחרי הכניסה');
+    if (hasEnd && b - a > 24 * H) return toast('משמרת של יותר מ-24 שעות. בדקו את התאריכים');
+    if (hasEnd && b > Date.now() + 5 * 6e4) return toast('שעת היציאה לא יכולה להיות בעתיד');
+    s.start = a; if (hasEnd) { s.end = b; if (s.status === 'open') s.status = 'approved'; delete s.allowUntil; }
+    s.editedBy = session(); s.editedAt = Date.now(); save(); closeSheet(); render(); toast('המשמרת עודכנה');
+  },
   extra: f => { S.extras.push({ id: uid(), empId: session(), ts: Date.now(), kind: 'delivery', note: (f.note || '').trim(), status: 'pending' }); save(); closeSheet(); render(); toast('נשלח למנהל לאישור'); },
   'extra-ok': (f, el) => { if (!manager) return openPin(); const x = byId(S.extras, el.dataset.id), a = parseFloat(f.amount); if (!x || !(a >= 0)) return toast('צריך סכום תקין');
     Object.assign(x, { status: 'approved', amount: Math.round(a * 100) / 100, kind: f.kind === 'bonus' ? 'bonus' : 'delivery', by: session(), at: Date.now() }); save(); render(); toast(`אושר ${EXTRA[x.kind]} של ${money(x.amount)}`); },
@@ -1223,7 +1245,7 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'reel-tap', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
