@@ -189,21 +189,33 @@ service cloud.firestore {
         || (isStaff() && onlyChanges(['reactions', 'views'])
             && request.resource.data.get('reactions', {}).diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([myEmpId()])
             && request.resource.data.get('views', {}).diff(resource.data.get('views', {})).affectedKeys().hasOnly([myEmpId()]));
-      allow delete: if isMgr() || (isStaff() && resource.data.by == myEmpId());
+      // Only the author deletes a post; managers only clear posts older than 72 hours.
+      allow delete: if (isStaff() && resource.data.by == myEmpId()) || (isMgr() && resource.data.ts < nowMs() - 259200000);
     }
     match /reelParts/{id} {
       allow read: if isEmp();
       allow create: if isStaff() && exists(reelDoc(request.resource.data.reel))
         && get(reelDoc(request.resource.data.reel)).data.by == myEmpId()
         && request.resource.data.data is string && request.resource.data.data.size() < 900000;
-      allow delete: if isMgr() || (isStaff() && exists(reelDoc(resource.data.reel))
-        && get(reelDoc(resource.data.reel)).data.by == myEmpId());
+      allow delete: if exists(reelDoc(resource.data.reel)) && (
+        (isStaff() && get(reelDoc(resource.data.reel)).data.by == myEmpId())
+        || (isMgr() && get(reelDoc(resource.data.reel)).data.ts < nowMs() - 259200000));
     }
     match /reelComments/{id} {
       allow read: if isEmp();
       allow create: if isStaff() && request.resource.data.by == myEmpId()
         && request.resource.data.text is string && request.resource.data.text.size() <= 500;
-      allow delete: if isMgr() || (isStaff() && resource.data.by == myEmpId());
+      allow delete: if isMgr() || (isStaff() && (resource.data.by == myEmpId()
+        || (exists(reelDoc(resource.data.reel)) && get(reelDoc(resource.data.reel)).data.by == myEmpId())));
+    }
+
+    // Deliveries and bonuses: an employee reports a delivery, a manager approves it with an amount.
+    match /extras/{id} {
+      allow read: if canSee() || (isEmp() && resource.data.empId == myEmpId());
+      allow create: if isMgr() || (isStaff() && request.resource.data.empId == myEmpId()
+        && request.resource.data.status == 'pending' && !('amount' in request.resource.data));
+      allow update: if isMgr();
+      allow delete: if isMgr() || (isStaff() && resource.data.empId == myEmpId() && resource.data.status == 'pending');
     }
   }
 }
