@@ -131,7 +131,7 @@ const MORE_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 
 const MGR_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
-  const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length;
+  const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length + newActivity().length;
   // The bell is there for everyone: employees see their own tasks, managers also see approvals.
   const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ['alerts', 'התראות', 'bell'], ['more', 'עוד', 'menu']];
   document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'alerts' && n ? `<span class="badge">${n}</span>` : ''}</button>`).join('');
@@ -307,7 +307,10 @@ function vAlerts() {
   const MS = myMentions().slice(0, 10), seenAt = mentionSeen();
   if (MS.length && MS[0].ts > seenAt) setTimeout(() => { try { localStorage.setItem(MENTION_SEEN, String(Date.now())); } catch (e) { } renderNav(); }, 1500);
   const MN = MS.length ? `<h3 class="sec">תייגו אותך ברילס</h3><div class="list">${MS.map(m => `<div class="row tap" data-action="reel-open" data-id="${m.reel}">${avatar(emp(m.by), 'md')}<div class="row-main"><div class="row-title">${esc(emp(m.by).name)} תייג/ה אותך ${m.kind === 'comment' ? 'בתגובה' : 'בפוסט'} ${m.ts > seenAt ? '<span class="pill acc">חדש</span>' : ''}</div><div class="row-sub">${esc(m.text.slice(0, 80))} · ${ago(m.ts)}</div></div>${ic('chev', 'sm chev')}</div>`).join('')}</div>` : '';
-  if (!manager) return `<h2 class="vt">התראות</h2>` + MN + (TK || (MN ? '' : '<div class="list"><div class="row muted">אין כרגע משימות או התראות בשבילך.</div></div>'));
+  const AC = myActivity(), fresh2 = new Set(newActivity().map(a => a.key));
+  if (fresh2.size) setTimeout(() => { try { localStorage.setItem(ACT_SEEN, JSON.stringify(AC.map(a => a.key).slice(-500))); } catch (e) { } renderNav(); }, 1500);
+  const AV = AC.length ? `<h3 class="sec">תגובות לפוסטים שלך</h3><div class="list">${AC.sort((a, b) => (fresh2.has(b.key) - fresh2.has(a.key)) || (b.ts - a.ts)).slice(0, 15).map(a => `<div class="row tap" data-action="reel-open" data-id="${a.reel}">${avatar(emp(a.by), 'md')}<div class="row-main"><div class="row-title">${esc(emp(a.by).name)} ${a.emoji ? `הגיב/ה ${a.emoji} לפוסט שלך` : 'הגיב/ה לפוסט שלך'} ${fresh2.has(a.key) ? '<span class="pill acc">חדש</span>' : ''}</div>${a.text ? `<div class="row-sub">${esc(a.text.slice(0, 80))} · ${ago(a.ts)}</div>` : ''}</div>${ic('chev', 'sm chev')}</div>`).join('')}</div>` : '';
+  if (!manager) return `<h2 class="vt">התראות</h2>` + AV + MN + (TK || (MN || AV ? '' : '<div class="list"><div class="row muted">אין כרגע משימות או התראות בשבילך.</div></div>'));
   const { long, reqs, drinks, pins, count } = alerts();
   const sums = S.notifications.filter(n => n.type === 'summary').sort((a, b) => b.key.localeCompare(a.key));
   const info = S.notifications.filter(n => (n.type === 'info' && n.kind !== 'pin') || n.type === 'note').sort((a, b) => b.ts - a.ts).slice(0, 12);
@@ -333,7 +336,7 @@ function vAlerts() {
       ${n.rows.map(r => `<tr><td>${esc(r.num || '')}</td><td>${esc(r.name)}</td><td>${r.count}</td><td>${fmtH(r.hours)}</td><td>${money(r.wage)}</td><td class="l">${money(r.pay)}</td></tr>`).join('')}
       <tr class="tot"><td></td><td>סה״כ</td><td>${sum(n.rows.map(r => r.count))}</td><td>${fmtH(n.hours)}</td><td></td><td class="l">${money(n.total)}</td></tr></tbody></table></div></details></div>`).join('');
   return `<h2 class="vt">התראות</h2>
-  ${MN}${TK}
+  ${AV}${MN}${TK}
   <h3 class="sec">דורש טיפול · ${count}</h3>
   ${count ? PF + L + R + D : '<div class="list"><div class="row muted">אין כרגע משהו שמחכה לאישור.</div></div>'}
   <h3 class="sec">סיכומי שכר · נוצרים אוטומטית מה-1 לחודש</h3>
@@ -569,6 +572,18 @@ function myMentions() {
   return out.sort((a, b) => b.ts - a.ts);
 }
 const newMentions = () => viewer ? [] : myMentions().filter(m => m.ts > mentionSeen());
+// Reactions and comments other people left on my posts. Reactions have no time, so "new" means not seen on this phone.
+const ACT_SEEN = 'dalpak-activity-seen';
+const actSeen = () => { try { return new Set(JSON.parse(localStorage.getItem(ACT_SEEN) || '[]')); } catch (e) { return new Set(); } };
+function myActivity() {
+  const me = session(), out = [];
+  liveReels().filter(r => r.by === me).forEach(r => {
+    Object.entries(r.reactions || {}).forEach(([who, k]) => { if (who !== me) out.push({ key: `${r.id}|${who}|${k}`, reel: r.id, by: who, emoji: (REACTS.find(x => x[0] === k) || [])[1] || '', ts: 0 }); });
+    S.reelComments.filter(c => c.reel === r.id && c.by !== me && !(c.tags || []).includes(me)).forEach(c => out.push({ key: 'c|' + c.id, reel: r.id, by: c.by, text: c.text, ts: c.ts }));
+  });
+  return out;
+}
+const newActivity = () => { if (viewer) return []; const s = actSeen(); return myActivity().filter(a => !s.has(a.key)); };
 // @mentions: text keeps "@שם", tags keep the employee ids that were picked from the list.
 const withMentions = (text, tags) => {
   let h = esc(text);
@@ -593,14 +608,15 @@ function reelCard(r) {
       ${!viewer && (manager || r.by === session()) ? `<button class="rx" data-action="reel-del" data-id="${r.id}" aria-label="מחיקה"><span>🗑</span></button>` : ''}
     </div>
     <div class="reel-info">
-      <div class="reel-who">${avatar(a, 'md')}<b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small></div>
+      <div class="reel-who">${avatar(a, 'md')}<b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small>${!viewer && (manager || r.by === session()) ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
       ${r.caption ? `<p class="reel-cap">${withMentions(r.caption, r.tags)}</p>` : ''}
     </div>
   </article>`;
 }
 function vReels() {
   const list = liveReels();
-  return `<div class="reels-head"><h2 class="vt">רילס</h2>${viewer ? '<span class="pill">צפייה בלבד</span>' : `<button class="btn primary sm" data-action="reel-new">${ic('plus', 'sm')}העלאה</button>`}</div>
+  return `<div class="reels-head"><h2 class="vt">רילס</h2>${viewer ? '<span class="pill">צפייה בלבד</span>' : ''}</div>
+  ${viewer ? '' : `<button class="reel-fab" data-action="reel-new" aria-label="ריל או פוסט חדש">${ic('plus')}</button>`}
   <p class="lead">סרטונים ופוסטים של הצוות. כל פריט נמחק מהאפליקציה אחרי 72 שעות.</p>
   <div class="reels">${list.map(reelCard).join('') || '<div class="list"><div class="row muted">עדיין אין רילס. היו הראשונים להעלות!</div></div>'}</div>`;
 }
