@@ -354,3 +354,19 @@ body:has(.reels-feed){overflow:hidden}
 .hbell .badge{top:-5px;left:-5px}
 /* small phones: header chips show icons only so the store name keeps its room */
 @media (max-width:430px){.top-actions .chip .cl{display:none}.top-actions .chip{padding:5px 7px}.top-actions{gap:6px}}
+/* products: barcode, supplier price and selling price */
+.prods{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.prod{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:10px;cursor:pointer}
+.prod-top{display:flex;gap:12px;align-items:center}
+.prod-img{width:64px;height:64px;flex:none;border-radius:10px;object-fit:contain;background:var(--sunk)}
+.prod-img.ph{display:grid;place-items:center;color:var(--muted)}
+.prod-main{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.prod-name{font-weight:700;line-height:1.3}
+.prod-bc{background:#fff;border-radius:8px;padding:6px;min-height:40px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:.85rem}
+.bc-svg{width:100%;max-width:300px;height:64px;display:block;margin:auto}
+.prod-prices{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.prod-cost{font-size:.8rem;color:var(--muted)}
+.prod-sell{font-size:1.6rem;font-weight:800;color:var(--ink)}
+.prod-sug{color:var(--muted);font-size:.75rem;margin-top:-6px}
+.bc-prev{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;min-height:60px;justify-content:center;margin-bottom:12px}
+.bc-prev .bc-svg{height:84px}
