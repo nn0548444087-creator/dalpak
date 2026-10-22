@@ -88,6 +88,8 @@ export function createLocalStore() {
     hasOwner: () => S.employees.some(e => e.owner),
     isPermAdmin: () => { const e = S.employees.find(x => x.id === session) || {}; return !!(e.admin || e.owner); },
     isViewer: () => session === 'viewer',
+    isPoster: () => session === 'news',
+    async setPoster(phone, num) { S.posterLogin = phone ? { phone, num: String(num) } : null; persist(); return { ok: true }; },
     async setViewer(phone, num) { S.viewerLogin = phone ? { phone, num: String(num) } : null; persist(); return { ok: true }; },
     async uploadReel(meta, parts, onProg) { const id = uid(); PARTS.set(id, parts); S.reels.push({ id, ...meta, by: session, ts: Date.now(), ready: true, parts: parts.length, ...(meta.type === 'photos' ? { inline: parts } : {}) }); onProg && onProg(1); persist(); return { ok: true, id }; },
     async loadParts(id) { const r = S.reels.find(x => x.id === id); return PARTS.get(id) || (r && r.inline) || []; },
@@ -104,6 +106,7 @@ export function createLocalStore() {
       const p = normPhone(phone), n = String(num).trim();
       const e = S.employees.find(x => normPhone(x.phone) === p && String(x.num) === n);
       if (!e && S.viewerLogin && S.viewerLogin.phone === p && S.viewerLogin.num === n) { setSession('viewer'); mgr = false; persist(); return { ok: true }; }
+      if (!e && S.posterLogin && S.posterLogin.phone === p && S.posterLogin.num === n) { setSession('news'); mgr = false; persist(); return { ok: true }; }
       if (!e) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
       setSession(e.id); mgr = !!(e.admin || e.owner); persist(); return { ok: true };
     },
