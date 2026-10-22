@@ -338,6 +338,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 /* read-only "בקרה" account: hide controls that change data */
 .is-viewer .btn.primary:not([data-action=nav]),.is-viewer .btn.danger,.is-viewer .btn.brass,.is-viewer form .btn,.is-viewer a.btn,.is-viewer label.btn,.is-viewer .check,.is-viewer .stars button{display:none!important}
 .is-viewer .rx[data-action=react]{pointer-events:none}
+.is-poster .rx[data-action=react]{display:none}
 .reel-fab{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + env(safe-area-inset-bottom,0px));z-index:7;width:3.6rem;height:3.6rem;border-radius:50%;border:3px solid var(--surface);background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.28)}
 .reel-fab .ic{width:1.7rem;height:1.7rem;stroke-width:2.4}
 .view-reels{padding-bottom:0}
