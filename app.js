@@ -1,6 +1,6 @@
 import './style.css';
 import { createStore } from './store.js';
-import { H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary } from './util.js';
+import { H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary, barcodeBits, barcodeSvg } from './util.js';
 
 const ROOT = document.documentElement; ROOT.lang = 'he'; ROOT.dir = 'rtl';
 const LS_DISPLAY = 'dalpak-display';
@@ -59,6 +59,7 @@ const NEWS = { id: 'news', name: 'חדשות מרקט', num: '', phone: '', wage
 const POSTER_OK = ['nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
 P.play = '<path d="M8 5v14l11-7z"/>';
+P.tag = '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>';
 P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
 P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
 P.users = '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>';
@@ -136,8 +137,8 @@ function alerts() {
 }
 
 /* ---------- shell ---------- */
-const MORE_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
-const MGR_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
+const MORE_VIEWS = ['products', 'hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
+const MGR_VIEWS = ['products', 'hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
   if (poster) { document.getElementById('nav').innerHTML = `<button class="tab on" data-action="nav" data-view="reels">${ic('play')}רילס</button><button class="tab" data-action="logout">${ic('out')}יציאה</button>`; return; }
@@ -171,7 +172,7 @@ function render() {
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks') invTab = 'drinks'; }
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, report: vReport, avail: vAvail, reels: vReels };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels();
 }
@@ -371,7 +372,7 @@ function vAlerts() {
 function vMore() {
   const it = (v, i, l, lockd) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${lockd && !manager ? ic('lock', 'sm') : ''}${ic('chev', 'sm chev')}</button>`;
   return `<h2 class="vt">תפריט</h2>
-  ${manager ? `<div class="list">${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
+  ${manager ? `<div class="list">${it('products', 'tag', 'מוצרים, ברקודים ומחירים', 1)}${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
   <div class="list">${it('avail', 'cal', manager ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד', 0)}${it('display', 'eye', 'הגדרות תצוגה', 0)}
   ${viewer ? '' : manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
@@ -536,6 +537,48 @@ function vSupplier() {
 const orderTotal = o => sum((o.lines || []).map(l => withVat(l) * l.qty));
 const orderRow = o => { const s = byId(S.suppliers, o.supplierId) || { name: 'ספק שנמחק' }, st = ORDER_ST[o.status] || ORDER_ST.draft; return `<div class="row tap" data-action="order-open" data-id="${o.id}"><div class="row-main"><div class="row-title">${esc(s.name)} · ${fmtD(o.ts)}</div>
   <div class="row-sub num"><span class="pill ${st[1]}">${st[0]}</span><span>${(o.lines || []).length} שורות</span><span>${money(orderTotal(o))} כולל מע״מ</span></div></div>${ic('chev', 'sm chev')}</div>`; };
+/* ---------- products: barcode, supplier price and selling price (managers) ---------- */
+let prodQ = '', prodCat = 'all';
+const normName = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+// The supplier product with the same name as the shop item, if there is one.
+function supMatch(i) {
+  const n = normName(i.name);
+  for (const s of S.suppliers) { const p = (s.products || []).find(p => normName(p.name) === n); if (p) return { s, p }; }
+  return null;
+}
+const priceOf = id => (S.prices && S.prices[id]) || {};
+const catLabel = i => i.cat === 'drinks' ? (i.sub && i.sub !== 'שתייה' ? `שתייה › ${i.sub}` : 'שתייה') : (CATS[i.cat] || i.cat);
+// Supplier price incl. VAT: what was typed for the item, otherwise the matching supplier's price.
+function costOf(i) { const pr = priceOf(i.id); if (pr.cost != null && pr.cost !== '') return { v: +pr.cost, from: '' }; const m = supMatch(i); return m ? { v: withVat(m.p), from: m.s.name } : null; }
+function sellOf(i) { const pr = priceOf(i.id); if (pr.price != null && pr.price !== '') return { v: +pr.price, suggested: false }; const c = costOf(i); return c ? { v: Math.round(c.v * 1.5 * 10) / 10, suggested: true } : null; }
+function prodCard(i) {
+  const pr = priceOf(i.id), c = costOf(i), s = sellOf(i);
+  return `<div class="prod tap" data-action="prod-open" data-id="${i.id}">
+    <div class="prod-top">${img(i.id) ? `<img class="prod-img" src="${img(i.id)}" alt="">` : `<span class="prod-img ph">${ic('box')}</span>`}
+      <div class="prod-main"><div class="prod-name">${esc(i.name)}</div><span class="pill">${esc(catLabel(i))}</span></div></div>
+    <div class="prod-bc">${pr.barcode ? barcodeSvg(pr.barcode, { h: 52 }) : '<span class="muted">אין ברקוד · לחצו להוספה</span>'}</div>
+    <div class="prod-prices"><span class="prod-cost">${c ? `ספק: ${money(c.v)}${c.from ? ` · ${esc(c.from)}` : ''}` : 'אין מחיר ספק'}</span><b class="prod-sell">${s ? money(s.v) : '—'}</b></div>
+    ${s && s.suggested ? '<small class="prod-sug">מחיר מוצע (×1.5 ממחיר הספק)</small>' : ''}
+  </div>`;
+}
+function prodList() {
+  const q = normName(prodQ);
+  return S.inventory.filter(i => (prodCat === 'all' || i.cat === prodCat) && (!q || normName(i.name).includes(q) || String(priceOf(i.id).barcode || '').includes(q)))
+    .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+}
+function vProducts() {
+  if (!manager) return back() + `<h2 class="vt">מוצרים</h2>` + locked('מוצרים, ברקודים ומחירים');
+  const list = prodList();
+  return back() + `<h2 class="vt">מוצרים · ${S.inventory.length}</h2>
+  <div class="field"><input id="prod-q" type="search" placeholder="חיפוש לפי שם או ברקוד" value="${esc(prodQ)}" data-prod-q aria-label="חיפוש מוצר"></div>
+  <div class="seg-wrap">${[['all', 'הכל'], ...Object.entries(CATS)].map(([k, l]) => `<button class="seg ${prodCat === k ? 'on' : ''}" data-action="prod-cat" data-c="${k}">${l}</button>`).join('')}</div>
+  <div class="prods" id="prods">${list.map(prodCard).join('') || '<div class="list"><div class="row muted">לא נמצאו מוצרים.</div></div>'}</div>`;
+}
+function bcPreview(v) {
+  const box = document.getElementById('bc-prev'); if (!box) return;
+  const r = barcodeBits(v);
+  box.innerHTML = r && r.bits ? barcodeSvg(v, { h: 70 }) + `<small class="muted">${r.type}${r.note ? ' · ' + esc(r.note) : ''}</small>` : r && r.note ? `<small class="danger-t">${esc(r.note)}</small>` : '<small class="muted">הקלידו מספר והברקוד ייווצר כאן</small>';
+}
 function vOrders() {
   const os = [...S.orders].sort((a, b) => b.ts - a.ts);
   return back() + `<h2 class="vt">הזמנות מספקים</h2>
@@ -998,6 +1041,19 @@ const ACT = {
   'viewer-set': () => needMgr(() => sheet(`<h3>משתמש בקרה</h3><form class="form" data-form="viewer" style="margin-top:12px"><div class="two"><div class="field"><label for="vw-p">טלפון</label><input id="vw-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.phone : '0000000000')}" required></div><div class="field"><label for="vw-n">מספר עובד</label><input id="vw-n" name="num" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.num : '1234')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-set': () => needMgr(() => sheet(`<h3>חדשות מרקט</h3><p class="muted" style="margin-top:6px">פרטי הכניסה של חשבון הרילסים.</p><form class="form" data-form="poster" style="margin-top:12px"><div class="two"><div class="field"><label for="ps-p">טלפון</label><input id="ps-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.phone : '')}" required></div><div class="field"><label for="ps-n">מספר עובד</label><input id="ps-n" name="num" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.num : '')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-off': () => needMgr(async () => { const r = await store.setPoster(null); render(); toast(r.error || 'חשבון חדשות מרקט כובה'); }),
+  'prod-cat': d => { prodCat = d.c; render(); },
+  'prod-open': d => {
+    const i = byId(S.inventory, d.id); if (!i) return; const pr = priceOf(i.id), m = supMatch(i);
+    sheet(`<div class="prod-top" style="margin-bottom:10px">${img(i.id) ? `<img class="prod-img" src="${img(i.id)}" alt="">` : ''}<div class="prod-main"><h3>${esc(i.name)}</h3><span class="pill">${esc(catLabel(i))}</span></div></div>
+    <form class="form" data-form="prod-price" data-id="${i.id}">
+      <div class="field"><label for="pp-b">ברקוד</label><input id="pp-b" name="barcode" class="ltr" inputmode="numeric" autocomplete="off" value="${esc(pr.barcode || '')}" placeholder="למשל 7290000066318" data-bc></div>
+      <div class="bc-prev" id="bc-prev"></div>
+      <div class="two"><div class="field"><label for="pp-c">מחיר מהספק (כולל מע״מ)</label><input id="pp-c" name="cost" type="number" min="0" step="0.01" inputmode="decimal" value="${pr.cost ?? ''}" placeholder="${m ? withVat(m.p).toFixed(2) : ''}"><small>${m ? `מהמחירון של ${esc(m.s.name)}: ${money(withVat(m.p))}. השאירו ריק כדי להשתמש בו.` : 'אין מוצר בשם הזה אצל הספקים.'}</small></div>
+      <div class="field"><label for="pp-s">מחיר מכירה</label><input id="pp-s" name="price" type="number" min="0" step="0.1" inputmode="decimal" value="${pr.price ?? ''}"><button type="button" class="link-btn" data-action="prod-x15">חישוב ×1.5 ממחיר הספק</button></div></div>
+      <button class="btn primary block">שמירה</button></form>`);
+    bcPreview(pr.barcode || '');
+  },
+  'prod-x15': () => { const c = document.getElementById('pp-c'), s = document.getElementById('pp-s'); const v = parseFloat(c.value || c.placeholder); if (!(v > 0)) return toast('צריך מחיר ספק כדי לחשב'); s.value = (Math.round(v * 1.5 * 10) / 10).toFixed(1); },
   'viewer-off': () => needMgr(async () => { const r = await store.setViewer(null); render(); toast(r.error || 'משתמש הבקרה כובה'); }),
   nav: d => go(d.view === 'login' ? 'clock' : d.view),
   back: d => { if (history.state && history.state.d > 0) history.back(); else go(d.view === 'login' ? 'clock' : d.view, true); },
@@ -1275,6 +1331,16 @@ const FORMS = {
   },
   deliv: f => { S.deliveries.push({ id: uid(), date: f.date, name: f.name.trim(), qty: f.qty.trim(), supplier: f.supplier.trim(), arrived: false }); save(); closeSheet(); render(); toast('האספקה נוספה'); },
   item: f => { const [cat, sub] = f.cat.split('|'); S.inventory.push({ id: uid(), cat, sub: sub || null, name: f.name.trim(), qty: +f.qty || 0, min: +f.min || 0 }); save(); closeSheet(); render(); toast('הפריט נוסף למלאי'); },
+  'prod-price': (f, el) => {
+    if (!manager) return openPin(); const id = el.dataset.id, bc = String(f.barcode || '').trim();
+    const r = barcodeBits(bc); if (bc && !(r && r.bits)) return toast((r && r.note) || 'הברקוד לא תקין');
+    const dup = bc && S.inventory.find(x => x.id !== id && String(priceOf(x.id).barcode || '') === bc); if (dup) return toast(`הברקוד הזה כבר שייך ל${dup.name}`);
+    const num = v => v === '' || v == null ? null : Math.max(0, Math.round(parseFloat(v) * 100) / 100);
+    const rec = { barcode: bc, cost: num(f.cost), price: num(f.price) };
+    S.prices = S.prices || {};
+    if (!rec.barcode && rec.cost == null && rec.price == null) delete S.prices[id]; else S.prices[id] = rec;
+    save(); closeSheet(); render(); toast('פרטי המוצר נשמרו');
+  },
   'item-edit': (f, el) => {
     if (!manager) return openPin(); const i = byId(S.inventory, el.dataset.id); if (!i) return; const [cat, sub] = f.cat.split('|');
     if (!f.name.trim()) return toast('צריך למלא שם');
@@ -1305,13 +1371,17 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-sound', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-sound', 'reel-open', 'order-open', 'prod-open', 'prod-cat', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
 document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); if (e.target.closest('[data-calc]')) drawCalc(); });
 document.addEventListener('change', e => { if (e.target.matches('[data-segpick]')) e.target.closest('.seg-wrap').querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked)); });
+document.addEventListener('input', e => {
+  if (e.target.matches('[data-bc]')) bcPreview(e.target.value);
+  if (e.target.matches('[data-prod-q]')) { prodQ = e.target.value; const box = document.getElementById('prods'); if (box) box.innerHTML = prodList().map(prodCard).join('') || '<div class="list"><div class="row muted">לא נמצאו מוצרים.</div></div>'; }
+});
 document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
 document.addEventListener('change', e => { if (e.target.matches('input[data-up]')) prepUpload(e.target); });
 document.addEventListener('scroll', e => { const t = e.target; if (!t.classList || !t.classList.contains('rp-track')) return; const i = Math.round(Math.abs(t.scrollLeft) / t.clientWidth); t.parentElement.querySelectorAll('.rp-dots i').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
