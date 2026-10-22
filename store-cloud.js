@@ -9,9 +9,9 @@ import {
 } from 'firebase/firestore';
 import { uid as newId, normPhone } from './util.js';
 
-const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras'];
+const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras', 'prices'];
 // Collections kept in S as plain objects keyed by document id.
-const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos' };
+const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos', prices: 'prices' };
 const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras'];
 // Shown to everyone, never written from this list (each phone writes only its own shifts).
 const READONLY = { openShifts: 'openShifts' };
@@ -36,7 +36,7 @@ export function createCloudStore(config) {
   const auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
   const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
-  const S = { employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], extras: [], currentUser: null };
+  const S = { prices: {}, employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], extras: [], currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
   // poster = the "חדשות מרקט" account, which may only post reels.
   let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, owner = false, viewer = false, poster = false, viewerLogins = [], setupDone = true, pinLen = 4;
@@ -102,7 +102,7 @@ export function createCloudStore(config) {
   }
   function resetState() {
     unsubs.forEach(u => u()); unsubs = [];
-    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.openShifts = [];
+    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.openShifts = [];
     synced = {}; loadedCols = new Set(); namesSynced = null; S.names = {};
     COLS.forEach(c => synced[c] = new Map());
   }
@@ -153,7 +153,7 @@ export function createCloudStore(config) {
     const sets = [], dels = [];
     if (viewer) return;
     // The poster account only ever writes its own profile photo here; reels go through uploadReel.
-    const cols = poster ? ['empPhotos'] : mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory'].includes(c));
+    const cols = poster ? ['empPhotos'] : mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory', 'prices'].includes(c));
     for (const col of cols) {
       const want = desired(col), have = synced[col] || new Map();
       for (const [id, data] of want) { const s = stable(data); if (have.get(id) !== s) { sets.push([col, id, data]); have.set(id, s); } }
