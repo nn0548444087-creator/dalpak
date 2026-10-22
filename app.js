@@ -53,6 +53,10 @@ new MutationObserver(() => {
 }).observe(ROOT, { attributes: true, attributeFilter: ['data-theme'] });
 
 let viewer = false;
+// The "חדשות מרקט" account: it can only post reels and sees nothing else in the app.
+let poster = false;
+const NEWS = { id: 'news', name: 'חדשות מרקט', num: '', phone: '', wage: 0 };
+const POSTER_OK = ['nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
 P.play = '<path d="M8 5v14l11-7z"/>';
 P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
@@ -76,7 +80,7 @@ const fmtH = h => { const m = Math.max(0, Math.round(h * 60)); return Math.floor
 const money = n => '₪' + (Math.round(n * 100) / 100).toLocaleString('he-IL', { maximumFractionDigits: 2 });
 const monthName = k => { const [y, m] = k.split('-'); return new Date(+y, +m - 1, 1).toLocaleDateString('he-IL', { month: 'long', year: 'numeric' }); };
 const toLocalInput = t => { const d = new Date(t); return dateKey(t) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
-const emp = id => S.employees.find(e => e.id === id) || { name: 'עובד', wage: 50, num: '', phone: '' };
+const emp = id => id === 'news' ? NEWS : S.employees.find(e => e.id === id) || (S.names && S.names[id] ? { id, name: S.names[id], wage: 0, num: '', phone: '' } : { name: 'עובד', wage: 50, num: '', phone: '' });
 const session = () => store && store.session();
 const cur = () => session() === 'viewer' ? { id: 'viewer', name: 'בקרה', num: '', phone: '', wage: 0 } : emp(session());
 const first = n => String(n).split(' ')[0];
@@ -136,6 +140,7 @@ const MORE_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 
 const MGR_VIEWS = ['hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
+  if (poster) { document.getElementById('nav').innerHTML = `<button class="tab on" data-action="nav" data-view="reels">${ic('play')}רילס</button><button class="tab" data-action="logout">${ic('out')}יציאה</button>`; return; }
   const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length + newActivity().length;
   // The bell is there for everyone: employees see their own tasks, managers also see approvals.
   const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ['more', 'עוד', 'menu']];
@@ -146,8 +151,9 @@ function renderNav() {
 function render() {
   renderPending = false;
   if (!store) return;
-  S = store.S; viewer = !!store.isViewer?.(); manager = store.isManager() || viewer;
-  document.body.classList.toggle('is-viewer', viewer);
+  S = store.S; viewer = !!store.isViewer?.(); poster = !!store.isPoster?.(); manager = !poster && (store.isManager() || viewer);
+  document.body.classList.toggle('is-viewer', viewer); document.body.classList.toggle('is-poster', poster);
+  if (poster && session() && view !== 'display') view = 'reels';
   const brand = `<div class="brand"><img class="mark" src="./logo.png" alt=""><div><b>שאבעס מרקט</b><small>ניהול חנות${local() ? ' · גרסת דמו' : ''}</small></div></div>`;
   const hdr = document.getElementById('hdr'), main = document.getElementById('main');
   if (booting) { hdr.innerHTML = brand; main.innerHTML = `<div class="view"><div class="lock"><p class="muted">טוען נתונים…</p></div></div>`; renderNav(); return; }
@@ -159,9 +165,9 @@ function render() {
   checkMonthly();
   const me = cur();
   const bell = `<button class="hbell ${view === 'alerts' ? 'on' : ''}" id="hbell" data-action="nav" data-view="alerts" aria-label="התראות">${ic('bell')}<span class="badge" id="hbadge" hidden></span></button>`;
-  hdr.innerHTML = brand.replace(/<\/div>$/, bell + '</div>') + `
+  hdr.innerHTML = (poster ? brand : brand.replace(/<\/div>$/, bell + '</div>')) + `
     <div class="top-actions">
-      ${viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}<span class="cl">נעל</span></button>` : `<button class="chip" data-action="pin" aria-label="מנהל">${ic('lock', 'sm')}<span class="cl">מנהל</span></button>`}
+      ${poster ? '' : viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}<span class="cl">נעל</span></button>` : `<button class="chip" data-action="pin" aria-label="מנהל">${ic('lock', 'sm')}<span class="cl">מנהל</span></button>`}
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks') invTab = 'drinks'; }
@@ -495,6 +501,9 @@ function vStaff() {
     <div class="row-sub num">${e.num ? `<span>מס׳ ${esc(e.num)}</span>` : ''}${e.phone ? `<span class="ltr">${fmtPhone(e.phone)}</span>` : ''}<span>${money(e.wage)} לשעה</span>${e.owner ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
     <span class="btn sm">עריכה</span></div>`).join('')}</div>
   <button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>
+  ${viewer ? '' : `<div class="card" style="margin-top:14px"><b>${ic('play', 'sm')} חדשות מרקט (העלאת רילסים בלבד)</b>
+    <p class="muted" style="margin:6px 0 10px">חשבון שיכול רק להעלות רילסים ופוסטים ולמחוק את שלו. לא רואה שום דבר אחר באפליקציה.${S.posterLogin ? ` פעיל: טלפון <span class="ltr">${esc(S.posterLogin.phone)}</span> · מספר עובד ${esc(S.posterLogin.num)}` : ' כרגע כבוי.'}</p>
+    <div class="actions"><button class="btn" data-action="poster-set">${S.posterLogin ? 'שינוי פרטים' : 'הפעלה'}</button>${S.posterLogin ? '<button class="btn danger" data-action="poster-off">כיבוי</button>' : ''}</div></div>`}
   ${viewer ? '' : `<div class="card" style="margin-top:14px"><b>${ic('eye', 'sm')} משתמש בקרה (צפייה בלבד)</b>
     <p class="muted" style="margin:6px 0 10px">חשבון אחד שאפשר להתחבר אליו מכמה מכשירים. רואה את כל הנתונים, לא משנה כלום ולא מוציא דוחות.${S.viewerLogin ? ` פעיל: טלפון <span class="ltr">${esc(S.viewerLogin.phone)}</span> · מספר עובד ${esc(S.viewerLogin.num)}` : ' כרגע כבוי.'}</p>
     ${canSetFlags() ? `<div class="actions"><button class="btn" data-action="viewer-set">${S.viewerLogin ? 'שינוי פרטים' : 'הפעלה'}</button>${S.viewerLogin ? '<button class="btn danger" data-action="viewer-off">כיבוי</button>' : ''}</div>` : '<p class="hint">רק בעל הבית יכול להפעיל או לשנות.</p>'}</div>`}`;
@@ -589,7 +598,7 @@ const MEDIA = new Map();
 let pendingUpload = null, replyTo = null, mentionTags = new Map(), reelsObs = null;
 const liveReels = () => S.reels.filter(r => r.ready && Date.now() - r.ts < REEL_TTL).sort((a, b) => b.ts - a.ts);
 const myToday = type => S.reels.filter(r => r.by === session() && r.type === type && sameDay(r.ts, Date.now())).length;
-const leftToday = type => manager ? Infinity : Math.max(0, DAY_LIMIT[type] - myToday(type));
+const leftToday = type => manager || poster ? Infinity : Math.max(0, DAY_LIMIT[type] - myToday(type));
 const MENTION_SEEN = 'dalpak-mention-seen';
 const mentionSeen = () => { try { return +localStorage.getItem(MENTION_SEEN) || 0; } catch (e) { return 0; } };
 function myMentions() {
@@ -623,7 +632,7 @@ const viewCount = r => Object.keys(r.views || {}).filter(id => id !== r.by).leng
 const viewTimers = new Map();
 function markViewed(id) {
   const r = byId(S.reels, id), me = session();
-  if (!r || viewer || r.by === me || (r.views || {})[me]) return;
+  if (!r || viewer || poster || r.by === me || (r.views || {})[me]) return;
   r.views = { ...(r.views || {}), [me]: Date.now() }; save(); patchReels();
 }
 function reelCard(r) {
@@ -745,7 +754,7 @@ function commentsHtml(r) {
 function openComments(id) {
   const r = byId(S.reels, id); if (!r) return; replyTo = null; mentionTags = new Map();
   sheet(`<h3>תגובות</h3><div class="cms" id="cms">${commentsHtml(r)}</div>
-    ${viewer ? '' : `<form class="form cm-form" data-form="comment" data-reel="${r.id}"><div id="cm-reply" class="cm-reply" hidden></div><div class="mention-wrap"><textarea id="cm-t" name="text" rows="2" maxlength="500" placeholder="כתבו תגובה… אפשר לתייג עם @" data-mention required></textarea><div class="mention-box" hidden></div></div><button class="btn primary block">שליחה</button></form>`}`);
+    ${viewer || poster ? '' : `<form class="form cm-form" data-form="comment" data-reel="${r.id}"><div id="cm-reply" class="cm-reply" hidden></div><div class="mention-wrap"><textarea id="cm-t" name="text" rows="2" maxlength="500" placeholder="כתבו תגובה… אפשר לתייג עם @" data-mention required></textarea><div class="mention-box" hidden></div></div><button class="btn primary block">שליחה</button></form>`}`);
 }
 function refreshComments() { const box = document.getElementById('cms'), f = document.querySelector('form[data-form=comment]'); if (box && f) box.innerHTML = commentsHtml(byId(S.reels, f.dataset.reel) || {}); }
 // Shrink a video on the phone: redraw it at mobile size and record it again at a low bitrate.
@@ -832,7 +841,8 @@ function mentionInput(t) {
   const box = t.parentElement.querySelector('.mention-box'); if (!box) return;
   const m = t.value.slice(0, t.selectionStart).match(/@([^\s@]*)$/);
   if (!m) { box.hidden = true; return; }
-  const q = m[1], list = S.employees.filter(e => e.name.includes(q)).slice(0, 6);
+  const people = S.employees.length ? S.employees : Object.entries(S.names || {}).map(([id, name]) => ({ id, name }));
+  const q = m[1], list = people.filter(e => e.name.includes(q)).slice(0, 6);
   box.innerHTML = list.map(e => `<button type="button" data-action="mention-pick" data-id="${e.id}">${avatar(e)}${esc(e.name)}</button>`).join('');
   box.hidden = !list.length;
 }
@@ -986,6 +996,8 @@ const ACT = {
   'reel-del-yes': async d => { const r = byId(S.reels, d.id); closeSheet(); if (r) { await store.deleteReel(r); MEDIA.delete(r.id); } render(); toast('הפוסט נמחק'); },
   'reel-save': async d => { const r = byId(S.reels, d.id); if (!r) return; toast('מכין את הקובץ…'); const ids = await (async () => { const was = r.backedUp; r.backedUp = false; const all = S.reels; S.reels = [r]; try { return await backupReels(); } finally { S.reels = all; r.backedUp = was; } })(); toast(ids.length ? 'הקבצים ירדו למכשיר' : 'ההורדה נכשלה'); },
   'viewer-set': () => needMgr(() => sheet(`<h3>משתמש בקרה</h3><form class="form" data-form="viewer" style="margin-top:12px"><div class="two"><div class="field"><label for="vw-p">טלפון</label><input id="vw-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.phone : '0000000000')}" required></div><div class="field"><label for="vw-n">מספר עובד</label><input id="vw-n" name="num" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.num : '1234')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
+  'poster-set': () => needMgr(() => sheet(`<h3>חדשות מרקט</h3><p class="muted" style="margin-top:6px">פרטי הכניסה של חשבון הרילסים.</p><form class="form" data-form="poster" style="margin-top:12px"><div class="two"><div class="field"><label for="ps-p">טלפון</label><input id="ps-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.phone : '')}" required></div><div class="field"><label for="ps-n">מספר עובד</label><input id="ps-n" name="num" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.num : '')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
+  'poster-off': () => needMgr(async () => { const r = await store.setPoster(null); render(); toast(r.error || 'חשבון חדשות מרקט כובה'); }),
   'viewer-off': () => needMgr(async () => { const r = await store.setViewer(null); render(); toast(r.error || 'משתמש הבקרה כובה'); }),
   nav: d => go(d.view === 'login' ? 'clock' : d.view),
   back: d => { if (history.state && history.state.d > 0) history.back(); else go(d.view === 'login' ? 'clock' : d.view, true); },
@@ -1056,7 +1068,7 @@ const ACT = {
   close: closeSheet,
   'fill-login': d => { const p = document.getElementById('lg-p'), n = document.getElementById('lg-n'); if (p) p.value = fmtPhone(d.p); if (n) n.value = d.n; },
   account: () => {
-    const e = cur(); sheet(`<div class="emp-head" style="margin-bottom:14px">${avatar(e, 'xl')}<div><h3>${esc(e.name)}</h3><div class="muted num">עובד מס׳ ${esc(e.num)} · <span class="ltr">${fmtPhone(e.phone)}</span></div><label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת התמונה שלי' : 'הוספת תמונה שלי'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div>
+    const e = cur(); sheet(`<div class="emp-head" style="margin-bottom:14px">${avatar(e, 'xl')}<div><h3>${esc(e.name)}</h3>${poster ? '<div class="muted">משתמש להעלאת רילסים בלבד</div>' : `<div class="muted num">עובד מס׳ ${esc(e.num)} · <span class="ltr">${fmtPhone(e.phone)}</span></div>`}<label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת התמונה שלי' : 'הוספת תמונה שלי'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div>
     <div class="list"><button class="menu-item" data-action="nav-close" data-view="display">${ic('eye')}<span class="grow">הגדרות תצוגה</span>${ic('chev', 'sm chev')}</button><button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span></button></div>`);
   },
   'nav-close': d => { closeSheet(); view = d.view; render(); window.scrollTo(0, 0); },
@@ -1162,6 +1174,12 @@ const FORMS = {
     save(); replyTo = null; mentionTags = new Map(); el.reset(); const b = document.getElementById('cm-reply'); if (b) b.hidden = true; refreshComments(); patchReels();
     const box = document.getElementById('cms'); if (box) box.scrollTop = box.scrollHeight;
   },
+  poster: async f => {
+    const p = normPhone(f.phone), n = String(f.num).trim();
+    if (!/^0\d{9}$/.test(p) || !/^\d{1,6}$/.test(n)) return toast('טלפון בן 10 ספרות ומספר עובד עד 6 ספרות');
+    if (S.employees.some(e => normPhone(e.phone) === p) || (S.viewerLogin && S.viewerLogin.phone === p)) return toast('מספר הטלפון כבר בשימוש');
+    const r = await store.setPoster(p, n); if (r.error) return toast(r.error); closeSheet(); render(); toast('חשבון חדשות מרקט פעיל');
+  },
   viewer: async f => {
     const p = normPhone(f.phone), n = String(f.num).trim();
     if (!/^\d{10}$/.test(p) || !/^\d{1,6}$/.test(n)) return toast('טלפון בן 10 ספרות ומספר עובד עד 6 ספרות');
@@ -1170,7 +1188,7 @@ const FORMS = {
   },
   login: async f => {
     const p = normPhone(f.phone), n = String(f.num).trim();
-    if (!/^05\d{8}$/.test(p) && p !== '0000000000' && !(S.viewerLogin && S.viewerLogin.phone === p)) return toast('הזינו מספר נייד בן 10 ספרות');
+    if (!/^0\d{9}$/.test(p)) return toast('הזינו מספר טלפון בן 10 ספרות');
     if (!n) return toast('הזינו מספר עובד');
     busy = true; render();
     const r = await store.login(p, n);
@@ -1288,9 +1306,9 @@ const FORMS = {
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
 const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-sound', 'reel-open', 'order-open', 'inv-update', 'emp-edit', 'fill-login', 'step'];
-document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); a(b.dataset, b); });
+document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
-document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
+document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
 document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); if (e.target.closest('[data-calc]')) drawCalc(); });
 document.addEventListener('change', e => { if (e.target.matches('[data-segpick]')) e.target.closest('.seg-wrap').querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked)); });
@@ -1325,7 +1343,7 @@ document.addEventListener('change', async e => {
 });
 document.addEventListener('change', async e => {
   const inp = e.target.closest('input[data-emp-photo]'); if (!inp || !inp.files || !inp.files[0]) return;
-  const id = inp.dataset.empPhoto; if (id !== session() && !store.isManager()) return openPin();
+  const id = inp.dataset.empPhoto; if (id !== session() && (poster || !store.isManager())) return openPin();
   try { const data = await shrinkImage(inp.files[0], 240); S.empPhotos[id] = { data }; save(); closeSheet(); render(); toast('התמונה נשמרה'); }
   catch (err) { toast('לא הצלחתי לקרוא את התמונה. נסו תמונה אחרת'); }
 });
