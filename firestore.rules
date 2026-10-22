@@ -4,6 +4,7 @@ rules_version = '2';
 // sessions/{uid} with a phone number + employee number that match logins/{phone}.
 // It counts as a manager only while managerSessions/{uid} holds the current manager PIN.
 // A login marked viewer (the shared "בקרה" account) can read everything a manager can, and write nothing.
+// A login marked poster (the "חדשות מרקט" account) can only post reels and read the reels feed.
 service cloud.firestore {
   match /databases/{database}/documents {
     function sessDoc() { return /databases/$(database)/documents/sessions/$(request.auth.uid); }
@@ -15,12 +16,19 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function sess() { return get(sessDoc()).data; }
     function login() { return get(loginDoc(sess().phone)).data; }
-    function isEmp() {
+    // Any linked login, including the reels-only poster account.
+    function isAcct() {
       return signedIn()
         && exists(sessDoc())
         && exists(loginDoc(sess().phone))
         && login().num == sess().num;
     }
+    function isPoster() { return isAcct() && login().get('poster', false) == true; }
+    // An employee, the viewer, or a manager: every linked login except the poster account.
+    function isEmp() { return isAcct() && login().get('poster', false) != true; }
+    // Who may post a reel.
+    function canPost() { return isStaff() || isPoster(); }
+    function posterOk() { return request.resource.data.get('poster', false) == false || request.resource.data.empId == 'news'; }
     function isViewer() { return isEmp() && login().get('viewer', false) == true; }
     // Anyone who may change data: a linked employee who is not the read-only viewer.
     function isStaff() { return isEmp() && login().get('viewer', false) != true; }
@@ -70,6 +78,11 @@ service cloud.firestore {
     }
 
     // Who the owner is stays private; config/public only says that one exists.
+    // Employee names only, kept by managers, so the poster account can show who posted.
+    match /config/names {
+      allow read: if isAcct();
+      allow write: if isMgr();
+    }
     match /config/owner {
       allow read: if isOwner();
       // Set once by a manager; after that only the owner can change it.
@@ -82,8 +95,8 @@ service cloud.firestore {
     match /logins/{phone} {
       allow get: if (isMgr() && notOwnerRec()) || (signedIn() && exists(sessDoc()) && sess().phone == phone);
       allow list: if isMgr() && resource.data.owner == false;
-      allow create: if bootstrapping() || (isMgr() && ownerFlagOk() && (canSetFlags() || noFlags()));
-      allow update: if isMgr() && notOwnerRec() && ownerFlagOk() && (canSetFlags() || flagsSame());
+      allow create: if bootstrapping() || (isMgr() && ownerFlagOk() && posterOk() && (canSetFlags() || noFlags()));
+      allow update: if isMgr() && notOwnerRec() && ownerFlagOk() && posterOk() && (canSetFlags() || flagsSame());
       allow delete: if isMgr() && (canSetFlags() || (resource.data.get('admin', false) == false
         && resource.data.get('owner', false) == false && resource.data.get('viewer', false) == false));
     }
@@ -169,8 +182,8 @@ service cloud.firestore {
     }
 
     match /empPhotos/{id} {
-      allow read: if isEmp();
-      allow write: if (isMgr() || (isStaff() && id == myEmpId()))
+      allow read: if isAcct();
+      allow write: if (isMgr() || (canPost() && id == myEmpId()))
         && (request.resource == null || (request.resource.data.data is string && request.resource.data.data.size() < 200000));
     }
 
@@ -189,36 +202,38 @@ service cloud.firestore {
     }
 
     match /suppliers/{id} { allow read: if canSee(); allow write: if isMgr(); }
+    // Barcode, supplier price and selling price per item: managers only.
+    match /prices/{id} { allow read: if canSee(); allow write: if isMgr(); }
     match /orders/{id} { allow read: if canSee(); allow write: if isMgr(); }
     match /grades/{id} { allow read: if canSee(); allow write: if isMgr(); }
 
     // Reels: short videos and photo posts that everyone sees for 72 hours.
     // The reel document is small; the video or photos live in reelParts and load only when watched.
     match /reels/{id} {
-      allow read: if isEmp();
-      allow create: if isStaff() && request.resource.data.by == myEmpId()
+      allow read: if isAcct();
+      allow create: if canPost() && request.resource.data.by == myEmpId()
         && math.abs(request.resource.data.ts - nowMs()) < 600000
         && request.resource.data.get('poster', '').size() < 60000;
       // The author may finish the upload; anyone may set only their own reaction; managers anything.
       allow update: if isMgr()
-        || (isStaff() && resource.data.by == myEmpId() && onlyChanges(['ready', 'parts', 'size', 'caption', 'tags']))
+        || (canPost() && resource.data.by == myEmpId() && onlyChanges(['ready', 'parts', 'size', 'caption', 'tags']))
         || (isStaff() && onlyChanges(['reactions', 'views'])
             && request.resource.data.get('reactions', {}).diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([myEmpId()])
             && request.resource.data.get('views', {}).diff(resource.data.get('views', {})).affectedKeys().hasOnly([myEmpId()]));
       // Only the author deletes a post; managers only clear posts older than 72 hours.
-      allow delete: if (isStaff() && resource.data.by == myEmpId()) || (isMgr() && resource.data.ts < nowMs() - 259200000);
+      allow delete: if (canPost() && resource.data.by == myEmpId()) || (isMgr() && resource.data.ts < nowMs() - 259200000);
     }
     match /reelParts/{id} {
-      allow read: if isEmp();
-      allow create: if isStaff() && exists(reelDoc(request.resource.data.reel))
+      allow read: if isAcct();
+      allow create: if canPost() && exists(reelDoc(request.resource.data.reel))
         && get(reelDoc(request.resource.data.reel)).data.by == myEmpId()
         && request.resource.data.data is string && request.resource.data.data.size() < 900000;
       allow delete: if exists(reelDoc(resource.data.reel)) && (
-        (isStaff() && get(reelDoc(resource.data.reel)).data.by == myEmpId())
+        (canPost() && get(reelDoc(resource.data.reel)).data.by == myEmpId())
         || (isMgr() && get(reelDoc(resource.data.reel)).data.ts < nowMs() - 259200000));
     }
     match /reelComments/{id} {
-      allow read: if isEmp();
+      allow read: if isAcct();
       allow create: if isStaff() && request.resource.data.by == myEmpId()
         && request.resource.data.text is string && request.resource.data.text.size() <= 500;
       allow delete: if isMgr() || (isStaff() && (resource.data.by == myEmpId()
