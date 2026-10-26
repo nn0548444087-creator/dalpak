@@ -204,6 +204,8 @@ service cloud.firestore {
     match /suppliers/{id} { allow read: if canSee(); allow write: if isMgr(); }
     // Barcode, supplier price and selling price per item: managers only.
     match /prices/{id} { allow read: if canSee(); allow write: if isMgr(); }
+    // The till's product list, in chunks of up to 700 products: managers only.
+    match /catalog/{id} { allow read: if canSee(); allow write: if isMgr(); }
     match /orders/{id} { allow read: if canSee(); allow write: if isMgr(); }
     match /grades/{id} { allow read: if canSee(); allow write: if isMgr(); }
 
