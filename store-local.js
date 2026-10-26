@@ -67,7 +67,7 @@ export function createLocalStore() {
   const load = () => {
     try { const raw = localStorage.getItem(LS); S = raw ? JSON.parse(raw) : seed(); } catch (e) { S = seed(); }
     S.settings = S.settings || { pin: '0000' };
-    S.notes = S.notes || {}; S.images = S.images || {}; S.empPhotos = S.empPhotos || {}; S.prices = S.prices || {};
+    S.notes = S.notes || {}; S.images = S.images || {}; S.empPhotos = S.empPhotos || {}; S.prices = S.prices || {}; S.catalog = S.catalog || [];
     S.suppliers = S.suppliers || []; S.orders = S.orders || []; S.unavail = S.unavail || [];
     S.reels = (S.reels || []).filter(r => r.type === 'photos' || PARTS.has(r.id)); S.reelComments = S.reelComments || []; S.extras = S.extras || [];
     try { session = localStorage.getItem(LS_SESSION); } catch (e) { session = null; }
