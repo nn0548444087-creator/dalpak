@@ -9,7 +9,9 @@ import {
 } from 'firebase/firestore';
 import { uid as newId, normPhone } from './util.js';
 
-const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras', 'prices'];
+const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras', 'prices', 'catalog'];
+// The till's product list is stored as a few large documents ("chunks") of up to 700 products each,
+// so opening the app reads about 10 documents instead of thousands.
 // Collections kept in S as plain objects keyed by document id.
 const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos', prices: 'prices' };
 const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras'];
@@ -36,7 +38,7 @@ export function createCloudStore(config) {
   const auth = initializeAuth(app, { persistence: indexedDBLocalPersistence });
   const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
-  const S = { prices: {}, employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], extras: [], currentUser: null };
+  const S = { prices: {}, catalog: [], employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], extras: [], currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
   // poster = the "חדשות מרקט" account, which may only post reels.
   let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, owner = false, viewer = false, poster = false, viewerLogins = [], setupDone = true, pinLen = 4;
@@ -56,6 +58,7 @@ export function createCloudStore(config) {
     if (ARRAYS.includes(col)) S[col].forEach(x => { const { id, ...rest } = x; const d = clean(rest); if (col === 'employees' && d.owner) { PRIVATE.forEach(k => delete d[k]); d.admin = true; } m.set(id, d); });
     else if (col === 'grades') Object.entries(S.grades).forEach(([k, v]) => m.set(k, { v }));
     else if (MAPS[col]) Object.entries(S[MAPS[col]]).forEach(([k, v]) => m.set(k, clean(v)));
+    else if (col === 'catalog') (S.catalog || []).forEach(({ id, chunk, ...rest }) => { const c = chunk || 'c0'; if (!m.has(c)) m.set(c, { items: {} }); m.get(c).items[id] = clean(rest); });
     else if (col === 'logins') {
       viewerLogins.forEach(v => m.set(v.id, v.data));
       S.employees.forEach(e => {
@@ -88,6 +91,7 @@ export function createCloudStore(config) {
       S.viewerLogin = vw ? { phone: vw.id, num: vw.data.num } : null;
       S.posterLogin = ps ? { phone: ps.id, num: ps.data.num } : null;
     }
+    else if (col === 'catalog') { S.catalog = []; snap.docs.forEach(d => Object.entries(d.data().items || {}).forEach(([id, v]) => S.catalog.push({ id, chunk: d.id, ...v }))); }
     else if (col === 'grades') { S.grades = {}; snap.docs.forEach(d => S.grades[d.id] = d.data().v); }
     else if (MAPS[col]) { const o = {}; snap.docs.forEach(d => o[d.id] = d.data()); S[MAPS[col]] = o; }
     loadedCols.add(col);
@@ -102,7 +106,7 @@ export function createCloudStore(config) {
   }
   function resetState() {
     unsubs.forEach(u => u()); unsubs = [];
-    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.openShifts = [];
+    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = [];
     synced = {}; loadedCols = new Set(); namesSynced = null; S.names = {};
     COLS.forEach(c => synced[c] = new Map());
   }
@@ -153,13 +157,16 @@ export function createCloudStore(config) {
     const sets = [], dels = [];
     if (viewer) return;
     // The poster account only ever writes its own profile photo here; reels go through uploadReel.
-    const cols = poster ? ['empPhotos'] : mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory', 'prices'].includes(c));
+    const cols = poster ? ['empPhotos'] : mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory', 'prices', 'catalog'].includes(c));
     for (const col of cols) {
+      // The product list is large: compare it only after it changed, and never before it has loaded.
+      if (col === 'catalog' && (!S.catalogDirty || !loadedCols.has('catalog'))) continue;
       const want = desired(col), have = synced[col] || new Map();
       for (const [id, data] of want) { const s = stable(data); if (have.get(id) !== s) { sets.push([col, id, data]); have.set(id, s); } }
       for (const id of [...have.keys()]) if (!want.has(id)) { dels.push([col, id]); have.delete(id); }
       synced[col] = have;
     }
+    if (loadedCols.has('catalog')) S.catalogDirty = false;
     if (!sets.length && !dels.length) return;
     // A manager who edits their own phone or employee number re-links their session right after the new login doc.
     const me = S.employees.find(e => e.id === empId);
