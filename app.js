@@ -171,7 +171,7 @@ function render() {
       ${poster ? '' : viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}<span class="cl">נעל</span></button>` : `<button class="chip" data-action="pin" aria-label="מנהל">${ic('lock', 'sm')}<span class="cl">מנהל</span></button>`}
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
-  if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks') invTab = 'drinks'; }
+  if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks' || invTab === 'all') invTab = 'drinks'; }
   const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels();
@@ -273,8 +273,19 @@ const img = id => (S.images && S.images[id] && (S.images[id].data || S.images[id
 const isLow = i => i.min > 0 && i.qty <= i.min;
 const note = id => (S.notes && S.notes[id]) || null;
 function sortItems(a) { const s = [...a]; if (DS.invSort === 'qty') s.sort((x, y) => x.qty - y.qty); else if (DS.invSort === 'low') s.sort((x, y) => (x.qty - x.min) - (y.qty - y.min)); else s.sort((x, y) => x.name.localeCompare(y.name, 'he')); return s; }
+let invQ = '', invShown = 80;
+function invAllList() { const q = normName(invQ); return allProducts().filter(p => !q || normName(p.name).includes(q) || p.barcode.includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'he')); }
+function invAllHtml() {
+  const list = invAllList();
+  return list.slice(0, invShown).map(p => { const s = sellOf(p); return `<div class="row tap" data-action="prod-open" data-k="${p.key}">${p.barcode ? '' : '<span class="nobc-dot" aria-label="אין ברקוד"></span>'}<div class="row-main"><div class="row-title">${esc(p.name)}</div><div class="row-sub"><span>${esc(p.dept)}</span>${s ? `<span>${money(s.v)}</span>` : ''}${p.barcode ? '' : '<span class="nobc-t">אין ברקוד</span>'}</div></div><div class="qty">${p.qty != null ? p.qty : '—'}<small>${esc(p.unit)}</small></div></div>`; }).join('')
+    + (list.length > invShown ? `<button class="btn block" data-action="inv-more">עוד (${(list.length - invShown).toLocaleString('he-IL')} נוספים)</button>` : '') || '<div class="row muted">לא נמצאו מוצרים.</div>';
+}
 function vInv() {
-  const segs = Object.entries(CATS).filter(([k]) => manager || k !== 'snacks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}</button>`).join('');
+  const segs = [...Object.entries(CATS), ...(manager ? [['all', 'כל המוצרים']] : [])].filter(([k]) => manager || k !== 'snacks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}</button>`).join('');
+  if (invTab === 'all' && manager) return `<h2 class="vt">מלאי</h2><div class="seg-wrap">${segs}</div>
+  <div class="field"><input type="search" placeholder="חיפוש לפי שם או ברקוד" value="${esc(invQ)}" data-inv-q aria-label="חיפוש מוצר"></div>
+  <p class="muted" style="margin:0 0 8px">כל המוצרים בחנות, כולל אלה שיובאו מהקופה. <span class="nobc-t">●</span> = אין ברקוד. לחיצה על מוצר פותחת ברקוד, מחירים וכמות.</p>
+  <div class="list" id="inv-all">${invAllHtml()}</div>`;
   const ro = !manager && invTab !== 'drinks';
   let body;
   {
@@ -537,47 +548,139 @@ function vSupplier() {
 const orderTotal = o => sum((o.lines || []).map(l => withVat(l) * l.qty));
 const orderRow = o => { const s = byId(S.suppliers, o.supplierId) || { name: 'ספק שנמחק' }, st = ORDER_ST[o.status] || ORDER_ST.draft; return `<div class="row tap" data-action="order-open" data-id="${o.id}"><div class="row-main"><div class="row-title">${esc(s.name)} · ${fmtD(o.ts)}</div>
   <div class="row-sub num"><span class="pill ${st[1]}">${st[0]}</span><span>${(o.lines || []).length} שורות</span><span>${money(orderTotal(o))} כולל מע״מ</span></div></div>${ic('chev', 'sm chev')}</div>`; };
-/* ---------- products: barcode, supplier price and selling price (managers) ---------- */
-let prodQ = '', prodCat = 'all';
+/* ---------- products: every product in the shop, with barcode, supplier price and selling price (managers) ---------- */
+// Two sources: the shop's inventory items (prices kept in S.prices) and the till's product list (S.catalog, imported from a file).
+let prodQ = '', prodDept = '', prodNoBc = false, prodShown = 60;
 const normName = s => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 // The supplier product with the same name as the shop item, if there is one.
-function supMatch(i) {
-  const n = normName(i.name);
+function supMatch(name) {
+  const n = normName(name);
   for (const s of S.suppliers) { const p = (s.products || []).find(p => normName(p.name) === n); if (p) return { s, p }; }
   return null;
 }
 const priceOf = id => (S.prices && S.prices[id]) || {};
 const catLabel = i => i.cat === 'drinks' ? (i.sub && i.sub !== 'שתייה' ? `שתייה › ${i.sub}` : 'שתייה') : (CATS[i.cat] || i.cat);
-// Supplier price incl. VAT: what was typed for the item, otherwise the matching supplier's price.
-function costOf(i) { const pr = priceOf(i.id); if (pr.cost != null && pr.cost !== '') return { v: +pr.cost, from: '' }; const m = supMatch(i); return m ? { v: withVat(m.p), from: m.s.name } : null; }
-function sellOf(i) { const pr = priceOf(i.id); if (pr.price != null && pr.price !== '') return { v: +pr.price, suggested: false }; const c = costOf(i); return c ? { v: Math.round(c.v * 1.5 * 10) / 10, suggested: true } : null; }
-function prodCard(i) {
-  const pr = priceOf(i.id), c = costOf(i), s = sellOf(i);
-  return `<div class="prod tap" data-action="prod-open" data-id="${i.id}">
-    <div class="prod-top">${img(i.id) ? `<img class="prod-img" src="${img(i.id)}" alt="">` : `<span class="prod-img ph">${ic('box')}</span>`}
-      <div class="prod-main"><div class="prod-name">${esc(i.name)}</div><span class="pill">${esc(catLabel(i))}</span></div></div>
-    <div class="prod-bc">${pr.barcode ? barcodeSvg(pr.barcode, { h: 52 }) : '<span class="muted">אין ברקוד · לחצו להוספה</span>'}</div>
+const hasNum = v => v != null && v !== '' && !isNaN(+v);
+// One flat list of products, whichever list they come from.
+function allProducts() {
+  const out = S.inventory.map(i => { const pr = priceOf(i.id); return { key: 'i:' + i.id, kind: 'inv', id: i.id, name: i.name, dept: catLabel(i), barcode: pr.barcode || '', cost: hasNum(pr.cost) ? +pr.cost : null, price: hasNum(pr.price) ? +pr.price : null, img: img(i.id), qty: i.qty, unit: 'יח׳' }; });
+  (S.catalog || []).forEach(c => out.push({ key: 'c:' + c.id, kind: 'cat', id: c.id, name: c.name, dept: c.dept || 'כללי', barcode: c.bc || '', cost: hasNum(c.cost) ? +c.cost : null, price: hasNum(c.price) ? +c.price : null, img: '', qty: hasNum(c.qty) ? +c.qty : null, unit: c.unit || 'יח׳' }));
+  return out;
+}
+// Supplier price incl. VAT: what was typed for the product, otherwise the matching supplier's price list.
+function costOf(p) { if (p.cost != null) return { v: p.cost, from: '' }; const m = supMatch(p.name); return m ? { v: withVat(m.p), from: m.s.name } : null; }
+function sellOf(p) { if (p.price != null) return { v: p.price, suggested: false }; const c = costOf(p); return c ? { v: Math.round(c.v * 1.5 * 10) / 10, suggested: true } : null; }
+const noBcTag = '<span class="pill nobc">אין ברקוד</span>';
+function prodCard(p) {
+  const c = costOf(p), s = sellOf(p);
+  return `<div class="prod tap ${p.barcode ? '' : 'nobc-card'}" data-action="prod-open" data-k="${p.key}">
+    <div class="prod-top">${p.img ? `<img class="prod-img" src="${p.img}" alt="">` : `<span class="prod-img ph">${ic('box')}</span>`}
+      <div class="prod-main"><div class="prod-name">${esc(p.name)}</div><div class="prod-tags"><span class="pill">${esc(p.dept)}</span>${p.barcode ? '' : noBcTag}</div></div></div>
+    <div class="prod-bc">${p.barcode ? barcodeSvg(p.barcode, { h: 52 }) : '<span class="nobc-t">● אין ברקוד · לחצו להוספה</span>'}</div>
     <div class="prod-prices"><span class="prod-cost">${c ? `ספק: ${money(c.v)}${c.from ? ` · ${esc(c.from)}` : ''}` : 'אין מחיר ספק'}</span><b class="prod-sell">${s ? money(s.v) : '—'}</b></div>
     ${s && s.suggested ? '<small class="prod-sug">מחיר מוצע (×1.5 ממחיר הספק)</small>' : ''}
   </div>`;
 }
 function prodList() {
   const q = normName(prodQ);
-  return S.inventory.filter(i => (prodCat === 'all' || i.cat === prodCat) && (!q || normName(i.name).includes(q) || String(priceOf(i.id).barcode || '').includes(q)))
-    .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  return allProducts().filter(p => (!prodDept || p.dept === prodDept) && (!prodNoBc || !p.barcode) && (!q || normName(p.name).includes(q) || p.barcode.includes(q)))
+    .sort((a, b) => (!!a.barcode - !!b.barcode) || a.name.localeCompare(b.name, 'he'));
+}
+function prodsHtml() {
+  const list = prodList();
+  return list.slice(0, prodShown).map(prodCard).join('') + (list.length > prodShown ? `<button class="btn block prods-more" data-action="prod-more">עוד מוצרים (${list.length - prodShown} נוספים)</button>` : '') || '<div class="list"><div class="row muted">לא נמצאו מוצרים.</div></div>';
+}
+function refreshProds() {
+  const box = document.getElementById('prods'); if (box) box.innerHTML = prodsHtml();
+  const n = document.getElementById('prods-n'); if (n) n.textContent = prodList().length.toLocaleString('he-IL');
 }
 function vProducts() {
   if (!manager) return back() + `<h2 class="vt">מוצרים</h2>` + locked('מוצרים, ברקודים ומחירים');
-  const list = prodList();
-  return back() + `<h2 class="vt">מוצרים · ${S.inventory.length}</h2>
+  const all = allProducts(), depts = [...new Set(all.map(p => p.dept))].sort((a, b) => a.localeCompare(b, 'he')), noBc = all.filter(p => !p.barcode).length;
+  return back() + `<h2 class="vt">מוצרים · ${all.length.toLocaleString('he-IL')}</h2>
+  ${viewer ? '' : `<div class="actions" style="margin-bottom:10px"><button class="btn primary sm" data-action="prod-new">${ic('plus', 'sm')}מוצר חדש</button><label class="btn sm">${ic('down', 'sm')}ייבוא מקובץ מהקופה (CSV)<input type="file" accept=".csv,text/csv" data-import-csv hidden></label></div>`}
   <div class="field"><input id="prod-q" type="search" placeholder="חיפוש לפי שם או ברקוד" value="${esc(prodQ)}" data-prod-q aria-label="חיפוש מוצר"></div>
-  <div class="seg-wrap">${[['all', 'הכל'], ...Object.entries(CATS)].map(([k, l]) => `<button class="seg ${prodCat === k ? 'on' : ''}" data-action="prod-cat" data-c="${k}">${l}</button>`).join('')}</div>
-  <div class="prods" id="prods">${list.map(prodCard).join('') || '<div class="list"><div class="row muted">לא נמצאו מוצרים.</div></div>'}</div>`;
+  <div class="two"><div class="field"><select id="prod-d" data-prod-d aria-label="מחלקה"><option value="">כל המחלקות</option>${depts.map(d => `<option ${d === prodDept ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></div>
+  <button class="btn ${prodNoBc ? 'nobc-on' : ''}" data-action="prod-nobc">● ללא ברקוד (${noBc.toLocaleString('he-IL')})</button></div>
+  <p class="muted" style="margin:0 0 8px"><span id="prods-n">${prodList().length.toLocaleString('he-IL')}</span> מוצרים מוצגים. מוצרים בלי ברקוד מסומנים באדום ומופיעים ראשונים.</p>
+  <div class="prods" id="prods">${prodsHtml()}</div>`;
 }
 function bcPreview(v) {
   const box = document.getElementById('bc-prev'); if (!box) return;
   const r = barcodeBits(v);
-  box.innerHTML = r && r.bits ? barcodeSvg(v, { h: 70 }) + `<small class="muted">${r.type}${r.note ? ' · ' + esc(r.note) : ''}</small>` : r && r.note ? `<small class="danger-t">${esc(r.note)}</small>` : '<small class="muted">הקלידו מספר והברקוד ייווצר כאן</small>';
+  box.innerHTML = r && r.bits ? barcodeSvg(v, { h: 70 }) + `<small class="muted">${r.type}${r.note ? ' · ' + esc(r.note) : ''}</small>` : r && r.note ? `<small class="danger-t">${esc(r.note)}</small>` : '<small class="nobc-t">● אין ברקוד. הקלידו מספר והברקוד ייווצר כאן</small>';
+}
+const findProd = key => allProducts().find(p => p.key === key);
+// Which product already uses this barcode (other than the one being edited).
+const bcOwner = (bc, key) => bc && allProducts().find(p => p.key !== key && p.barcode === bc);
+function prodSheet(p) {
+  const m = supMatch(p ? p.name : ''), isCat = !p || p.kind === 'cat', depts = [...new Set(allProducts().map(x => x.dept))];
+  sheet(`<h3>${p ? esc(p.name) : 'מוצר חדש'}</h3>${p && !isCat ? `<span class="pill">${esc(p.dept)}</span>` : ''}
+    <form class="form" data-form="prod-price" data-k="${p ? p.key : ''}" style="margin-top:10px">
+      ${isCat ? `<div class="field"><label for="pp-n">שם המוצר</label><input id="pp-n" name="name" required value="${esc(p ? p.name : '')}"></div>
+      <div class="two"><div class="field"><label for="pp-d">מחלקה בחנות</label><input id="pp-d" name="dept" list="pp-dl" value="${esc(p ? p.dept : '')}"><datalist id="pp-dl">${depts.map(d => `<option value="${esc(d)}">`).join('')}</datalist></div>
+      <div class="field"><label for="pp-q">כמות במלאי</label><input id="pp-q" name="qty" type="number" step="any" inputmode="decimal" value="${p && p.qty != null ? p.qty : ''}" placeholder="לא נספר"></div></div>` : ''}
+      <div class="field"><label for="pp-b">ברקוד</label><input id="pp-b" name="barcode" class="ltr" inputmode="numeric" autocomplete="off" value="${esc(p ? p.barcode : '')}" placeholder="למשל 7290000066318" data-bc></div>
+      <div class="bc-prev" id="bc-prev"></div>
+      <div class="two"><div class="field"><label for="pp-c">מחיר מהספק (כולל מע״מ)</label><input id="pp-c" name="cost" type="number" min="0" step="0.01" inputmode="decimal" value="${p && p.cost != null ? p.cost : ''}" placeholder="${m ? withVat(m.p).toFixed(2) : ''}"><small>${m ? `מהמחירון של ${esc(m.s.name)}: ${money(withVat(m.p))}. השאירו ריק כדי להשתמש בו.` : 'אין מוצר בשם הזה אצל הספקים.'}</small></div>
+      <div class="field"><label for="pp-s">מחיר מכירה</label><input id="pp-s" name="price" type="number" min="0" step="0.1" inputmode="decimal" value="${p && p.price != null ? p.price : ''}"><button type="button" class="link-btn" data-action="prod-x15">חישוב ×1.5 ממחיר הספק</button></div></div>
+      <button class="btn primary block">שמירה</button></form>
+    ${p && isCat ? `<button class="btn danger block" style="margin-top:10px" data-action="prod-del" data-k="${p.key}">מחיקת המוצר</button>` : ''}`);
+  bcPreview(p ? p.barcode : '');
+}
+// Reads the till's CSV export (קוד פריט, ברקוד, תאור פריט, מחיר קניה, מחיר מכירה, שם מחלקה, יחידת מידה).
+function parseCsv(text) {
+  const rows = []; let row = [], f = '', q = false;
+  text = text.replace(/^\ufeff/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+    else if (ch === '"' && f === '') q = true;
+    else if (ch === ',') { row.push(f); f = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += ch;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+const CAT_CHUNK = 700;
+function importCsv(text) {
+  const rows = parseCsv(text); if (rows.length < 2) return { error: 'הקובץ ריק' };
+  const h = rows[0].map(x => x.trim()), col = n => h.indexOf(n);
+  const ci = { code: col('קוד פריט'), bc: col('ברקוד'), name: col('תאור פריט'), type: col('סוג פריט'), cost: col('מחיר קניה'), price: col('מחיר מכירה'), dept: col('שם מחלקה'), unit: col('יחידת מידה') };
+  if (ci.name < 0 || ci.code < 0) return { error: 'לא מצאתי בקובץ את העמודות "קוד פריט" ו"תאור פריט"' };
+  const num = v => { const n = parseFloat(String(v || '').replace(/[^\d.-]/g, '')); return n > 0 ? Math.round(n * 100) / 100 : null; };
+  S.catalog = S.catalog || []; S.prices = S.prices || {};
+  const byCode = new Map(S.catalog.map(c => [c.code, c])), invByName = new Map(S.inventory.map(i => [normName(i.name), i]));
+  const used = new Map(allProducts().filter(p => p.barcode).map(p => [p.barcode, p.key]));
+  const res = { added: 0, updated: 0, linked: 0, skipped: 0, bcConflicts: 0, noBc: 0 };
+  let nextChunk = () => { const counts = {}; S.catalog.forEach(c => { counts[c.chunk] = (counts[c.chunk] || 0) + 1; }); let k = 0; while ((counts['c' + k] || 0) >= CAT_CHUNK) k++; return 'c' + k; };
+  let chunk = nextChunk(), inChunk = S.catalog.filter(c => c.chunk === chunk).length;
+  for (const r of rows.slice(1)) {
+    const g = i => i >= 0 && r[i] != null ? String(r[i]).trim() : '';
+    const code = g(ci.code), name = g(ci.name).replace(/\s+/g, ' ');
+    if (!code || !name || g(ci.type) === 'כללי') { if (code || name) res.skipped++; continue; }
+    let bc = g(ci.bc); const cost = num(g(ci.cost)), price = num(g(ci.price)), dept = g(ci.dept) || 'כללי', unit = g(ci.unit) || 'יח׳';
+    const inv = invByName.get(normName(name));
+    const key = inv ? 'i:' + inv.id : byCode.has(code) ? 'c:' + byCode.get(code).id : null;
+    if (bc && used.has(bc) && used.get(bc) !== key) { res.bcConflicts++; bc = ''; }
+    if (!bc) res.noBc++;
+    if (inv) {
+      // Same name as an item already in the shop's inventory: attach the barcode and prices to it.
+      const pr = { ...priceOf(inv.id) };
+      if (bc && !pr.barcode) pr.barcode = bc;
+      if (cost != null && !hasNum(pr.cost)) pr.cost = cost;
+      if (price != null && !hasNum(pr.price)) pr.price = price;
+      S.prices[inv.id] = { barcode: pr.barcode || '', cost: hasNum(pr.cost) ? +pr.cost : null, price: hasNum(pr.price) ? +pr.price : null };
+      if (pr.barcode) used.set(pr.barcode, 'i:' + inv.id); res.linked++; continue;
+    }
+    const ex = byCode.get(code);
+    if (ex) { Object.assign(ex, { name, dept, unit, ...(bc ? { bc } : {}), ...(cost != null ? { cost } : {}), ...(price != null ? { price } : {}) }); if (bc) used.set(bc, 'c:' + ex.id); res.updated++; continue; }
+    if (inChunk >= CAT_CHUNK) { chunk = nextChunk(); inChunk = S.catalog.filter(c => c.chunk === chunk).length; }
+    const it = { id: 'p' + code.replace(/[^\w-]/g, '_'), code, name, dept, unit, chunk, ...(bc ? { bc } : {}), ...(cost != null ? { cost } : {}), ...(price != null ? { price } : {}) };
+    S.catalog.push(it); byCode.set(code, it); inChunk++; if (bc) used.set(bc, 'c:' + it.id); res.added++;
+  }
+  S.catalogDirty = true; return res;
 }
 function vOrders() {
   const os = [...S.orders].sort((a, b) => b.ts - a.ts);
@@ -1041,18 +1144,13 @@ const ACT = {
   'viewer-set': () => needMgr(() => sheet(`<h3>משתמש בקרה</h3><form class="form" data-form="viewer" style="margin-top:12px"><div class="two"><div class="field"><label for="vw-p">טלפון</label><input id="vw-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.phone : '0000000000')}" required></div><div class="field"><label for="vw-n">מספר עובד</label><input id="vw-n" name="num" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.num : '1234')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-set': () => needMgr(() => sheet(`<h3>חדשות מרקט</h3><p class="muted" style="margin-top:6px">פרטי הכניסה של חשבון הרילסים.</p><form class="form" data-form="poster" style="margin-top:12px"><div class="two"><div class="field"><label for="ps-p">טלפון</label><input id="ps-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.phone : '')}" required></div><div class="field"><label for="ps-n">מספר עובד</label><input id="ps-n" name="num" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.num : '')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-off': () => needMgr(async () => { const r = await store.setPoster(null); render(); toast(r.error || 'חשבון חדשות מרקט כובה'); }),
-  'prod-cat': d => { prodCat = d.c; render(); },
-  'prod-open': d => {
-    const i = byId(S.inventory, d.id); if (!i) return; const pr = priceOf(i.id), m = supMatch(i);
-    sheet(`<div class="prod-top" style="margin-bottom:10px">${img(i.id) ? `<img class="prod-img" src="${img(i.id)}" alt="">` : ''}<div class="prod-main"><h3>${esc(i.name)}</h3><span class="pill">${esc(catLabel(i))}</span></div></div>
-    <form class="form" data-form="prod-price" data-id="${i.id}">
-      <div class="field"><label for="pp-b">ברקוד</label><input id="pp-b" name="barcode" class="ltr" inputmode="numeric" autocomplete="off" value="${esc(pr.barcode || '')}" placeholder="למשל 7290000066318" data-bc></div>
-      <div class="bc-prev" id="bc-prev"></div>
-      <div class="two"><div class="field"><label for="pp-c">מחיר מהספק (כולל מע״מ)</label><input id="pp-c" name="cost" type="number" min="0" step="0.01" inputmode="decimal" value="${pr.cost ?? ''}" placeholder="${m ? withVat(m.p).toFixed(2) : ''}"><small>${m ? `מהמחירון של ${esc(m.s.name)}: ${money(withVat(m.p))}. השאירו ריק כדי להשתמש בו.` : 'אין מוצר בשם הזה אצל הספקים.'}</small></div>
-      <div class="field"><label for="pp-s">מחיר מכירה</label><input id="pp-s" name="price" type="number" min="0" step="0.1" inputmode="decimal" value="${pr.price ?? ''}"><button type="button" class="link-btn" data-action="prod-x15">חישוב ×1.5 ממחיר הספק</button></div></div>
-      <button class="btn primary block">שמירה</button></form>`);
-    bcPreview(pr.barcode || '');
-  },
+  'prod-nobc': () => { prodNoBc = !prodNoBc; prodShown = 60; render(); },
+  'prod-more': () => { prodShown += 120; refreshProds(); },
+  'inv-more': () => { invShown += 200; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); },
+  'prod-new': () => needMgr(() => prodSheet(null)),
+  'prod-open': d => { const p = findProd(d.k); if (p) prodSheet(p); },
+  'prod-del': d => needMgr(() => { const p = findProd(d.k); if (!p) return; sheet(`<h3>למחוק את ${esc(p.name)}?</h3><p class="muted" style="margin-bottom:16px">המוצר יימחק מרשימת המוצרים.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="prod-del-yes" data-k="${p.key}">מחיקה</button></div>`); }),
+  'prod-del-yes': d => { const id = d.k.slice(2); S.catalog = (S.catalog || []).filter(c => c.id !== id); S.catalogDirty = true; save(); closeSheet(); render(); toast('המוצר נמחק'); },
   'prod-x15': () => { const c = document.getElementById('pp-c'), s = document.getElementById('pp-s'); const v = parseFloat(c.value || c.placeholder); if (!(v > 0)) return toast('צריך מחיר ספק כדי לחשב'); s.value = (Math.round(v * 1.5 * 10) / 10).toFixed(1); },
   'viewer-off': () => needMgr(async () => { const r = await store.setViewer(null); render(); toast(r.error || 'משתמש הבקרה כובה'); }),
   nav: d => go(d.view === 'login' ? 'clock' : d.view),
@@ -1332,13 +1430,25 @@ const FORMS = {
   deliv: f => { S.deliveries.push({ id: uid(), date: f.date, name: f.name.trim(), qty: f.qty.trim(), supplier: f.supplier.trim(), arrived: false }); save(); closeSheet(); render(); toast('האספקה נוספה'); },
   item: f => { const [cat, sub] = f.cat.split('|'); S.inventory.push({ id: uid(), cat, sub: sub || null, name: f.name.trim(), qty: +f.qty || 0, min: +f.min || 0 }); save(); closeSheet(); render(); toast('הפריט נוסף למלאי'); },
   'prod-price': (f, el) => {
-    if (!manager) return openPin(); const id = el.dataset.id, bc = String(f.barcode || '').trim();
+    if (!manager) return openPin(); const key = el.dataset.k, bc = String(f.barcode || '').trim();
     const r = barcodeBits(bc); if (bc && !(r && r.bits)) return toast((r && r.note) || 'הברקוד לא תקין');
-    const dup = bc && S.inventory.find(x => x.id !== id && String(priceOf(x.id).barcode || '') === bc); if (dup) return toast(`הברקוד הזה כבר שייך ל${dup.name}`);
+    const dup = bcOwner(bc, key); if (dup) return toast(`הברקוד הזה כבר שייך ל${dup.name}`);
     const num = v => v === '' || v == null ? null : Math.max(0, Math.round(parseFloat(v) * 100) / 100);
-    const rec = { barcode: bc, cost: num(f.cost), price: num(f.price) };
-    S.prices = S.prices || {};
-    if (!rec.barcode && rec.cost == null && rec.price == null) delete S.prices[id]; else S.prices[id] = rec;
+    const cost = num(f.cost), price = num(f.price);
+    if (key && key.startsWith('i:')) {
+      const id = key.slice(2); S.prices = S.prices || {};
+      if (!bc && cost == null && price == null) delete S.prices[id]; else S.prices[id] = { barcode: bc, cost, price };
+    } else {
+      const name = String(f.name || '').trim().replace(/\s+/g, ' '); if (!name) return toast('צריך למלא שם');
+      const qty = f.qty === '' || f.qty == null ? null : parseFloat(f.qty);
+      const rec = { name, dept: String(f.dept || '').trim() || 'כללי', bc, cost, price, qty: isNaN(qty) ? null : qty };
+      Object.keys(rec).forEach(k => { if (rec[k] === null || rec[k] === '') delete rec[k]; });
+      S.catalog = S.catalog || [];
+      const ex = key && S.catalog.find(c => c.id === key.slice(2));
+      if (ex) { ['bc', 'cost', 'price', 'qty'].forEach(k => delete ex[k]); Object.assign(ex, rec); }
+      else { const counts = {}; S.catalog.forEach(c => { counts[c.chunk] = (counts[c.chunk] || 0) + 1; }); let k = 0; while ((counts['c' + k] || 0) >= CAT_CHUNK) k++; S.catalog.push({ id: uid(), code: '', unit: 'יח׳', chunk: 'c' + k, ...rec }); }
+      S.catalogDirty = true;
+    }
     save(); closeSheet(); render(); toast('פרטי המוצר נשמרו');
   },
   'item-edit': (f, el) => {
@@ -1371,7 +1481,7 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-sound', 'reel-open', 'order-open', 'prod-open', 'prod-cat', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-sound', 'reel-open', 'order-open', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
@@ -1380,10 +1490,23 @@ document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]
 document.addEventListener('change', e => { if (e.target.matches('[data-segpick]')) e.target.closest('.seg-wrap').querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked)); });
 document.addEventListener('input', e => {
   if (e.target.matches('[data-bc]')) bcPreview(e.target.value);
-  if (e.target.matches('[data-prod-q]')) { prodQ = e.target.value; const box = document.getElementById('prods'); if (box) box.innerHTML = prodList().map(prodCard).join('') || '<div class="list"><div class="row muted">לא נמצאו מוצרים.</div></div>'; }
+  if (e.target.matches('[data-prod-q]')) { prodQ = e.target.value; prodShown = 60; refreshProds(); }
+  if (e.target.matches('[data-inv-q]')) { invQ = e.target.value; invShown = 80; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); }
 });
 document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
 document.addEventListener('change', e => { if (e.target.matches('input[data-up]')) prepUpload(e.target); });
+document.addEventListener('change', e => { if (e.target.matches('[data-prod-d]')) { prodDept = e.target.value; prodShown = 60; refreshProds(); } });
+document.addEventListener('change', async e => {
+  const inp = e.target.closest('input[data-import-csv]'); if (!inp || !inp.files || !inp.files[0]) return;
+  if (!store.isManager()) return openPin();
+  if (!store.loaded('catalog')) return toast('רשימת המוצרים עדיין נטענת. נסו שוב בעוד רגע');
+  try {
+    const r = importCsv(await inp.files[0].text()); inp.value = '';
+    if (r.error) return toast(r.error);
+    save(); render();
+    sheet(`<h3>הייבוא הסתיים</h3><div class="list" style="margin-top:10px"><div class="row"><div class="row-main">מוצרים חדשים</div><b>${r.added.toLocaleString('he-IL')}</b></div><div class="row"><div class="row-main">מוצרים שעודכנו</div><b>${r.updated.toLocaleString('he-IL')}</b></div><div class="row"><div class="row-main">חוברו לפריטים קיימים במלאי (לפי שם)</div><b>${r.linked.toLocaleString('he-IL')}</b></div><div class="row"><div class="row-main"><span class="nobc-t">●</span> בלי ברקוד</div><b>${r.noBc.toLocaleString('he-IL')}</b></div>${r.bcConflicts ? `<div class="row"><div class="row-main">ברקוד שכבר שייך למוצר אחר (לא נשמר)</div><b>${r.bcConflicts}</b></div>` : ''}${r.skipped ? `<div class="row"><div class="row-main">שורות שדולגו (פריט כללי או שורה חסרה)</div><b>${r.skipped}</b></div>` : ''}</div><button class="btn primary block" style="margin-top:12px" data-action="close">סגירה</button>`);
+  } catch (err) { console.error(err); toast('לא הצלחתי לקרוא את הקובץ'); }
+});
 document.addEventListener('scroll', e => { const t = e.target; if (!t.classList || !t.classList.contains('rp-track')) return; const i = Math.round(Math.abs(t.scrollLeft) / t.clientWidth); t.parentElement.querySelectorAll('.rp-dots i').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
 new MutationObserver(() => { if (document.getElementById('pr-calc') && !document.getElementById('pr-calc').innerHTML) drawCalc(); }).observe(document.getElementById('layer') || document.body, { childList: true, subtree: true });
 // Item photos are shrunk on the phone before saving, so the shared database stays small and fast.
