@@ -172,12 +172,14 @@ export function createCloudStore(config) {
     const me = S.employees.find(e => e.id === empId);
     const relink = mgr && me && (normPhone(me.phone) !== myPhone || String(me.num) !== myNum);
     const run = async () => {
-      for (const [col, id, data] of sets) await setDoc(doc(db, col, id), data);
+      // Queue every write at once: Firestore keeps them in order and in its local cache, so they still reach the
+      // server if the app is closed mid-way (waiting for each one before sending the next lost the rest).
+      await Promise.all(sets.map(([col, id, data]) => setDoc(doc(db, col, id), data)));
       if (relink) {
         myPhone = normPhone(me.phone); myNum = String(me.num);
         await setDoc(doc(db, 'sessions', auth.currentUser.uid), { phone: myPhone, num: myNum, at: Date.now() });
       }
-      for (const [col, id] of dels) await deleteDoc(doc(db, col, id));
+      await Promise.all(dels.map(([col, id]) => deleteDoc(doc(db, col, id))));
     };
     run().catch(e => { fail(e); subscribe(); });
   }
