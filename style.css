@@ -205,10 +205,10 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surfa
 /* sheet + toast */
 .sheet-wrap{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;justify-content:center}
 .backdrop{position:absolute;inset:0;background:rgba(8,14,18,.45)}
-.sheet{position:relative;width:100%;max-width:520px;max-height:88%;overflow:auto;background:var(--surface);border-radius:22px 22px 0 0;padding:22px max(18px,env(safe-area-inset-right,0px)) calc(22px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));animation:up .22s ease}
+.sheet{position:relative;width:100%;max-width:520px;max-height:88%;overflow:auto;background:var(--surface);border-radius:22px 22px 0 0;padding:22px max(18px,env(safe-area-inset-right,0px)) calc(22px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));will-change:transform;overscroll-behavior:contain;box-shadow:0 -10px 34px rgba(8,14,18,.16)}
 .sheet h3{margin:0 0 4px;font-family:var(--f-display);font-size:1.44rem;font-weight:700}
 @keyframes up{from{transform:translateY(30px);opacity:.4}}
-.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:var(--rb);font-weight:600;font-size:.9375rem;z-index:30;max-width:calc(100% - 32px);text-align:center}
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translate(-50%,18px) scale(.96);opacity:0;transition:transform .34s cubic-bezier(.2,.9,.25,1),opacity .22s ease;background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:var(--rb);font-weight:600;font-size:.9375rem;z-index:30;max-width:calc(100% - 32px);text-align:center}
 
 /* pin */
 .pin{display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center}
@@ -378,3 +378,31 @@ body:has(.reels-feed){overflow:hidden}
 .btn.nobc-on{background:#FDE2E2;color:#B42318;border-color:#E5484D}
 .prod-tags{display:flex;gap:6px;flex-wrap:wrap}
 .prods-more{grid-column:1/-1}
+
+/* ---------- Apple-style feel: instant press feedback, translucent chrome, sheets you can pull down ---------- */
+button,a,label,.tap,[data-action]{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.btn,.chip,.tab,.menu-item,.seg,.rx,.prod,.hbell,.sheet-x,.pad button,.link-btn{transition:transform .2s cubic-bezier(.2,.9,.25,1),background-color .15s,opacity .15s}
+.btn:active,.chip:active,.menu-item:active,.seg:active,.sheet-x:active,.pad button:active,.prod:active{transform:scale(.97);transition-duration:50ms}
+.tab:active,.rx:active,.hbell:active,.link-btn:active{transform:scale(.92);transition-duration:50ms}
+.reel-fab{transition:transform .2s cubic-bezier(.2,.9,.25,1)}
+.reel-fab:active{transform:translateX(-50%) scale(.92);transition-duration:50ms}
+.toast.show{transform:translate(-50%,0) scale(1);opacity:1}
+/* translucent header and tab bar: content scrolls underneath */
+header.top{background:color-mix(in srgb,var(--bg) 74%,transparent);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border-bottom-color:color-mix(in srgb,var(--line) 55%,transparent)}
+nav.tabs{background:color-mix(in srgb,var(--surface) 74%,transparent);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border-top-color:color-mix(in srgb,var(--line) 55%,transparent)}
+.tab{transition:color .15s,transform .2s cubic-bezier(.2,.9,.25,1)}
+/* sheet grabber: the handle you pull down */
+.sheet-grab{width:38px;height:5px;border-radius:3px;background:color-mix(in srgb,var(--muted) 45%,transparent);margin:-12px auto 12px;position:relative;touch-action:none;cursor:grab}
+.sheet-grab::before{content:'';position:absolute;inset:-14px -60px}
+.sheet.dragging{cursor:grabbing;user-select:none}
+.sheet-wrap.leaving{pointer-events:none}
+.backdrop{transition:none}
+/* type: tighter tracking as text grows, a touch looser when small */
+h2.vt,.login h2{letter-spacing:-.02em}
+.sheet h3,.lock h4,.brand b{letter-spacing:-.012em}
+.dial-time,.stat b,.summary-total b,.prod-sell,.qty{letter-spacing:-.02em}
+.row-sub,.tab,.muted,small{letter-spacing:.008em}
+/* accessibility: honour reduced transparency and higher contrast */
+@media (prefers-reduced-transparency:reduce){header.top{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}nav.tabs{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none}}
+@media (prefers-contrast:more){header.top,nav.tabs{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;border-color:var(--ink)}}
+@media (prefers-reduced-motion:reduce){.toast{transform:translateX(-50%)}.toast.show{transform:translateX(-50%)}}
