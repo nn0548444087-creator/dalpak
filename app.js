@@ -1070,18 +1070,98 @@ window.addEventListener('popstate', e => {
   if (st.sheet) { try { history.back(); } catch (er) { } return; }
   view = st.view || 'clock'; render(); window.scrollTo(0, 0);
 });
+/* ---------- motion: Apple-style springs. Interruptible, start from the on-screen value, carry the finger's velocity ---------- */
+const reduceMotion = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+// Defined like Apple's springs: damping ratio (1 = settles without bounce) and response (seconds; not a fixed duration).
+function spring(from, to, { damping = 1, response = 0.35, velocity = 0, onUpdate, onDone } = {}) {
+  const k = (2 * Math.PI / response) ** 2, c = 4 * Math.PI * damping / response;
+  let x = from, v = velocity, last = performance.now(), raf = 0, stopped = false;
+  const step = now => {
+    if (stopped) return;
+    const dt = Math.min(0.064, Math.max(0, (now - last) / 1000)); last = now;
+    for (let n = Math.max(1, Math.ceil(dt / 0.004)), h = dt / n; n > 0; n--) { const a = -k * (x - to) - c * v; v += a * h; x += v * h; }
+    if (Math.abs(x - to) < 0.4 && Math.abs(v) < 8) { x = to; onUpdate(x); if (onDone) onDone(); return; }
+    onUpdate(x); raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+  return { stop() { stopped = true; cancelAnimationFrame(raf); } };
+}
+// Where a flick would come to rest (Apple's projection), and soft resistance past an edge.
+const project = (v, d = 0.99) => (v / 1000) * d / (1 - d);
+const rubber = (o, dim, c = 0.55) => (o * dim * c) / (dim + c * Math.abs(o));
+const liveY = el => { const t = getComputedStyle(el).transform; return t && t !== 'none' ? new DOMMatrixReadOnly(t).m42 : 0; };
+let sheetAnim = null, sheetOutVel = 0;
+function sheetSet(wrap, y) {
+  const s = wrap.querySelector('.sheet'), b = wrap.querySelector('.backdrop'); if (!s) return;
+  s.style.transform = y ? `translate3d(0,${y}px,0)` : '';
+  if (b) b.style.opacity = String(Math.max(0, Math.min(1, 1 - Math.max(0, y) / (s.offsetHeight || 1))));
+}
+function animSheet(wrap, from, to, opts) {
+  if (sheetAnim && sheetAnim.wrap === wrap) sheetAnim.anim.stop();
+  const anim = spring(from, to, { ...opts, onUpdate: y => sheetSet(wrap, y) });
+  sheetAnim = { wrap, anim };
+}
+// Sheets rise from the bottom edge and leave the same way.
+function sheetIn(wrap) {
+  const s = wrap.querySelector('.sheet'); if (!s || reduceMotion()) return;
+  const h = s.offsetHeight; sheetSet(wrap, h);
+  animSheet(wrap, h, 0, { damping: 1, response: 0.32 });
+}
+function sheetOut(wrap, velocity) {
+  wrap.classList.add('leaving'); document.body.appendChild(wrap);
+  const s = wrap.querySelector('.sheet');
+  if (!s || reduceMotion()) { wrap.style.transition = 'opacity .15s'; requestAnimationFrame(() => { wrap.style.opacity = '0'; }); setTimeout(() => wrap.remove(), 170); return; }
+  animSheet(wrap, liveY(s), s.offsetHeight + 24, { damping: 1, response: 0.28, velocity, onDone: () => wrap.remove() });
+}
+// Pull a sheet down to close it: it follows the finger 1:1, resists upward, and a flick decides by momentum.
+function wireSheetDrag(wrap) {
+  const s = wrap.querySelector('.sheet'), g = s && s.querySelector('.sheet-grab'); if (!s) return;
+  let st = null, dragging = false, hist = [];
+  const blocked = t => t.closest('input,textarea,select,button,a,label,.rp-track,.mention-box,.cms');
+  const down = (y, t, grab) => { if (!grab && (s.scrollTop > 0 || blocked(t))) return; st = { y, grab }; dragging = false; hist = [{ y, t: performance.now() }]; };
+  const move = (y, e) => {
+    if (!st) return;
+    if (!dragging) {
+      const dy = y - st.y;
+      if (dy > 8 || (st.grab && Math.abs(dy) > 3)) { dragging = true; if (sheetAnim && sheetAnim.wrap === wrap) sheetAnim.anim.stop(); st.base = liveY(s); st.y = y; s.classList.add('dragging'); }
+      else if (dy < -8) { st = null; return; }
+      else return;
+    }
+    if (e.cancelable) e.preventDefault();
+    let off = st.base + (y - st.y); if (off < 0) off = -rubber(-off, s.offsetHeight);
+    sheetSet(wrap, off);
+    hist.push({ y, t: performance.now() }); if (hist.length > 6) hist.shift();
+  };
+  const up = () => {
+    if (!st) return; const was = dragging; st = null; dragging = false; s.classList.remove('dragging'); if (!was) return;
+    const a = hist[0], b = hist[hist.length - 1], v = b.t > a.t ? (b.y - a.y) / (b.t - a.t) * 1000 : 0, y = liveY(s);
+    if (y + project(v) > s.offsetHeight * 0.45 && v > -100) { sheetOutVel = v; closeSheet(); }
+    else animSheet(wrap, y, 0, { damping: Math.abs(v) > 300 ? 0.8 : 1, response: 0.3, velocity: v });
+  };
+  s.addEventListener('touchstart', e => down(e.touches[0].clientY, e.target, !!e.target.closest('.sheet-grab')), { passive: true });
+  s.addEventListener('touchmove', e => move(e.touches[0].clientY, e), { passive: false });
+  s.addEventListener('touchend', up); s.addEventListener('touchcancel', up);
+  if (g) {
+    g.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') return; g.setPointerCapture(e.pointerId); down(e.clientY, g, true); });
+    g.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') move(e.clientY, e); });
+    g.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') up(); });
+  }
+}
 function sheet(html) {
-  const wasOpen = layerOpen();
-  document.getElementById('layer').innerHTML = `<div class="sheet-wrap"><div class="backdrop" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true"><button class="sheet-x" data-action="close" aria-label="סגירה">${ic('x', 'sm')}</button>${html}</div></div>`;
+  const wasOpen = layerOpen(), layer = document.getElementById('layer');
+  layer.innerHTML = `<div class="sheet-wrap"><div class="backdrop" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-grab" aria-hidden="true"></div><button class="sheet-x" data-action="close" aria-label="סגירה">${ic('x', 'sm')}</button>${html}</div></div>`;
+  const wrap = layer.firstElementChild; wireSheetDrag(wrap); if (!wasOpen) sheetIn(wrap);
   if (!wasOpen && !popSkip) try { history.pushState({ ...(history.state || {}), sheet: 1 }, ''); } catch (e) { }
 }
 function closeSheet() {
-  const wasOpen = layerOpen();
-  document.getElementById('layer').innerHTML = ''; pinNext = null;
+  const wasOpen = layerOpen(), layer = document.getElementById('layer');
+  const v = sheetOutVel; sheetOutVel = 0;
+  if (layer.firstElementChild) sheetOut(layer.firstElementChild, v);
+  layer.innerHTML = ''; pinNext = null;
   if (wasOpen && history.state && history.state.sheet) { popSkip++; try { history.back(); } catch (e) { popSkip--; } }
   if (renderPending) render();
 }
-function toast(t) { let el = document.querySelector('.toast'); if (!el) { el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3000); }
+function toast(t) { let el = document.querySelector('.toast'); if (!el) { el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.textContent = t; el.hidden = false; requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show'))); clearTimeout(toastT); toastT = setTimeout(() => { el.classList.remove('show'); toastT = setTimeout(() => { el.hidden = true; }, 280); }, 3000); }
 function openPin(next) { pinBuf = ''; sheet('<div class="pin" id="pin"></div>'); pinNext = next || null; drawPin(); }
 function drawPin(err) {
   const p = document.getElementById('pin'); if (!p) return; const L = store.pinLength();
