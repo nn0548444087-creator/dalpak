@@ -11,6 +11,7 @@ let store, S, manager = false, view = 'clock', invTab = 'drinks', hoursRange = '
 
 /* ---------- display settings (per device) ---------- */
 const ACC = {
+  apple: { n: 'כחול אפל', l: ['#007AFF', '#E3EFFF'], d: ['#0A84FF', '#0B2547'] },
   brand: { n: 'שאבעס מרקט', l: ['#25528D', '#DCE5F2'], d: ['#86A9E0', '#1A2A47'] },
   petrol: { n: 'פטרול', l: ['#0D5C61', '#D6E8E7'], d: ['#55B5B1', '#17363A'] },
   navy: { n: 'כחול לילה', l: ['#1F3F7A', '#DCE4F3'], d: ['#83A6E8', '#1B2840'] },
@@ -19,11 +20,11 @@ const ACC = {
   plum: { n: 'שזיף', l: ['#5B3A75', '#E7DEF0'], d: ['#BA9DD8', '#2B2238'] },
   graphite: { n: 'גרפיט', l: ['#2C3640', '#DFE3E7'], d: ['#B6C2CD', '#232C34'] }
 };
-const DS_DEFAULT = { theme: 'system', accent: 'brand', scale: 100, font: 'Assistant', heading: 'serif', density: 'normal', radius: 'normal', dial: 'normal', clock12: false, seconds: true, showPay: true, contrast: false, motion: true, invSort: 'name', lowHi: true, home: 'clock', dateStyle: 'short' };
+const DS_DEFAULT = { theme: 'system', accent: 'apple', scale: 100, font: 'system', heading: 'same', density: 'normal', radius: 'normal', dial: 'normal', clock12: false, seconds: true, showPay: true, contrast: false, motion: true, invSort: 'name', lowHi: true, home: 'clock', dateStyle: 'short' };
 let DS = { ...DS_DEFAULT };
 try { DS = { ...DS_DEFAULT, ...JSON.parse(localStorage.getItem(LS_DISPLAY) || '{}') }; } catch (e) { }
 // Phones that kept the old default colour switch to the store colours once.
-if (DS.v !== 2) { if (DS.accent === 'petrol') DS.accent = 'brand'; DS.v = 2; try { localStorage.setItem(LS_DISPLAY, JSON.stringify(DS)); } catch (e) { } }
+if ((DS.v || 0) < 3) { if (DS.accent === 'petrol' || DS.accent === 'brand') DS.accent = 'apple'; if (DS.font === 'Assistant') DS.font = 'system'; if (DS.heading === 'serif') DS.heading = 'same'; DS.v = 3; try { localStorage.setItem(LS_DISPLAY, JSON.stringify(DS)); } catch (e) { } }
 const saveDS = () => { try { localStorage.setItem(LS_DISPLAY, JSON.stringify(DS)); } catch (e) { } };
 const mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : { matches: false, addEventListener() { } };
 let hostTheme = ROOT.getAttribute('data-theme');
@@ -37,15 +38,17 @@ function applyDisplay() {
   if (DS.contrast) { st.setProperty('--muted', dark ? '#C6D1D8' : '#34414A'); st.setProperty('--line', dark ? '#4C5C68' : '#97A4AE'); }
   else { st.removeProperty('--muted'); st.removeProperty('--line'); }
   st.fontSize = (16 * DS.scale / 100) + 'px';
-  st.setProperty('--f-body', `'${DS.font}','Segoe UI',Arial,sans-serif`);
-  st.setProperty('--f-display', DS.heading === 'serif' ? "'Frank Ruhl Libre','David','Times New Roman',serif" : `'${DS.font}','Segoe UI',Arial,sans-serif`);
+  // "system" = Apple's San Francisco on iPhone and Mac, the phone's own font elsewhere (Hebrew falls back to Assistant).
+  const body = DS.font === 'system' ? "-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Segoe UI',Roboto,'Assistant',sans-serif" : `'${DS.font}','Segoe UI',Arial,sans-serif`;
+  st.setProperty('--f-body', body);
+  st.setProperty('--f-display', DS.heading === 'serif' ? "'Frank Ruhl Libre','David','Times New Roman',serif" : DS.font === 'system' ? "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,'Segoe UI',Roboto,'Assistant',sans-serif" : body);
   const D = { comfy: ['17px', '22px'], normal: ['13px', '18px'], compact: ['8px', '12px'] }[DS.density] || ['13px', '18px'];
   st.setProperty('--rowpad', D[0]); st.setProperty('--gap', D[1]);
   const R = { sharp: ['6px', '6px'], normal: ['16px', '11px'], round: ['24px', '18px'] }[DS.radius] || ['16px', '11px'];
   st.setProperty('--r', R[0]); st.setProperty('--rb', R[1]);
   st.setProperty('--dial', { small: '190px', normal: '236px', large: '290px' }[DS.dial] || '236px');
   ROOT.classList.toggle('no-motion', !DS.motion);
-  const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = dark ? '#0C1220' : '#EDF0F5';
+  const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = dark ? '#000000' : '#F2F2F7';
 }
 mq.addEventListener && mq.addEventListener('change', () => { applyDisplay(); if (view === 'display') render(); });
 new MutationObserver(() => {
@@ -139,13 +142,19 @@ function alerts() {
 /* ---------- shell ---------- */
 const MORE_VIEWS = ['products', 'hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
 const MGR_VIEWS = ['products', 'hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
+function tabPill() {
+  const nav = document.getElementById('nav'); if (!nav || document.getElementById('navbar').hidden) return;
+  let p = nav.querySelector('.tab-pill'); if (!p) { p = document.createElement('span'); p.className = 'tab-pill'; p.setAttribute('aria-hidden', 'true'); nav.prepend(p); }
+  slidePill(nav, p, nav.querySelector('.tab.on'), 'tabs');
+}
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
-  if (poster) { document.getElementById('nav').innerHTML = `<button class="tab on" data-action="nav" data-view="reels">${ic('play')}רילס</button><button class="tab" data-action="logout">${ic('out')}יציאה</button>`; return; }
+  if (poster) { document.getElementById('nav').innerHTML = `<button class="tab on" data-action="nav" data-view="reels">${ic('play')}רילס</button><button class="tab" data-action="logout">${ic('out')}יציאה</button>`; tabPill(); return; }
   const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length + newActivity().length;
   // The bell is there for everyone: employees see their own tasks, managers also see approvals.
   const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ['more', 'עוד', 'menu']];
   document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}</button>`).join('');
+  tabPill();
   const hb = document.getElementById('hbadge'); if (hb) { hb.textContent = n; hb.hidden = !n; }
   const bb = document.getElementById('hbell'); if (bb) bb.classList.toggle('on', view === 'alerts');
 }
@@ -175,6 +184,7 @@ function render() {
   const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels();
+  slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
 }
 // Data from other phones arrives at any moment; wait while someone is typing or a sheet is open.
 function softRender() {
@@ -1034,7 +1044,7 @@ function vDisplay() {
   <div class="list">${tog('contrast', 'ניגודיות גבוהה', 'טקסט משני וקווי הפרדה כהים יותר, לקריאה בתאורה חזקה')}</div>
   <h3 class="sec">טקסט</h3>
   ${grp('גודל טקסט', `<span id="scale-val">${DS.scale}%</span>`, `<input type="range" id="ds-scale" min="80" max="140" step="5" value="${DS.scale}" data-ds-range="scale" aria-label="גודל טקסט"><div class="range-ends"><span>קטן</span><span>גדול</span></div>`)}
-  ${grp('גופן', '', segCtl('font', [['Assistant', 'אסיסטנט', "font-family:'Assistant',sans-serif"], ['Heebo', 'היבו', "font-family:'Heebo',sans-serif"], ['Rubik', 'רוביק', "font-family:'Rubik',sans-serif"]]))}
+  ${grp('גופן', '', segCtl('font', [['system', 'אפל', 'font-family:-apple-system,system-ui,sans-serif'], ['Assistant', 'אסיסטנט', "font-family:'Assistant',sans-serif"], ['Heebo', 'היבו', "font-family:'Heebo',sans-serif"], ['Rubik', 'רוביק', "font-family:'Rubik',sans-serif"]]))}
   ${grp('גופן כותרות ומספרים', '', segCtl('heading', [['serif', 'קלאסי', "font-family:'Frank Ruhl Libre',serif"], ['same', 'כמו הטקסט']]))}
   <h3 class="sec">פריסה</h3>
   ${grp('מרווחים', '', segCtl('density', [['comfy', 'מרווח'], ['normal', 'רגיל'], ['compact', 'צפוף']]))}
@@ -1058,6 +1068,7 @@ let popSkip = 0;
 const layerOpen = () => !!document.getElementById('layer').innerHTML;
 function go(v, replace) {
   if (v === view && !replace) { render(); window.scrollTo(0, 0); return; }
+  if (!navDir) navDir = replace ? 'pop' : TAB_VIEWS.includes(v) && TAB_VIEWS.includes(view) ? 'tab' : 'push';
   view = v;
   const d = ((history.state && history.state.d) || 0) + (replace ? 0 : 1);
   try { replace ? history.replaceState({ view, d: Math.max(0, d) }, '') : history.pushState({ view, d }, ''); } catch (e) { }
@@ -1068,10 +1079,71 @@ window.addEventListener('popstate', e => {
   if (layerOpen()) { document.getElementById('layer').innerHTML = ''; pinNext = null; if (renderPending) render(); return; }
   const st = e.state || {};
   if (st.sheet) { try { history.back(); } catch (er) { } return; }
+  if (!navDir) navDir = 'pop';
   view = st.view || 'clock'; render(); window.scrollTo(0, 0);
 });
 /* ---------- motion: Apple-style springs. Interruptible, start from the on-screen value, carry the finger's velocity ---------- */
-const reduceMotion = () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const reduceMotion = () => ROOT.classList.contains('no-motion') || !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+// A short tap of vibration on meaningful moments only (Android; iPhone browsers ignore it).
+const haptic = p => { try { if (!reduceMotion() && navigator.vibrate) navigator.vibrate(p); } catch (e) { } };
+const lerp = (a, b, t) => a + (b - a) * t;
+// Sliding indicators: the highlight glides from where it was to the new tab or segment, like iOS.
+const pillPos = {};
+function slidePill(host, pill, target, key) {
+  if (!host || !pill) return;
+  if (!target) { pill.style.opacity = '0'; return; }
+  const hr = host.getBoundingClientRect(), tr = target.getBoundingClientRect();
+  const to = { x: tr.left - hr.left, w: tr.width, y: tr.top - hr.top, h: tr.height }, from = pillPos[key] || to;
+  pillPos[key] = to; pill.style.opacity = '1';
+  const set = t => { pill.style.transform = `translate3d(${lerp(from.x, to.x, t)}px,${to.y}px,0)`; pill.style.width = lerp(from.w, to.w, t) + 'px'; pill.style.height = to.h + 'px'; };
+  if (from.x === to.x && from.w === to.w || reduceMotion()) return set(1);
+  set(0); spring(0, 1, { damping: 0.85, response: 0.32, onUpdate: set });
+}
+function slideSegs(root = document) {
+  root.querySelectorAll('.seg-wrap').forEach((w, i) => {
+    let p = w.querySelector(':scope > .seg-pill'); if (!p) { p = document.createElement('span'); p.className = 'seg-pill'; p.setAttribute('aria-hidden', 'true'); w.prepend(p); }
+    const first = w.querySelector('.seg'); const key = 'seg:' + view + ':' + (first ? (first.dataset.action || first.querySelector('input')?.name || '') : '') + ':' + i;
+    slidePill(w, p, w.querySelector('.seg.on'), key);
+  });
+}
+// Moving between screens: forward slides in from the leading edge, back from the other side, tabs cross-fade.
+const TAB_VIEWS = ['clock', 'inv', 'deliv', 'reels', 'more', 'alerts'];
+let navDir = null;
+function animateView(dir) {
+  const v = document.querySelector('#main > .view'); if (!v || !dir) return;
+  if (reduceMotion() || dir === 'none') return;
+  const fixed = v.classList.contains('view-reels'), dx = dir === 'push' ? -42 : dir === 'pop' ? 42 : 0;
+  const set = t => { v.style.opacity = String(dir === 'tab' ? lerp(0.35, 1, t) : t); if (!fixed && dx) v.style.transform = t >= 1 ? '' : `translate3d(${lerp(dx, 0, t)}px,0,0)`; };
+  set(0); spring(0, 1, { damping: 1, response: dir === 'tab' ? 0.22 : 0.36, onUpdate: set, onDone: () => { v.style.opacity = ''; v.style.transform = ''; } });
+}
+// Swipe in from the screen edge to go back (the right edge, since the app reads right to left).
+(() => {
+  let st = null, hist = [];
+  const backBtn = () => document.querySelector('#main [data-action=back]');
+  document.addEventListener('touchstart', e => {
+    st = null; if (layerOpen() || !backBtn() || e.touches.length !== 1) return;
+    const t = e.touches[0]; if (t.clientX < innerWidth - 24) return;
+    st = { x: t.clientX, y: t.clientY, on: false }; hist = [{ x: t.clientX, t: performance.now() }];
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!st) return; const t = e.touches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
+    if (!st.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { st = null; return; } if (dx < -8) st.on = true; else return; }
+    if (e.cancelable) e.preventDefault();
+    const v = document.querySelector('#main > .view'); if (!v) return;
+    const off = dx < 0 ? dx : rubber(dx, innerWidth);
+    v.style.transform = `translate3d(${off}px,0,0)`; v.style.opacity = String(1 - Math.min(0.35, Math.abs(off) / innerWidth * 0.5));
+    hist.push({ x: t.clientX, t: performance.now() }); if (hist.length > 6) hist.shift();
+  }, { passive: false });
+  const end = () => {
+    if (!st) return; const on = st.on; st = null; if (!on) return;
+    const v = document.querySelector('#main > .view'); if (!v) return;
+    const a = hist[0], b = hist[hist.length - 1], vel = b.t > a.t ? (b.x - a.x) / (b.t - a.t) * 1000 : 0, x = liveX(v);
+    if (-(x + project(vel)) > innerWidth * 0.35 && vel < 100) {
+      spring(x, -innerWidth, { damping: 1, response: 0.25, velocity: vel, onUpdate: y => { v.style.transform = `translate3d(${y}px,0,0)`; v.style.opacity = String(Math.max(0.3, 1 + y / innerWidth)); }, onDone: () => { const bb = backBtn(); haptic(6); navDir = 'pop'; if (bb) bb.click(); } });
+    } else spring(x, 0, { damping: 1, response: 0.3, velocity: vel, onUpdate: y => { v.style.transform = y ? `translate3d(${y}px,0,0)` : ''; v.style.opacity = String(1 - Math.min(0.35, Math.abs(y) / innerWidth * 0.5)); }, onDone: () => { v.style.transform = ''; v.style.opacity = ''; } });
+  };
+  document.addEventListener('touchend', end); document.addEventListener('touchcancel', end);
+})();
 // Defined like Apple's springs: damping ratio (1 = settles without bounce) and response (seconds; not a fixed duration).
 function spring(from, to, { damping = 1, response = 0.35, velocity = 0, onUpdate, onDone } = {}) {
   const k = (2 * Math.PI / response) ** 2, c = 4 * Math.PI * damping / response;
@@ -1090,11 +1162,16 @@ function spring(from, to, { damping = 1, response = 0.35, velocity = 0, onUpdate
 const project = (v, d = 0.99) => (v / 1000) * d / (1 - d);
 const rubber = (o, dim, c = 0.55) => (o * dim * c) / (dim + c * Math.abs(o));
 const liveY = el => { const t = getComputedStyle(el).transform; return t && t !== 'none' ? new DOMMatrixReadOnly(t).m42 : 0; };
+const liveX = el => { const t = getComputedStyle(el).transform; return t && t !== 'none' ? new DOMMatrixReadOnly(t).m41 : 0; };
 let sheetAnim = null, sheetOutVel = 0;
 function sheetSet(wrap, y) {
   const s = wrap.querySelector('.sheet'), b = wrap.querySelector('.backdrop'); if (!s) return;
   s.style.transform = y ? `translate3d(0,${y}px,0)` : '';
-  if (b) b.style.opacity = String(Math.max(0, Math.min(1, 1 - Math.max(0, y) / (s.offsetHeight || 1))));
+  const p = Math.max(0, Math.min(1, 1 - Math.max(0, y) / (s.offsetHeight || 1)));
+  if (b) b.style.opacity = String(p);
+  // Dim to focus: the screen behind recedes slightly while the sheet is up.
+  const m = document.querySelector('main');
+  if (m && !document.querySelector('.reels-feed')) m.style.transform = p > 0.001 && !reduceMotion() ? `scale(${1 - 0.035 * p})` : '';
 }
 function animSheet(wrap, from, to, opts) {
   if (sheetAnim && sheetAnim.wrap === wrap) sheetAnim.anim.stop();
@@ -1110,7 +1187,7 @@ function sheetIn(wrap) {
 function sheetOut(wrap, velocity) {
   wrap.classList.add('leaving'); document.body.appendChild(wrap);
   const s = wrap.querySelector('.sheet');
-  if (!s || reduceMotion()) { wrap.style.transition = 'opacity .15s'; requestAnimationFrame(() => { wrap.style.opacity = '0'; }); setTimeout(() => wrap.remove(), 170); return; }
+  if (!s || reduceMotion()) { const m = document.querySelector('main'); if (m) m.style.transform = ''; wrap.style.transition = 'opacity .15s'; requestAnimationFrame(() => { wrap.style.opacity = '0'; }); setTimeout(() => wrap.remove(), 170); return; }
   animSheet(wrap, liveY(s), s.offsetHeight + 24, { damping: 1, response: 0.28, velocity, onDone: () => wrap.remove() });
 }
 // Pull a sheet down to close it: it follows the finger 1:1, resists upward, and a flick decides by momentum.
@@ -1135,7 +1212,7 @@ function wireSheetDrag(wrap) {
   const up = () => {
     if (!st) return; const was = dragging; st = null; dragging = false; s.classList.remove('dragging'); if (!was) return;
     const a = hist[0], b = hist[hist.length - 1], v = b.t > a.t ? (b.y - a.y) / (b.t - a.t) * 1000 : 0, y = liveY(s);
-    if (y + project(v) > s.offsetHeight * 0.45 && v > -100) { sheetOutVel = v; closeSheet(); }
+    if (y + project(v) > s.offsetHeight * 0.45 && v > -100) { sheetOutVel = v; haptic(6); closeSheet(); }
     else animSheet(wrap, y, 0, { damping: Math.abs(v) > 300 ? 0.8 : 1, response: 0.3, velocity: v });
   };
   s.addEventListener('touchstart', e => down(e.touches[0].clientY, e.target, !!e.target.closest('.sheet-grab')), { passive: true });
@@ -1150,7 +1227,8 @@ function wireSheetDrag(wrap) {
 function sheet(html) {
   const wasOpen = layerOpen(), layer = document.getElementById('layer');
   layer.innerHTML = `<div class="sheet-wrap"><div class="backdrop" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-grab" aria-hidden="true"></div><button class="sheet-x" data-action="close" aria-label="סגירה">${ic('x', 'sm')}</button>${html}</div></div>`;
-  const wrap = layer.firstElementChild; wireSheetDrag(wrap); if (!wasOpen) sheetIn(wrap);
+  const wrap = layer.firstElementChild; wireSheetDrag(wrap); if (!wasOpen) sheetIn(wrap); else { const m = document.querySelector('main'); if (m && !document.querySelector('.reels-feed') && !reduceMotion()) m.style.transform = 'scale(0.965)'; }
+  slideSegs(wrap);
   if (!wasOpen && !popSkip) try { history.pushState({ ...(history.state || {}), sheet: 1 }, ''); } catch (e) { }
 }
 function closeSheet() {
@@ -1166,7 +1244,7 @@ function openPin(next) { pinBuf = ''; sheet('<div class="pin" id="pin"></div>');
 function drawPin(err) {
   const p = document.getElementById('pin'); if (!p) return; const L = store.pinLength();
   p.innerHTML = `<h3>סיסמת מנהל</h3><p class="muted">הזן קוד בן ${L} ספרות</p>
-  <div class="dots ${err ? 'shake' : ''}">${[...Array(L)].map((_, i) => `<i class="${i < pinBuf.length ? 'f' : ''}"></i>`).join('')}</div>
+  ${err ? (haptic([20, 50, 20]), '') : ''}<div class="dots ${err ? 'shake' : ''}">${[...Array(L)].map((_, i) => `<i class="${i < pinBuf.length ? 'f' : ''}"></i>`).join('')}</div>
   <div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => `<button data-action="key" data-k="${k}">${k}</button>`).join('')}<span></span><button data-action="key" data-k="0">0</button><button data-action="key" data-k="del" aria-label="מחיקה">⌫</button></div>
   <p class="hint">${pinBusy ? 'בודק…' : err ? 'הקוד שגוי, נסה שוב' : local() && store.S.settings.pin === '0000' ? 'בגרסת הדמו הקוד הוא 0000' : '&nbsp;'}</p>`;
 }
@@ -1311,7 +1389,7 @@ const ACT = {
     const me = cur(), o = openShift(me.id);
     if (o) { o.end = Date.now(); o.status = 'approved'; delete o.allowUntil; toast(`יצאת מהמשמרת · ${fmtH(dur(o))} ש׳${DS.showPay ? ' · ' + money(dur(o) * me.wage) : ''}`); }
     else { S.shifts.push({ id: uid(), empId: me.id, start: Date.now(), end: null, status: 'open', source: 'clock' }); toast('נכנסת למשמרת. עבודה נעימה'); }
-    save(); render();
+    haptic(o ? [10, 60, 10] : 14); save(); render();
   },
   'req-hours': () => sheet(`<h3>בקשת אישור שעות</h3><p class="muted" style="margin-bottom:14px">לשעות שלא הוחתמו בשעון. הבקשה תישלח למנהל המערכת.</p>
     <form class="form" data-form="req"><div class="field"><label for="rq-d">תאריך כניסה</label><input id="rq-d" name="date" type="date" max="${dateKey(Date.now())}" value="${dateKey(Date.now())}" required></div>
@@ -1567,7 +1645,7 @@ document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn,
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
 document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); if (e.target.closest('[data-calc]')) drawCalc(); });
-document.addEventListener('change', e => { if (e.target.matches('[data-segpick]')) e.target.closest('.seg-wrap').querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked)); });
+document.addEventListener('change', e => { if (e.target.matches('[data-segpick]')) { e.target.closest('.seg-wrap').querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked)); slideSegs(e.target.closest('.sheet') || document.getElementById('main')); } });
 document.addEventListener('input', e => {
   if (e.target.matches('[data-bc]')) bcPreview(e.target.value);
   if (e.target.matches('[data-prod-q]')) { prodQ = e.target.value; prodShown = 60; refreshProds(); }
