@@ -418,23 +418,37 @@ function vHours() {
   <div class="actions"><button class="btn primary" data-action="report-new">${ic('chart', 'sm')}דוח שכר מפורט</button><button class="btn" data-action="extra-add">${ic('plus', 'sm')}הוספת משלוח או בונוס</button></div>`;
 }
 
+// Star rating in half steps. Each star has two tap zones: the left half gives n−½, the right half n.
+const STAR = '<path d="M12 2.6l2.85 6.03 6.6.78-4.88 4.53 1.3 6.53L12 17.2l-5.87 3.27 1.3-6.53L2.55 9.41l6.6-.78z"/>';
+function starsHtml(val, act, id, label = '') {
+  return `<div class="stars2" ${act ? `role="group" aria-label="${esc(label || 'דירוג')}"` : `aria-label="${val} מתוך 5 כוכבים"`}>${[1, 2, 3, 4, 5].map(n => {
+    const f = val >= n ? 100 : val >= n - 0.5 ? 50 : 0;
+    return `<span class="st" style="--f:${f}%"><svg viewBox="0 0 24 24" aria-hidden="true">${STAR}</svg><span class="st-fill"><svg viewBox="0 0 24 24" aria-hidden="true">${STAR}</svg></span>${act ? `<button class="st-h st-l" data-action="${act}" data-id="${id}" data-v="${n - 0.5}" aria-label="${n - 0.5} כוכבים"></button><button class="st-h st-r" data-action="${act}" data-id="${id}" data-v="${n}" aria-label="${n} כוכבים"></button>` : ''}</span>`;
+  }).join('')}</div>`;
+}
+const fmtStar = v => (Math.round(v * 10) / 10).toLocaleString('he-IL', { maximumFractionDigits: 1 });
+// An employee's average over the tasks that were rated.
+function empRating(id) { const r = S.tasks.filter(t => t.empId === id && t.rating > 0); return { n: r.length, avg: r.length ? sum(r.map(t => t.rating)) / r.length : 0 }; }
 function vTasks() {
   if (!manager) return back() + `<h2 class="vt">משימות וציונים</h2>` + locked('משימות וציונים');
   const opts = S.employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
   return back() + `<h2 class="vt">משימות וציונים</h2>
   <h3 class="sec">משימות</h3>
   <div class="list">${S.tasks.map(t => `<div class="row ${t.done ? 'done' : ''}"><button class="check ${t.done ? 'on' : ''}" data-action="task-toggle" data-id="${t.id}" aria-label="סימון כבוצע">${t.done ? ic('check', 'sm') : ''}</button>
-    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub num">${esc(emp(t.empId).name)} · ${fmtH(t.hours)} ש׳${t.done ? ' · בוצע' : t.seen ? ' · העובד ראה' : ' · טרם נצפתה'}</div></div>
+    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub num">${esc(emp(t.empId).name)} · ${fmtH(t.hours)} ש׳${t.done ? ' · בוצע' : t.seen ? ' · העובד ראה' : ' · טרם נצפתה'}</div>
+      <div class="task-rate">${starsHtml(t.rating || 0, 'task-rate', t.id, 'דירוג המשימה')}${t.rating ? `<b class="num">${fmtStar(t.rating)}</b><button class="link-btn" data-action="task-unrate" data-id="${t.id}">ניקוי</button>` : '<span class="muted">דירוג</span>'}</div></div>
     <button class="btn sm danger" data-action="task-del" data-id="${t.id}">מחיקה</button></div>`).join('') || '<div class="row muted">אין משימות.</div>'}</div>
   <form class="card form" data-form="task"><b>משימה חדשה</b>
     <div class="field"><label for="tk-t">מה צריך לעשות</label><input id="tk-t" name="title" required placeholder="למשל: סידור מדף החטיפים"></div>
     <div class="two"><div class="field"><label for="tk-e">עובד</label><select id="tk-e" name="emp">${opts}</select></div>
     <div class="field"><label for="tk-h">שעות משוערות</label><input id="tk-h" name="hours" type="number" step="0.25" min="0.25" value="1" required></div></div>
     <button class="btn primary">הוספת משימה</button></form>
-  <h3 class="sec">ציוני עובדים</h3>
+  <div class="sec-h"><h3 class="sec">ממוצע דירוג לכל עובד</h3>${S.tasks.some(t => t.rating > 0) || Object.keys(S.grades || {}).length ? '<button class="btn sm danger" data-action="all-unrate">מחיקת כל הכוכבים</button>' : ''}</div>
+  <p class="muted" style="margin:-4px 0 8px">הממוצע מחושב מהדירוג של כל משימה בנפרד, בחצאי כוכבים.</p>
   <div class="list">${S.employees.map(e => {
-    const g = S.grades[e.id] || 0, done = sum(S.tasks.filter(t => t.empId === e.id && t.done).map(t => t.hours)); return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub num">שעות משימות שהושלמו: ${fmtH(done)}</div></div>
-    <div class="stars">${[1, 2, 3, 4, 5].map(v => `<button class="${v <= g ? 'on' : ''}" data-action="grade" data-emp="${e.id}" data-v="${v}" aria-label="ציון ${v}">★</button>`).join('')}</div></div>`;
+    const r = empRating(e.id), done = sum(S.tasks.filter(t => t.empId === e.id && t.done).map(t => t.hours));
+    return `<div class="row"><div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub num">${r.n ? `ממוצע ${fmtStar(r.avg)} מתוך 5 · ${r.n} משימות מדורגות` : 'עדיין אין משימות מדורגות'} · שעות משימות שהושלמו: ${fmtH(done)}</div></div>
+    <div class="emp-rate">${starsHtml(Math.round(r.avg * 2) / 2)}${r.n ? `<button class="link-btn" data-action="emp-unrate" data-id="${e.id}">ניקוי</button>` : ''}</div></div>`;
   }).join('')}</div>`;
 }
 
@@ -1442,6 +1456,13 @@ const ACT = {
   'task-toggle': d => { const t = byId(S.tasks, d.id); t.done = !t.done; save(); render(); },
   'task-del': d => { S.tasks = S.tasks.filter(t => t.id !== d.id); save(); render(); },
   grade: d => { S.grades[d.emp] = +d.v; save(); render(); },
+  // Tapping the rating a task already has clears it.
+  'task-rate': d => { const t = byId(S.tasks, d.id); if (!t) return; const v = +d.v; if (t.rating === v) delete t.rating; else t.rating = v; haptic(8); save(); render(); },
+  'task-unrate': d => { const t = byId(S.tasks, d.id); if (!t) return; delete t.rating; save(); render(); },
+  'emp-unrate': d => { const e = emp(d.id), n = empRating(d.id).n; sheet(`<h3>למחוק את הכוכבים של ${esc(e.name)}?</h3><p class="muted" style="margin-bottom:16px">הדירוג יימחק מ-${n} משימות. המשימות עצמן נשארות.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="emp-unrate-yes" data-id="${d.id}">מחיקת הכוכבים</button></div>`); },
+  'emp-unrate-yes': d => { S.tasks.forEach(t => { if (t.empId === d.id) delete t.rating; }); if (S.grades) delete S.grades[d.id]; save(); closeSheet(); render(); toast('הכוכבים נמחקו'); },
+  'all-unrate': () => sheet(`<h3>למחוק את כל הכוכבים?</h3><p class="muted" style="margin-bottom:16px">כל הדירוגים של כל המשימות ושל כל העובדים יימחקו. המשימות עצמן נשארות.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="all-unrate-yes">מחיקת כל הכוכבים</button></div>`),
+  'all-unrate-yes': () => { S.tasks.forEach(t => { delete t.rating; }); S.grades = {}; save(); closeSheet(); render(); toast('כל הכוכבים נמחקו'); },
   'emp-edit': d => needMgr(() => {
     const e = byId(S.employees, d.id); sheet(`<div class="emp-head">${avatar(e, 'xl')}<div><h3>עריכת עובד</h3><label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת תמונה' : 'הוספת תמונה'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div><form class="form" data-form="emp-edit" data-id="${e.id}" style="margin-top:12px">${empFields(e, 'ee')}<button class="btn primary block">שמירה</button></form>
     ${e.owner || isPriv(e) ? '' : e.id !== session() ? `<button class="btn danger block" style="margin-top:10px" data-action="emp-del" data-id="${e.id}">הסרת העובד</button>` : '<p class="hint" style="margin-top:10px">אי אפשר להסיר את המשתמש שמחובר כרגע.</p>'}`);
