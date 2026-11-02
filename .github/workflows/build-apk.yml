@@ -57,6 +57,11 @@ jobs:
         run: npm run build
       - name: Create the Android project
         run: npx cap add android
+      - name: Allow the camera (barcode scanning in the till)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q 'permission.CAMERA' $M || sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n</manifest>#' $M
+          grep -n CAMERA $M
       - name: Set the app icon
         run: |
           python3 -m pip install --quiet --break-system-packages pillow || python3 -m pip install --quiet pillow
