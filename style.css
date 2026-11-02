@@ -482,3 +482,19 @@ main{transform-origin:50% 30%;transition:none}
 /* accessibility fallbacks */
 @media (prefers-reduced-transparency:reduce){.sheet,.chip,.hbell,.toast,.rx,nav.tabs{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none}.toast{background:#1C1C1E}#app::before{display:none}}
 @media (prefers-contrast:more){.list,.card,.prod,.sheet{border:1px solid var(--ink)}.seg-pill{outline:1px solid var(--ink)}}
+/* star ratings in half steps */
+.stars2{display:inline-flex;gap:3px;direction:rtl;align-items:center}
+.st{position:relative;width:1.45rem;height:1.45rem;flex:none;transition:transform .2s cubic-bezier(.2,.9,.25,1)}
+.st svg{position:absolute;top:0;right:0;width:1.45rem;height:1.45rem;fill:color-mix(in srgb,var(--ink) 14%,transparent)}
+.st-fill{position:absolute;top:0;right:0;height:100%;width:var(--f);overflow:hidden}
+.st-fill svg{fill:#FF9F0A}
+.st-h{position:absolute;top:-8px;bottom:-8px;width:50%;border:0;background:none;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.st-l{right:-2px}.st-r{left:-2px}
+.st:has(.st-h:active){transform:scale(1.18)}
+.emp-rate .st,.emp-rate .st svg{width:1.15rem;height:1.15rem}
+.task-rate,.emp-rate{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+.emp-rate{margin-top:0;flex-direction:column;align-items:flex-end;gap:2px}
+.task-rate b{font-size:.9rem}
+.sec-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px}
+.sec-h h3.sec{margin:0}
+.is-viewer .st-h{display:none}
