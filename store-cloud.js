@@ -9,12 +9,14 @@ import {
 } from 'firebase/firestore';
 import { uid as newId, normPhone } from './util.js';
 
-const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras', 'prices', 'catalog'];
+const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras', 'prices', 'catalog', 'messages', 'sales'];
+// Private messages: each phone reads only the conversations it is part of.
+const MSG_Q = 'messages';
 // The till's product list is stored as a few large documents ("chunks") of up to 700 products each,
 // so opening the app reads about 10 documents instead of thousands.
 // Collections kept in S as plain objects keyed by document id.
 const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos', prices: 'prices' };
-const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras'];
+const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras', 'messages', 'sales'];
 // Shown to everyone, never written from this list (each phone writes only its own shifts).
 const READONLY = { openShifts: 'openShifts' };
 const PUBLIC_CATS = ['drinks', 'salads'];
@@ -117,7 +119,8 @@ export function createCloudStore(config) {
     if (mgr || poster) unsubs.push(onSnapshot(doc(db, 'config', 'names'), d => { S.names = d.exists() ? d.data() : {}; namesSynced = stable(S.names); syncNames(); emit(); }, () => { }));
     const specs = poster ? [['reels', c('reels')], ['reelComments', c('reelComments')], ['empPhotos', c('empPhotos')]]
       : mgr || viewer
-      ? [...COLS.filter(n => mgr || n !== 'logins').map(n => [n, n === 'logins' ? query(c(n), where('owner', '==', false)) : c(n)]), ['openShifts', query(c('shifts'), where('status', '==', 'open'))]]
+      ? [...COLS.filter(n => (mgr || n !== 'logins') && n !== MSG_Q).map(n => [n, n === 'logins' ? query(c(n), where('owner', '==', false)) : c(n)]), ['openShifts', query(c('shifts'), where('status', '==', 'open'))],
+        ...(viewer ? [] : [[MSG_Q, query(c(MSG_Q), where('pair', 'array-contains', empId))]])]
       : [['employees', c('employees')],
         ['shifts', query(c('shifts'), where('empId', '==', empId))],
         ['openShifts', query(c('shifts'), where('status', '==', 'open'))],
@@ -130,6 +133,7 @@ export function createCloudStore(config) {
         ['reels', c('reels')],
         ['reelComments', c('reelComments')],
         ['extras', query(c('extras'), where('empId', '==', empId))],
+        [MSG_Q, query(c(MSG_Q), where('pair', 'array-contains', empId))],
         ['itemImages', query(c('itemImages'), where('cat', 'in', PUBLIC_CATS))]];
     specs.forEach(([name, q]) => {
       unsubs.push(onSnapshot(q, snap => { apply(name, snap); emit(); }, e => fail(e)));
@@ -157,7 +161,7 @@ export function createCloudStore(config) {
     const sets = [], dels = [];
     if (viewer) return;
     // The poster account only ever writes its own profile photo here; reels go through uploadReel.
-    const cols = poster ? ['empPhotos'] : mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory', 'prices', 'catalog'].includes(c));
+    const cols = poster ? ['empPhotos'] : mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory', 'prices', 'catalog', 'sales'].includes(c));
     for (const col of cols) {
       // The product list is large: compare it only after it changed, and never before it has loaded.
       if (col === 'catalog' && (!S.catalogDirty || !loadedCols.has('catalog'))) continue;
