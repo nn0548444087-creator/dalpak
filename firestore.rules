@@ -242,6 +242,22 @@ service cloud.firestore {
         || (exists(reelDoc(resource.data.reel)) && get(reelDoc(resource.data.reel)).data.by == myEmpId())));
     }
 
+    // Private messages between two employees: only the two of them can read a conversation.
+    // A message is sent as its author; only the recipient can mark it read; only the author can delete it.
+    match /messages/{id} {
+      allow read: if isStaff() && myEmpId() in resource.data.pair;
+      allow create: if isStaff() && request.resource.data.from == myEmpId()
+        && request.resource.data.pair is list && request.resource.data.pair.size() == 2
+        && myEmpId() in request.resource.data.pair && request.resource.data.to in request.resource.data.pair
+        && request.resource.data.to != myEmpId()
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+        && math.abs(request.resource.data.ts - nowMs()) < 600000;
+      allow update: if isStaff() && resource.data.to == myEmpId() && onlyChanges(['read']);
+      allow delete: if isStaff() && resource.data.from == myEmpId();
+    }
+    // Bills from the till screen: managers only.
+    match /sales/{id} { allow read: if canSee(); allow write: if isMgr(); }
+
     // Deliveries and bonuses: an employee reports a delivery, a manager approves it with an amount.
     match /extras/{id} {
       allow read: if canSee() || (isEmp() && resource.data.empId == myEmpId());
