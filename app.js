@@ -59,12 +59,14 @@ let viewer = false;
 // The "חדשות מרקט" account: it can only post reels and sees nothing else in the app.
 let poster = false;
 const NEWS = { id: 'news', name: 'חדשות מרקט', num: '', phone: '', wage: 0 };
-const POSTER_OK = ['nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
+const POSTER_OK = ['cap-more', 'nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
 P.play = '<path d="M8 5v14l11-7z"/>';
 P.tag = '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>';
 P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
 P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
+P.send = '<path d="M21 3 10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>';
+P.scan = '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/>';
 P.users = '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>';
 P.cart = '<path d="M3 4h2l2.2 10.5h10.6L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>';
 P.cal = '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>';
@@ -140,8 +142,8 @@ function alerts() {
 }
 
 /* ---------- shell ---------- */
-const MORE_VIEWS = ['products', 'hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
-const MGR_VIEWS = ['products', 'hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
+const MORE_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
+const MGR_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
 function tabPill() {
   const nav = document.getElementById('nav'); if (!nav || document.getElementById('navbar').hidden) return;
   let p = nav.querySelector('.tab-pill'); if (!p) { p = document.createElement('span'); p.className = 'tab-pill'; p.setAttribute('aria-hidden', 'true'); nav.prepend(p); }
@@ -156,6 +158,7 @@ function renderNav() {
   document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}</button>`).join('');
   tabPill();
   const hb = document.getElementById('hbadge'); if (hb) { hb.textContent = n; hb.hidden = !n; }
+  const hc = document.getElementById('hcbadge'); if (hc) { const u = unreadCount(); hc.textContent = u; hc.hidden = !u; }
   const bb = document.getElementById('hbell'); if (bb) bb.classList.toggle('on', view === 'alerts');
 }
 function render() {
@@ -174,23 +177,30 @@ function render() {
   }
   checkMonthly();
   const me = cur();
-  const bell = `<button class="hbell ${view === 'alerts' ? 'on' : ''}" id="hbell" data-action="nav" data-view="alerts" aria-label="התראות">${ic('bell')}<span class="badge" id="hbadge" hidden></span></button>`;
+  const chatBtn = viewer ? '' : `<button class="hbell ${view === 'chat' || view === 'dm' ? 'on' : ''}" id="hchat" data-action="nav" data-view="chat" aria-label="הודעות">${ic('send')}<span class="badge" id="hcbadge" hidden></span></button>`;
+  const bell = chatBtn + `<button class="hbell ${view === 'alerts' ? 'on' : ''}" id="hbell" data-action="nav" data-view="alerts" aria-label="התראות">${ic('bell')}<span class="badge" id="hbadge" hidden></span></button>`;
+  if ((viewer || poster) && (view === 'chat' || view === 'dm')) view = poster ? 'reels' : 'clock';
+  if (view === 'dm' && !chatWith) view = 'chat';
   hdr.innerHTML = (poster ? brand : brand.replace(/<\/div>$/, bell + '</div>')) + `
     <div class="top-actions">
       ${poster ? '' : viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}<span class="cl">נעל</span></button>` : `<button class="chip" data-action="pin" aria-label="מנהל">${ic('lock', 'sm')}<span class="cl">מנהל</span></button>`}
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks' || invTab === 'all') invTab = 'drinks'; }
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, report: vReport, avail: vAvail, reels: vReels };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
+  if (view === 'dm') { fitCompose(); markRead(); scrollDmEnd(); }
+  if (view !== 'pos' && scanStop && !layerOpen()) { scanStop(); scanStop = null; }
 }
 // Data from other phones arrives at any moment; wait while someone is typing or a sheet is open.
 function softRender() {
   const a = document.activeElement;
   const typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !a.classList.contains('rv-seek');
   if (document.querySelector('form[data-form=comment]')) refreshComments();
+  // In a conversation, new messages appear in place so the half-typed message stays.
+  if (view === 'dm' && !document.querySelector('.sheet')) { patchDm(); renderNav(); return; }
   if (typing || document.querySelector('.sheet')) { renderPending = true; renderNav(); return; }
   if (view === 'reels') return patchReels();
   render();
@@ -393,7 +403,7 @@ function vAlerts() {
 function vMore() {
   const it = (v, i, l, lockd) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${lockd && !manager ? ic('lock', 'sm') : ''}${ic('chev', 'sm chev')}</button>`;
   return `<h2 class="vt">תפריט</h2>
-  ${manager ? `<div class="list">${it('products', 'tag', 'מוצרים, ברקודים ומחירים', 1)}${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
+  ${manager ? `<div class="list">${it('pos', 'scan', 'קופה', 1)}${it('products', 'tag', 'מוצרים, ברקודים ומחירים', 1)}${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
   <div class="list">${it('avail', 'cal', manager ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד', 0)}${it('display', 'eye', 'הגדרות תצוגה', 0)}
   ${viewer ? '' : manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
@@ -572,6 +582,185 @@ function vSupplier() {
 const orderTotal = o => sum((o.lines || []).map(l => withVat(l) * l.qty));
 const orderRow = o => { const s = byId(S.suppliers, o.supplierId) || { name: 'ספק שנמחק' }, st = ORDER_ST[o.status] || ORDER_ST.draft; return `<div class="row tap" data-action="order-open" data-id="${o.id}"><div class="row-main"><div class="row-title">${esc(s.name)} · ${fmtD(o.ts)}</div>
   <div class="row-sub num"><span class="pill ${st[1]}">${st[0]}</span><span>${(o.lines || []).length} שורות</span><span>${money(orderTotal(o))} כולל מע״מ</span></div></div>${ic('chev', 'sm chev')}</div>`; };
+/* ---------- private messages between employees ---------- */
+let chatWith = null, chatDraft = '';
+const myMsgs = () => (S.messages || []).filter(m => (m.pair || []).includes(session()));
+const unreadCount = () => myMsgs().filter(m => m.to === session() && !m.read).length;
+function convos() {
+  const me = session(), map = new Map();
+  myMsgs().forEach(m => { const o = m.from === me ? m.to : m.from, c = map.get(o) || { last: null, unread: 0 }; if (!c.last || m.ts > c.last.ts) c.last = m; if (m.to === me && !m.read) c.unread++; map.set(o, c); });
+  return map;
+}
+function vChat() {
+  const me = session(), map = convos();
+  const rows = S.employees.filter(e => e.id !== me).map(e => ({ e, c: map.get(e.id) }))
+    .sort((a, b) => ((b.c && b.c.last.ts) || 0) - ((a.c && a.c.last.ts) || 0) || a.e.name.localeCompare(b.e.name, 'he'));
+  return `<h2 class="vt">הודעות</h2><p class="muted" style="margin:-8px 0 0">שיחות פרטיות. רק שני המשתתפים רואים אותן.</p>
+  <div class="list">${rows.map(({ e, c }) => `<button class="row tap row-btn" data-action="dm-open" data-id="${e.id}">${avatar(e, 'lg')}<div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub ${c && c.unread ? 'chat-new' : ''}">${c ? `${c.last.from === me ? 'את/ה: ' : ''}${esc(c.last.text.slice(0, 60))}` : 'התחלת שיחה'}</div></div><div class="chat-meta">${c ? `<small class="muted">${ago(c.last.ts)}</small>` : ''}${c && c.unread ? `<span class="chat-unread">${c.unread}</span>` : ''}</div></button>`).join('') || '<div class="row muted">אין עובדים נוספים.</div>'}</div>`;
+}
+function dmList() {
+  const me = session(), list = myMsgs().filter(m => m.pair.includes(chatWith)).sort((a, b) => a.ts - b.ts);
+  let lastDay = '';
+  return list.map((m, i) => {
+    const mine = m.from === me, day = dateKey(m.ts), sep = day !== lastDay ? `<div class="dm-day">${sameDay(m.ts, Date.now()) ? 'היום' : fmtD(m.ts)}</div>` : '';
+    lastDay = day; const nx = list[i + 1], tail = !nx || nx.from !== m.from || nx.ts - m.ts > 5 * 6e4;
+    return sep + `<div class="dm ${mine ? 'me' : 'them'} ${tail ? 'tail' : ''}"><div class="dm-b">${esc(m.text).replace(/\n/g, '<br>')}</div>${tail ? `<small>${fmtT(m.ts)}${mine ? (m.read ? ' · נקרא' : ' · נשלח') : ''}</small>` : ''}</div>`;
+  }).join('') || '<p class="muted dm-empty">עדיין אין הודעות. כתבו משהו ראשון 👋</p>';
+}
+function vDm() {
+  const e = emp(chatWith);
+  return `${back('chat', 'חזרה להודעות')}<div class="dm-head">${avatar(e, 'lg')}<div><b>${esc(e.name)}</b><small class="muted">שיחה פרטית</small></div></div>
+  <div class="dm-list" id="dm-list">${dmList()}</div>
+  <form class="dm-compose" data-form="dm"><textarea id="dm-t" name="text" rows="1" maxlength="2000" placeholder="הודעה…" data-dm>${esc(chatDraft)}</textarea><button class="dm-send" aria-label="שליחה">${ic('send')}</button></form>`;
+}
+function markRead() { let ch = false; myMsgs().forEach(m => { if (m.to === session() && m.from === chatWith && !m.read) { m.read = true; ch = true; } }); if (ch) save(); }
+const scrollDmEnd = () => requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
+function patchDm() {
+  const box = document.getElementById('dm-list'); if (!box) return;
+  const near = innerHeight + scrollY >= document.body.scrollHeight - 160;
+  box.innerHTML = dmList(); markRead(); if (near) scrollDmEnd();
+}
+function fitCompose() {
+  const f = document.querySelector('.dm-compose'), n = document.getElementById('navbar'); if (!f) return;
+  f.style.bottom = (n && !n.hidden ? Math.max(0, innerHeight - n.getBoundingClientRect().top) : 0) + 'px';
+}
+
+/* ---------- till: scan products into a bill, record how it was paid, keep a PDF ---------- */
+const PAY = [['cash', 'מזומן'], ['card', 'אשראי'], ['bit', 'ביט'], ['paybox', 'פייבוקס'], ['tab', 'הקפה'], ['other', 'אחר']];
+const money2 = n => '₪' + (Math.round(n * 100) / 100).toFixed(2);
+const payName = k => (PAY.find(p => p[0] === k) || [, k || ''])[1];
+// The bill in progress stays on this phone until it is saved.
+let pos = (() => { try { return JSON.parse(localStorage.getItem('pos-cart') || 'null') || null; } catch (e) { return null; } })() || { lines: [], method: 'cash', till: '' };
+const posKeep = () => { try { localStorage.setItem('pos-cart', JSON.stringify(pos)); } catch (e) { } };
+let posQ = '', scanStop = null;
+const posTotal = () => Math.round(sum(pos.lines.map(l => l.qty * l.price)) * 100) / 100;
+const nextSaleNo = () => Math.max(1000, ...(S.sales || []).map(s => +s.no || 0)) + 1;
+function posAdd(p) {
+  const ex = pos.lines.find(l => l.key === p.key);
+  if (ex) ex.qty++; else { const s = sellOf(p); pos.lines.unshift({ key: p.key, name: p.name, bc: p.barcode || '', price: s ? s.v : 0, qty: 1 }); }
+  posKeep();
+}
+const posFind = code => { code = String(code || '').trim(); return code ? allProducts().find(p => p.barcode === code) || null : null; };
+const posSearch = q => { const n = normName(q); return n ? allProducts().filter(p => normName(p.name).includes(n) || p.barcode.startsWith(n)).slice(0, 8) : []; };
+const posSugHtml = () => posSearch(posQ).map(p => { const s = sellOf(p); return `<button class="pos-s" data-action="pos-add" data-k="${p.key}"><span>${esc(p.name)}</span><b class="num">${s ? money(s.v) : '—'}</b></button>`; }).join('');
+function vPos() {
+  if (!manager) return back() + `<h2 class="vt">קופה</h2>` + locked('קופה');
+  const sales = (S.sales || []).slice().sort((a, b) => b.ts - a.ts).slice(0, 30);
+  return back() + `<h2 class="vt">קופה</h2>
+  ${viewer ? '' : `<button class="btn primary block" data-action="pos-scan">${ic('scan')}סריקת ברקוד במצלמה</button>
+  <form class="pos-find" data-form="pos-find"><input id="pos-q" name="q" autocomplete="off" placeholder="ברקוד או שם מוצר · גם סורק ברקוד עובד" value="${esc(posQ)}" data-pos-q><button class="btn">הוספה</button></form>
+  <div class="pos-sug" id="pos-sug">${posSugHtml()}</div>
+  <div class="card pos-bill"><div class="card-head"><b>חשבון חדש · מס׳ ${nextSaleNo()}</b>${pos.lines.length ? '<button class="link-btn danger-t" data-action="pos-clear">ניקוי</button>' : ''}</div>
+  <div class="pos-lines">${pos.lines.map((l, i) => `<div class="pos-line"><div class="row-main"><div class="row-title">${esc(l.name)}</div><button class="link-btn num" data-action="pos-price" data-i="${i}">${l.price ? money(l.price) + ' ליחידה' : 'אין מחיר · הוספה'}</button></div>
+    <div class="pos-qty"><button data-action="pos-dec" data-i="${i}" aria-label="פחות">−</button><b class="num">${l.qty}</b><button data-action="pos-inc" data-i="${i}" aria-label="יותר">+</button></div><b class="num pos-lt">${money(l.qty * l.price)}</b></div>`).join('') || '<p class="muted" style="margin:4px 0">סרקו ברקוד או חפשו מוצר כדי להתחיל.</p>'}</div>
+  <div class="pos-total"><span>סה״כ לתשלום</span><b class="num">${money(posTotal())}</b></div>
+  <div class="field"><label>איך שולם</label><div class="pay-opts">${PAY.map(([k, l]) => `<button class="pay ${pos.method === k ? 'on' : ''}" data-action="pos-pay" data-m="${k}">${l}</button>`).join('')}</div></div>
+  <div class="field"><label for="pos-till">מספר החשבון בקופה</label><input id="pos-till" class="ltr" inputmode="numeric" value="${esc(pos.till)}" placeholder="המספר שעל הקבלה מהקופה" data-pos-till></div>
+  <button class="btn primary block" data-action="pos-save" ${pos.lines.length ? '' : 'disabled'}>שמירת החשבון</button></div>`}
+  <h3 class="sec">חשבונות אחרונים</h3>
+  <div class="list">${sales.map(s => `<button class="row tap row-btn" data-action="sale-open" data-id="${s.id}"><div class="row-main"><div class="row-title">חשבון ${s.no}${s.till ? ` · בקופה ${esc(s.till)}` : ''}</div><div class="row-sub num">${fmtD(s.ts)} ${fmtT(s.ts)} · ${payName(s.method)} · ${sum(s.lines.map(l => l.qty))} פריטים</div></div><b class="num">${money(s.total)}</b></button>`).join('') || '<div class="row muted">עדיין אין חשבונות.</div>'}</div>`;
+}
+function receiptHtml(s) {
+  return `<div class="rcpt"><div class="rcpt-h"><img src="./logo.png" alt=""><div><b>שאבעס מרקט</b><small>חשבון מס׳ ${s.no}</small></div></div>
+  <div class="rcpt-i num"><span>${new Date(s.ts).toLocaleDateString('he-IL')} ${fmtT(s.ts)}</span>${s.till ? `<span>מספר בקופה: ${esc(s.till)}</span>` : ''}<span>תשלום: ${payName(s.method)}</span></div>
+  ${s.lines.map(l => `<div class="rcpt-l"><span>${esc(l.name)}</span><span class="num">${l.qty} × ${money2(l.price)}</span><b class="num">${money2(l.qty * l.price)}</b></div>`).join('')}
+  <div class="rcpt-t"><span>סה״כ</span><b class="num">${money2(s.total)}</b></div></div>`;
+}
+function receiptSheet(s) {
+  sheet(`<h3>חשבון ${s.no}</h3>${receiptHtml(s)}
+  <div class="actions" style="margin-top:14px"><button class="btn primary" data-action="sale-pdf" data-id="${s.id}">${ic('down', 'sm')}שמירה כקובץ PDF</button>${navigator.canShare ? `<button class="btn" data-action="sale-share" data-id="${s.id}">${ic('share', 'sm')}שיתוף</button>` : ''}</div>
+  ${viewer ? '' : `<button class="link-btn danger-t" style="margin-top:12px" data-action="sale-del" data-id="${s.id}">ביטול החשבון</button>`}`);
+}
+// The receipt is drawn on a canvas (Hebrew text included) and wrapped in a one-page PDF.
+async function receiptCanvas(s) {
+  const W = 1240, P = 80, R = W - P, rowH = 62, H = 820 + s.lines.length * rowH + 320;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'), F = (w, z) => `${w} ${z}px -apple-system, system-ui, 'Segoe UI', Roboto, Assistant, Arial, sans-serif`;
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.direction = 'rtl'; x.textBaseline = 'alphabetic';
+  const rule = y => { x.fillStyle = '#E2E2E8'; x.fillRect(P, y, W - 2 * P, 2); };
+  let y = P;
+  try { const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = './logo.png'; }); x.drawImage(img, R - 130, y, 130, 130); } catch (e) { }
+  x.textAlign = 'right'; x.fillStyle = '#111'; x.font = F(800, 56); x.fillText('שאבעס מרקט', R - 160, y + 70);
+  x.font = F(500, 30); x.fillStyle = '#6B6B73'; x.fillText('חשבון / קבלה', R - 160, y + 116);
+  y += 210; x.fillStyle = '#111'; x.font = F(700, 42); x.fillText(`חשבון מס׳ ${s.no}`, R, y);
+  y += 58; x.font = F(400, 30); x.fillStyle = '#333';
+  [`תאריך: ${new Date(s.ts).toLocaleDateString('he-IL')} ${fmtT(s.ts)}`, s.till ? `מספר החשבון בקופה: ${s.till}` : '', `אמצעי תשלום: ${payName(s.method)}`, `קופאי/ת: ${emp(s.by).name || ''}`].filter(Boolean).forEach(t => { x.fillText(t, R, y); y += 46; });
+  y += 14; rule(y); y += 56;
+  x.font = F(700, 27); x.fillStyle = '#6B6B73'; x.textAlign = 'right'; x.fillText('פריט', R, y);
+  x.textAlign = 'center'; x.fillText('כמות', 560, y); x.fillText('מחיר', 380, y); x.textAlign = 'left'; x.fillText('סה״כ', P, y);
+  y += 24; rule(y); y += 52;
+  x.font = F(500, 30); x.fillStyle = '#111';
+  s.lines.forEach(l => {
+    let n = l.name; x.textAlign = 'right'; while (x.measureText(n).width > R - 660 && n.length > 3) n = n.slice(0, -2);
+    if (n !== l.name) n = n.trim() + '…';
+    x.fillText(n, R, y); x.textAlign = 'center'; x.fillText(String(l.qty), 560, y); x.fillText(money2(l.price), 380, y);
+    x.textAlign = 'left'; x.fillText(money2(l.qty * l.price), P, y); y += rowH;
+  });
+  y += 4; rule(y); y += 76;
+  x.fillStyle = '#111'; x.font = F(800, 44); x.textAlign = 'right'; x.fillText('סה״כ לתשלום', R, y); x.textAlign = 'left'; x.fillText(money2(s.total), P, y);
+  y += 110; x.textAlign = 'center'; x.font = F(600, 32); x.fillStyle = '#333'; x.fillText('תודה ולהתראות!', W / 2, y);
+  x.font = F(400, 24); x.fillStyle = '#8E8E93'; x.fillText('הופק באפליקציית שאבעס מרקט', W / 2, y + 44);
+  return c;
+}
+async function receiptPdf(s) {
+  const c = await receiptCanvas(s);
+  const jpg = new Uint8Array(await (await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92))).arrayBuffer());
+  const pw = 420, ph = Math.round(pw * c.height / c.width), enc = new TextEncoder(), parts = [], offs = [];
+  let len = 0;
+  const push = b => { const u = typeof b === 'string' ? enc.encode(b) : b; parts.push(u); len += u.length; };
+  const obj = (n, body) => { offs[n] = len; push(`${n} 0 obj\n${body}\nendobj\n`); };
+  push('%PDF-1.4\n');
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
+  offs[4] = len; push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${c.width} /Height ${c.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`); push(jpg); push('\nendstream\nendobj\n');
+  const cs = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
+  obj(5, `<< /Length ${cs.length} >>\nstream\n${cs}\nendstream`);
+  const xref = len;
+  push(`xref\n0 6\n0000000000 65535 f \n${[1, 2, 3, 4, 5].map(n => String(offs[n]).padStart(10, '0') + ' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
+async function salePdf(s, share) {
+  toast('מכין את הקובץ…');
+  const blob = await receiptPdf(s), name = `חשבון-${s.no}.pdf`;
+  if (share) { try { const file = new File([blob], name, { type: 'application/pdf' }); if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } } catch (e) { if (e && e.name === 'AbortError') return; } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); toast('הקובץ נשמר');
+}
+// A short beep when a barcode is read, on the same moment as the vibration.
+let audioCtx = null;
+function beep() { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); const o = audioCtx.createOscillator(), g = audioCtx.createGain(); o.frequency.value = 1320; g.gain.setValueAtTime(0.08, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.09); o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.1); } catch (e) { } }
+async function startScan() {
+  sheet(`<h3>סריקת ברקוד</h3><p class="muted" style="margin-bottom:10px">כוונו את המצלמה לברקוד. כל מוצר שנסרק נכנס לחשבון.</p><div class="scan-box"><video id="scan-v" playsinline muted autoplay></video><div class="scan-frame"></div></div><div id="scan-log" class="scan-log"></div><button class="btn primary block" style="margin-top:12px" data-action="close">סיום</button>`);
+  const v = document.getElementById('scan-v'), log = document.getElementById('scan-log');
+  let last = '', lastT = 0;
+  const hit = code => {
+    const now = Date.now(); if (code === last && now - lastT < 1500) return; last = code; lastT = now;
+    const p = posFind(code);
+    if (p) { posAdd(p); haptic(12); beep(); const s = sellOf(p); log.insertAdjacentHTML('afterbegin', `<div class="scan-ok">✓ ${esc(p.name)}${s ? ' · ' + money(s.v) : ''}</div>`); }
+    else { haptic([20, 40, 20]); log.insertAdjacentHTML('afterbegin', `<div class="scan-bad">לא נמצא מוצר עם הברקוד ${esc(code)}</div>`); }
+    renderPending = true;
+  };
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('nocam');
+    if ('BarcodeDetector' in window) {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      v.srcObject = stream; await v.play().catch(() => { });
+      const det = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'] });
+      let on = true; scanStop = () => { on = false; stream.getTracks().forEach(t => t.stop()); };
+      const loop = async () => { if (!on) return; if (!v.isConnected) return scanStop(); try { const r = await det.detect(v); if (r && r[0]) hit(r[0].rawValue); } catch (e) { } setTimeout(loop, 120); };
+      loop();
+    } else {
+      let Z = null;
+      for (const ver of ['0.21.3', '0.21.0', '0.20.0']) { try { Z = await import(/* @vite-ignore */ `https://cdn.jsdelivr.net/npm/@zxing/library@${ver}/+esm`); break; } catch (e) { } }
+      if (!Z) throw new Error('noreader');
+      const reader = new Z.BrowserMultiFormatReader();
+      scanStop = () => { try { reader.reset(); } catch (e) { } };
+      await reader.decodeFromConstraints({ video: { facingMode: 'environment' } }, v, res => { if (res) hit(res.getText()); });
+    }
+  } catch (e) { log.innerHTML = '<div class="scan-bad">לא הצלחתי לפתוח את המצלמה. אפשר להקליד את הברקוד, או לחבר סורק ברקוד.</div>'; }
+}
+
 /* ---------- products: every product in the shop, with barcode, supplier price and selling price (managers) ---------- */
 // Two sources: the shop's inventory items (prices kept in S.prices) and the till's product list (S.catalog, imported from a file).
 let prodQ = '', prodDept = '', prodNoBc = false, prodShown = 60;
@@ -763,7 +952,7 @@ function vAvail() {
 
 /* ---------- reels: short videos and photo posts, 72 hours ---------- */
 const REEL_TTL = 72 * H, REEL_MAX_SEC = 30, DAY_LIMIT = { video: 5, photos: 5 };
-const REACTS = [['laugh', '😂'], ['cry', '😢'], ['wow', '😮'], ['poop', '💩']];
+const REACTS = [['love', '\u2764\ufe0f'], ['laugh', '😂'], ['cry', '😢'], ['wow', '😮'], ['poop', '💩']];
 const MEDIA = new Map();
 let pendingUpload = null, replyTo = null, mentionTags = new Map(), reelsObs = null;
 const liveReels = () => S.reels.filter(r => r.ready && Date.now() - r.ts < REEL_TTL).sort((a, b) => b.ts - a.ts);
@@ -815,6 +1004,7 @@ function reelCard(r) {
       : `<div class="rp-track">${[...Array(r.parts || 1)].map((_, i) => `<div class="rp-slide">${i === 0 && r.poster ? `<img src="${r.poster}" alt="">` : ''}</div>`).join('')}</div>${(r.parts || 1) > 1 ? `<div class="rp-dots">${[...Array(r.parts)].map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}`}
       <span class="reel-load">טוען…</span>
     </div>
+    <div class="reel-top" aria-hidden="true"><b>רילס</b></div>
     ${r.type === 'video' ? `<button class="rv-sound" data-action="reel-sound" aria-label="${reelMuted ? 'הפעלת קול' : 'השתקה'}">${reelMuted ? '🔇' : '🔊'}</button>
     <div class="rv-bar"><span class="rv-time" hidden></span><input class="rv-seek" type="range" min="0" max="1000" step="1" value="0" dir="ltr" aria-label="מיקום בסרטון"></div>` : ''}
     <div class="reel-side">
@@ -824,9 +1014,9 @@ function reelCard(r) {
       ${!viewer && r.by === session() ? `<button class="rx" data-action="reel-del" data-id="${r.id}" aria-label="מחיקה"><span>🗑</span></button>` : ''}
     </div>
     <div class="reel-info">
-      <div class="reel-who">${avatar(a, 'md')}<b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small>${!viewer && r.by === session() ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
+      <div class="reel-who"><span class="reel-av">${avatar(a, 'md')}</span><b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small>${!viewer && r.by === session() ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
       ${r.by === session() ? `<button class="reel-views" data-action="reel-viewers" data-id="${r.id}" aria-label="מי צפה">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></button>` : `<span class="reel-views" aria-label="צפיות">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></span>`}
-      ${r.caption ? `<p class="reel-cap">${withMentions(r.caption, r.tags)}</p>` : ''}
+      ${r.caption ? `<p class="reel-cap" data-action="cap-more">${withMentions(r.caption, r.tags)}</p>` : ''}
     </div>
   </article>`;
 }
@@ -859,7 +1049,9 @@ function fitFeed() {
   // The new-post button sits just above the video's position bar.
   const fab = document.querySelector('.reel-fab'); if (fab) fab.style.bottom = (nb + 30) + 'px';
 }
-addEventListener('resize', () => { if (view === 'reels') fitFeed(); });
+addEventListener('resize', () => { if (view === 'reels') fitFeed(); if (view === 'dm') fitCompose(); });
+// In a conversation, Enter sends and Shift+Enter starts a new line (on a keyboard).
+document.addEventListener('keydown', e => { if (e.target.matches && e.target.matches('[data-dm]') && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); e.target.form.requestSubmit(); } });
 // Sound is off until someone turns it on; after that every video plays with sound.
 let reelMuted = true;
 function playReel(el) {
@@ -897,10 +1089,17 @@ async function showMedia(el) {
   const r = byId(S.reels, el.dataset.reel); if (!r) return;
   try {
     const m = await getMedia(r);
-    if (m.url) { const v = el.querySelector('video'); v.src = m.url; playReel(el); }
+    if (m.url) { const v = el.querySelector('video'); v.addEventListener('loadedmetadata', () => { if (v.videoHeight >= v.videoWidth * 1.15) v.classList.add('cover'); }, { once: true }); v.src = m.url; playReel(el); }
     else el.querySelectorAll('.rp-slide').forEach((s, i) => { if (m.imgs[i]) s.innerHTML = `<img src="${m.imgs[i]}" alt="">`; });
     el.classList.add('ready');
   } catch (e) { el.dataset.loaded = ''; el.querySelector('.reel-load').textContent = 'לא הצלחתי לטעון. בדקו את החיבור'; }
+}
+function reelLove(card, media) {
+  const r = byId(S.reels, card.dataset.reel); if (!r) return;
+  const burst = document.createElement('span'); burst.className = 'heart-burst'; burst.textContent = '\u2764\ufe0f'; media.appendChild(burst); setTimeout(() => burst.remove(), 900);
+  haptic(10);
+  if (viewer || poster) return;
+  if ((r.reactions || {})[session()] !== 'love') { r.reactions = { ...(r.reactions || {}), [session()]: 'love' }; save(); patchReels(); }
 }
 // Reactions and comment counts change often; update them in place so a playing video keeps playing.
 function patchReels() {
@@ -1248,6 +1447,7 @@ function sheet(html) {
 function closeSheet() {
   const wasOpen = layerOpen(), layer = document.getElementById('layer');
   const v = sheetOutVel; sheetOutVel = 0;
+  if (scanStop) { scanStop(); scanStop = null; }
   if (layer.firstElementChild) sheetOut(layer.firstElementChild, v);
   layer.innerHTML = ''; pinNext = null;
   if (wasOpen && history.state && history.state.sheet) { popSkip++; try { history.back(); } catch (e) { popSkip--; } }
@@ -1300,7 +1500,14 @@ const ACT = {
   'reel-viewers': d => { const r = byId(S.reels, d.id); if (!r || r.by !== session()) return; const list = Object.entries(r.views || {}).filter(([id]) => id !== r.by).sort((a, b) => b[1] - a[1]);
     sheet(`<h3>${ic('eye', 'sm')} צפו בפוסט · ${list.length}</h3><div class="list" style="margin-top:10px">${list.map(([id, ts]) => `<div class="row">${avatar(emp(id), 'md')}<div class="row-main"><div class="row-title">${esc(emp(id).name)}</div><div class="row-sub">${ago(ts)}${(r.reactions || {})[id] ? ' · ' + ((REACTS.find(x => x[0] === r.reactions[id]) || [])[1] || '') : ''}</div></div></div>`).join('') || '<div class="row muted">עדיין אף אחד לא צפה.</div>'}</div>`); },
   'reel-open': d => { go('reels'); setTimeout(() => { document.querySelector(`.reel[data-reel="${d.id}"]`)?.scrollIntoView({ block: 'center' }); openComments(d.id); }, 150); },
-  'reel-tap': (d, el) => { const v = el.querySelector('video'), card = el.closest('.reel'); if (!v || !v.src) return; if (v.paused) playReel(card); else { v.pause(); card.classList.add('paused'); } },
+  // One tap pauses or plays; a double tap sends a heart, as on Instagram.
+  'reel-tap': (d, el) => {
+    const card = el.closest('.reel'), now = Date.now();
+    if (now - (card._lt || 0) < 300) { card._lt = 0; clearTimeout(card._tt); return reelLove(card, el); }
+    card._lt = now; clearTimeout(card._tt);
+    card._tt = setTimeout(() => { const v = el.querySelector('video'); if (!v || !v.src) return; if (v.paused) playReel(card); else { v.pause(); card.classList.add('paused'); } }, 260);
+  },
+  'cap-more': (d, el) => el.classList.toggle('open'),
   'reel-sound': (d, el) => { reelMuted = !reelMuted; document.querySelectorAll('.reel video').forEach(v => { v.muted = reelMuted; }); document.querySelectorAll('.rv-sound').forEach(b => { b.textContent = reelMuted ? '🔇' : '🔊'; b.setAttribute('aria-label', reelMuted ? 'הפעלת קול' : 'השתקה'); }); },
   'reply-to': d => { replyTo = d.id; const b = document.getElementById('cm-reply'); b.hidden = false; b.innerHTML = `משיב/ה ל${esc(d.name)} <button type="button" class="link-btn" data-action="reply-clear">ביטול</button>`; const t = document.getElementById('cm-t'); if (d.by && d.by !== session()) { mentionTags.set(d.by, d.name); if (!t.value.includes('@' + d.name)) t.value = `@${d.name} ` + t.value; } t.focus(); },
   'reply-clear': () => { replyTo = null; const b = document.getElementById('cm-reply'); if (b) b.hidden = true; },
@@ -1316,6 +1523,25 @@ const ACT = {
   'viewer-set': () => needMgr(() => sheet(`<h3>משתמש בקרה</h3><form class="form" data-form="viewer" style="margin-top:12px"><div class="two"><div class="field"><label for="vw-p">טלפון</label><input id="vw-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.phone : '0000000000')}" required></div><div class="field"><label for="vw-n">מספר עובד</label><input id="vw-n" name="num" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.num : '1234')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-set': () => needMgr(() => sheet(`<h3>חדשות מרקט</h3><p class="muted" style="margin-top:6px">פרטי הכניסה של חשבון הרילסים.</p><form class="form" data-form="poster" style="margin-top:12px"><div class="two"><div class="field"><label for="ps-p">טלפון</label><input id="ps-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.phone : '')}" required></div><div class="field"><label for="ps-n">מספר עובד</label><input id="ps-n" name="num" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.num : '')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-off': () => needMgr(async () => { const r = await store.setPoster(null); render(); toast(r.error || 'חשבון חדשות מרקט כובה'); }),
+  'dm-open': d => { chatWith = d.id; chatDraft = ''; go('dm'); },
+  'pos-scan': () => needMgr(() => startScan()),
+  'pos-add': d => { const p = findProd(d.k); if (!p) return; posAdd(p); posQ = ''; haptic(8); render(); },
+  'pos-inc': d => { pos.lines[+d.i].qty++; posKeep(); render(); },
+  'pos-dec': d => { const l = pos.lines[+d.i]; if (!l) return; l.qty--; if (l.qty <= 0) pos.lines.splice(+d.i, 1); posKeep(); render(); },
+  'pos-pay': d => { pos.method = d.m; posKeep(); render(); },
+  'pos-clear': () => { pos.lines = []; posKeep(); render(); },
+  'pos-price': d => { const l = pos.lines[+d.i]; if (!l) return; sheet(`<h3>מחיר ליחידה</h3><p class="muted">${esc(l.name)}</p><form class="form" data-form="pos-price" data-i="${d.i}" style="margin-top:12px"><div class="field"><label for="pp-x">מחיר (₪)</label><input id="pp-x" name="price" type="number" min="0" step="0.1" inputmode="decimal" value="${l.price || ''}" required></div><button class="btn primary block">שמירה</button></form>`); },
+  'pos-save': () => needMgr(() => {
+    if (!pos.lines.length) return toast('החשבון ריק');
+    const s = { id: uid(), no: nextSaleNo(), till: String(pos.till || '').trim(), method: pos.method, lines: pos.lines.map(({ name, bc, qty, price }) => ({ name, bc, qty, price })), total: posTotal(), by: session(), ts: Date.now() };
+    S.sales = S.sales || []; S.sales.push(s); save();
+    pos = { lines: [], method: pos.method, till: '' }; posKeep(); haptic([10, 40, 10]); render(); receiptSheet(s);
+  }),
+  'sale-open': d => { const s = byId(S.sales || [], d.id); if (s) receiptSheet(s); },
+  'sale-pdf': d => { const s = byId(S.sales || [], d.id); if (s) salePdf(s, false); },
+  'sale-share': d => { const s = byId(S.sales || [], d.id); if (s) salePdf(s, true); },
+  'sale-del': d => sheet(`<h3>לבטל את החשבון?</h3><p class="muted" style="margin-bottom:16px">החשבון יימחק מהרשימה.</p><div class="actions"><button class="btn" data-action="close">חזרה</button><button class="btn primary" data-action="sale-del-yes" data-id="${d.id}">ביטול החשבון</button></div>`),
+  'sale-del-yes': d => needMgr(() => { S.sales = (S.sales || []).filter(s => s.id !== d.id); save(); closeSheet(); render(); toast('החשבון בוטל'); }),
   'prod-nobc': () => { prodNoBc = !prodNoBc; prodShown = 60; render(); },
   'prod-more': () => { prodShown += 120; refreshProds(); },
   'inv-more': () => { invShown += 200; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); },
@@ -1608,6 +1834,19 @@ const FORMS = {
   },
   deliv: f => { S.deliveries.push({ id: uid(), date: f.date, name: f.name.trim(), qty: f.qty.trim(), supplier: f.supplier.trim(), arrived: false }); save(); closeSheet(); render(); toast('האספקה נוספה'); },
   item: f => { const [cat, sub] = f.cat.split('|'); S.inventory.push({ id: uid(), cat, sub: sub || null, name: f.name.trim(), qty: +f.qty || 0, min: +f.min || 0 }); save(); closeSheet(); render(); toast('הפריט נוסף למלאי'); },
+  dm: f => {
+    const text = String(f.text || '').trim(); if (!text || !chatWith) return;
+    S.messages = S.messages || [];
+    S.messages.push({ id: uid(), pair: [session(), chatWith], from: session(), to: chatWith, text, ts: Date.now(), read: false });
+    chatDraft = ''; haptic(6); save(); render(); const t = document.getElementById('dm-t'); if (t) t.focus();
+  },
+  'pos-find': f => {
+    const q = String(f.q || '').trim(); if (!q) return;
+    const p = posFind(q) || (r => r.length === 1 ? r[0] : null)(posSearch(q));
+    if (p) { posAdd(p); haptic(10); beep(); posQ = ''; } else { posQ = q; toast(/^\d+$/.test(q) ? 'לא נמצא מוצר עם הברקוד הזה' : 'בחרו מוצר מהרשימה'); }
+    render(); const i = document.getElementById('pos-q'); if (i) i.focus();
+  },
+  'pos-price': (f, el) => { const l = pos.lines[+el.dataset.i]; if (!l) return; l.price = Math.max(0, Math.round(parseFloat(f.price) * 100) / 100) || 0; posKeep(); closeSheet(); render(); },
   'prod-price': (f, el) => {
     if (!manager) return openPin(); const key = el.dataset.k, bc = String(f.barcode || '').trim();
     const r = barcodeBits(bc); if (bc && !(r && r.bits)) return toast((r && r.note) || 'הברקוד לא תקין');
@@ -1660,7 +1899,7 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'reel-sound', 'reel-open', 'order-open', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
@@ -1670,6 +1909,9 @@ document.addEventListener('change', e => { if (e.target.matches('[data-segpick]'
 document.addEventListener('input', e => {
   if (e.target.matches('[data-bc]')) bcPreview(e.target.value);
   if (e.target.matches('[data-prod-q]')) { prodQ = e.target.value; prodShown = 60; refreshProds(); }
+  if (e.target.matches('[data-dm]')) { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'; }
+  if (e.target.matches('[data-pos-q]')) { posQ = e.target.value; const b = document.getElementById('pos-sug'); if (b) b.innerHTML = posSugHtml(); }
+  if (e.target.matches('[data-pos-till]')) { pos.till = e.target.value; posKeep(); }
   if (e.target.matches('[data-inv-q]')) { invQ = e.target.value; invShown = 80; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); }
 });
 document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
