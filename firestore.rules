@@ -252,7 +252,11 @@ service cloud.firestore {
         && request.resource.data.to != myEmpId()
         && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
         && math.abs(request.resource.data.ts - nowMs()) < 600000;
-      allow update: if isStaff() && resource.data.to == myEmpId() && onlyChanges(['read']);
+      // The recipient marks it read; either side can hide it from their own phone ("delete for me").
+      allow update: if isStaff() && myEmpId() in resource.data.pair
+        && onlyChanges(resource.data.to == myEmpId() ? ['read', 'hide'] : ['hide'])
+        && (!('hide' in request.resource.data) || (request.resource.data.hide is list && request.resource.data.hide.size() <= 2
+            && request.resource.data.hide.hasOnly(resource.data.pair)));
       allow delete: if isStaff() && resource.data.from == myEmpId();
     }
     // Bills from the till screen: managers only.
