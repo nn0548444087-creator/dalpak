@@ -70,6 +70,7 @@ P.scan = '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0
 P.users = '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>';
 P.cart = '<path d="M3 4h2l2.2 10.5h10.6L20 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>';
 P.cal = '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>';
+P.trash = '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>';
 P.copy = '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>';
 P.down = '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>';
 P.share = '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 10.8 15.7 7.2M8.3 13.2l7.4 3.6"/>';
@@ -584,7 +585,8 @@ const orderRow = o => { const s = byId(S.suppliers, o.supplierId) || { name: 'ס
   <div class="row-sub num"><span class="pill ${st[1]}">${st[0]}</span><span>${(o.lines || []).length} שורות</span><span>${money(orderTotal(o))} כולל מע״מ</span></div></div>${ic('chev', 'sm chev')}</div>`; };
 /* ---------- private messages between employees ---------- */
 let chatWith = null, chatDraft = '';
-const myMsgs = () => (S.messages || []).filter(m => (m.pair || []).includes(session()));
+// A message deleted "for me" keeps the person's id in hide, so it disappears only from their phone.
+const myMsgs = () => (S.messages || []).filter(m => (m.pair || []).includes(session()) && !(m.hide || []).includes(session()));
 const unreadCount = () => myMsgs().filter(m => m.to === session() && !m.read).length;
 function convos() {
   const me = session(), map = new Map();
@@ -604,12 +606,12 @@ function dmList() {
   return list.map((m, i) => {
     const mine = m.from === me, day = dateKey(m.ts), sep = day !== lastDay ? `<div class="dm-day">${sameDay(m.ts, Date.now()) ? 'היום' : fmtD(m.ts)}</div>` : '';
     lastDay = day; const nx = list[i + 1], tail = !nx || nx.from !== m.from || nx.ts - m.ts > 5 * 6e4;
-    return sep + `<div class="dm ${mine ? 'me' : 'them'} ${tail ? 'tail' : ''}"><div class="dm-b">${esc(m.text).replace(/\n/g, '<br>')}</div>${tail ? `<small>${fmtT(m.ts)}${mine ? (m.read ? ' · נקרא' : ' · נשלח') : ''}</small>` : ''}</div>`;
+    return sep + `<div class="dm ${mine ? 'me' : 'them'} ${tail ? 'tail' : ''}"><div class="dm-b" data-action="dm-msg" data-id="${m.id}" role="button" tabindex="0">${esc(m.text).replace(/\n/g, '<br>')}</div>${tail ? `<small>${fmtT(m.ts)}${mine ? (m.read ? ' · נקרא' : ' · נשלח') : ''}</small>` : ''}</div>`;
   }).join('') || '<p class="muted dm-empty">עדיין אין הודעות. כתבו משהו ראשון 👋</p>';
 }
 function vDm() {
   const e = emp(chatWith);
-  return `${back('chat', 'חזרה להודעות')}<div class="dm-head">${avatar(e, 'lg')}<div><b>${esc(e.name)}</b><small class="muted">שיחה פרטית</small></div></div>
+  return `${back('chat', 'חזרה להודעות')}<div class="dm-head">${avatar(e, 'lg')}<div><b>${esc(e.name)}</b><small class="muted">שיחה פרטית · לחיצה על הודעה למחיקה</small></div>${dmList().includes('data-id') ? `<button class="dm-clear" data-action="dm-clear" aria-label="מחיקת השיחה">${ic('trash')}</button>` : ''}</div>
   <div class="dm-list" id="dm-list">${dmList()}</div>
   <form class="dm-compose" data-form="dm"><textarea id="dm-t" name="text" rows="1" maxlength="2000" placeholder="הודעה…" data-dm>${esc(chatDraft)}</textarea><button class="dm-send" aria-label="שליחה">${ic('send')}</button></form>`;
 }
@@ -1524,6 +1526,29 @@ const ACT = {
   'poster-set': () => needMgr(() => sheet(`<h3>חדשות מרקט</h3><p class="muted" style="margin-top:6px">פרטי הכניסה של חשבון הרילסים.</p><form class="form" data-form="poster" style="margin-top:12px"><div class="two"><div class="field"><label for="ps-p">טלפון</label><input id="ps-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.phone : '')}" required></div><div class="field"><label for="ps-n">מספר עובד</label><input id="ps-n" name="num" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.num : '')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-off': () => needMgr(async () => { const r = await store.setPoster(null); render(); toast(r.error || 'חשבון חדשות מרקט כובה'); }),
   'dm-open': d => { chatWith = d.id; chatDraft = ''; go('dm'); },
+  // Delete a message: your own for everyone or just for you; one you received just for you.
+  'dm-msg': d => {
+    const m = byId(S.messages || [], d.id); if (!m) return;
+    const mine = m.from === session(); haptic(8);
+    sheet(`<h3>${mine ? 'ההודעה שלך' : 'הודעה מ' + esc(emp(m.from).name || '')}</h3><div class="dm-peek ${mine ? 'me' : ''}">${esc(m.text).replace(/\n/g, '<br>')}</div><small class="muted">${fmtD(m.ts)} ${fmtT(m.ts)}</small>
+    <div class="dm-acts">${mine ? `<button class="btn block danger" data-action="dm-del-all" data-id="${m.id}">${ic('trash', 'sm')}מחיקה אצל כולם</button>` : ''}<button class="btn block ${mine ? '' : 'danger'}" data-action="dm-del-me" data-id="${m.id}">${ic('trash', 'sm')}מחיקה אצלי בלבד</button><button class="btn block" data-action="dm-copy" data-id="${m.id}">${ic('copy', 'sm')}העתקה</button><button class="btn block" data-action="close">ביטול</button></div>`);
+  },
+  'dm-del-all': d => {
+    const m = byId(S.messages || [], d.id); if (!m || m.from !== session()) return;
+    S.messages = S.messages.filter(x => x.id !== d.id); save(); closeSheet(); render(); toast('ההודעה נמחקה אצל כולם');
+  },
+  'dm-del-me': d => {
+    const m = byId(S.messages || [], d.id); if (!m) return;
+    m.hide = [...new Set([...(m.hide || []), session()])]; if (m.to === session()) m.read = true;
+    save(); closeSheet(); render(); toast('ההודעה נמחקה אצלך');
+  },
+  'dm-copy': d => { const m = byId(S.messages || [], d.id); if (m) copyText(m.text); closeSheet(); },
+  'dm-clear': () => sheet(`<h3>למחוק את כל השיחה?</h3><p class="muted" style="margin-bottom:16px">כל ההודעות בשיחה עם ${esc(emp(chatWith).name || '')} יימחקו אצלך. אצל ${esc(emp(chatWith).name || '')} הן יישארו.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary danger" data-action="dm-clear-yes">מחיקת השיחה</button></div>`),
+  'dm-clear-yes': () => {
+    const me = session();
+    myMsgs().filter(m => m.pair.includes(chatWith)).forEach(m => { m.hide = [...new Set([...(m.hide || []), me])]; if (m.to === me) m.read = true; });
+    save(); closeSheet(); render(); toast('השיחה נמחקה אצלך');
+  },
   'pos-scan': () => needMgr(() => startScan()),
   'pos-add': d => { const p = findProd(d.k); if (!p) return; posAdd(p); posQ = ''; haptic(8); render(); },
   'pos-inc': d => { pos.lines[+d.i].qty++; posKeep(); render(); },
