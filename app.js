@@ -979,12 +979,12 @@ function vAvail() {
     <div class="row-sub">${g.length ? g.map(u => `<span class="pill bad">${esc(emp(u.empId).name)}${u.note ? ' · ' + esc(u.note) : ''}</span>`).join('') : '<span class="muted">כולם פנויים</span>'}</div></div></div>`; }).join('')}</div>`;
 }
 
-/* ---------- reels: short videos and photo posts, 72 hours ---------- */
-const REEL_TTL = 72 * H, REEL_MAX_SEC = 30, DAY_LIMIT = { video: 5, photos: 5 };
+/* ---------- reels: short videos and photo posts. They stay in the feed (no automatic deletion). ---------- */
+const REEL_MAX_SEC = 30, DAY_LIMIT = { video: 5, photos: 5 };
 const REACTS = [['love', '\u2764\ufe0f'], ['laugh', '😂'], ['cry', '😢'], ['wow', '😮'], ['poop', '💩']];
 const MEDIA = new Map();
 let pendingUpload = null, replyTo = null, mentionTags = new Map(), reelsObs = null;
-const liveReels = () => S.reels.filter(r => r.ready && Date.now() - r.ts < REEL_TTL).sort((a, b) => b.ts - a.ts);
+const liveReels = () => S.reels.filter(r => r.ready).sort((a, b) => b.ts - a.ts);
 const myToday = type => S.reels.filter(r => r.by === session() && r.type === type && sameDay(r.ts, Date.now())).length;
 const leftToday = type => manager || poster ? Infinity : Math.max(0, DAY_LIMIT[type] - myToday(type));
 const MENTION_SEEN = 'dalpak-mention-seen';
@@ -1025,7 +1025,6 @@ function markViewed(id) {
 }
 function reelCard(r) {
   const a = emp(r.by), mine = (r.reactions || {})[session()], n = S.reelComments.filter(c => c.reel === r.id).length;
-  const left = Math.max(1, Math.ceil((r.ts + REEL_TTL - Date.now()) / H));
   const counts = Object.fromEntries(REACTS.map(([k]) => [k, Object.values(r.reactions || {}).filter(v => v === k).length]));
   return `<article class="reel" data-reel="${r.id}">
     <div class="reel-media ${r.type}" data-action="reel-tap" data-id="${r.id}">
@@ -1043,7 +1042,7 @@ function reelCard(r) {
       ${!viewer && r.by === session() ? `<button class="rx" data-action="reel-del" data-id="${r.id}" aria-label="מחיקה"><span>🗑</span></button>` : ''}
     </div>
     <div class="reel-info">
-      <div class="reel-who"><span class="reel-av">${avatar(a, 'md')}</span><b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)} · נמחק בעוד ${left} שע׳</small>${!viewer && r.by === session() ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
+      <div class="reel-who"><span class="reel-av">${avatar(a, 'md')}</span><b>${esc(a.name || 'עובד')}</b><small>${ago(r.ts)}</small>${!viewer && r.by === session() ? `<button class="reel-delbtn" data-action="reel-del" data-id="${r.id}">מחיקה</button>` : ''}</div>
       ${r.by === session() ? `<button class="reel-views" data-action="reel-viewers" data-id="${r.id}" aria-label="מי צפה">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></button>` : `<span class="reel-views" aria-label="צפיות">${ic('eye', 'sm')}<span data-cnt="v">${viewCount(r)}</span></span>`}
       ${r.caption ? `<p class="reel-cap" data-action="cap-more">${withMentions(r.caption, r.tags)}</p>` : ''}
     </div>
@@ -1053,7 +1052,7 @@ function vReels() {
   const list = liveReels();
   // Full-screen feed like Instagram: the feed itself scrolls, one post per screen.
   return `${viewer ? '' : `<button class="reel-fab" data-action="reel-new" aria-label="ריל או פוסט חדש">${ic('plus')}</button>`}
-  <div class="reels-feed" id="reels-feed">${list.map(reelCard).join('') || '<div class="reels-empty"><b>עדיין אין רילס</b><span>היו הראשונים להעלות! כל פוסט נמחק מהאפליקציה אחרי 72 שעות.</span></div>'}</div>`;
+  <div class="reels-feed" id="reels-feed">${list.map(reelCard).join('') || '<div class="reels-empty"><b>עדיין אין רילס</b><span>היו הראשונים להעלות!</span></div>'}</div>`;
 }
 // Only the reels in view load their media, and only the one on screen plays.
 function watchReels() {
@@ -1264,12 +1263,10 @@ async function backupReels() {
 }
 window.shabbesBackup = async () => (store.isManager() ? { ids: await backupReels() } : { error: 'צריך להיות במצב מנהל' });
 window.shabbesBackupDone = ids => { (ids || []).forEach(id => { const r = byId(S.reels, id); if (r) r.backedUp = true; }); save(); return true; };
-// Managers' phones clear reels older than 72 hours once they were copied to the computer (or after 7 days).
+// Reels are no longer deleted automatically; a reel is removed only when its author or a manager deletes it.
 let reelsCleaned = false;
 async function cleanReels() {
-  if (reelsCleaned || !store.isManager() || viewer || !store.loaded('reels', 'reelComments')) return; reelsCleaned = true;
-  const now = Date.now();
-  for (const r of S.reels.filter(r => now - r.ts > REEL_TTL && (r.backedUp || now - r.ts > 7 * DAY))) await store.deleteReel(r);
+  reelsCleaned = true;
 }
 
 /* ---------- display settings view ---------- */
@@ -1787,7 +1784,7 @@ const FORMS = {
     const caption = (f.caption || '').trim(), up = pendingUpload; busy = true; document.getElementById('up-go').disabled = true;
     const r = await store.uploadReel({ ...up.meta, caption, tags: pickedTags(caption), reactions: {} }, up.parts, p => setProg(p, `מעלה… ${Math.round(p * 100)}%`));
     busy = false; if (r.error) { document.getElementById('up-go').disabled = false; return toast(r.error); }
-    pendingUpload = null; closeSheet(); go('reels'); const rf = document.getElementById('reels-feed'); if (rf) rf.scrollTop = 0; toast('פורסם! יימחק מהאפליקציה בעוד 72 שעות');
+    pendingUpload = null; closeSheet(); go('reels'); const rf = document.getElementById('reels-feed'); if (rf) rf.scrollTop = 0; toast('פורסם!');
   },
   comment: (f, el) => {
     const text = (f.text || '').trim(); if (!text) return;
