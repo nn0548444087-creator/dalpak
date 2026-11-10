@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "531855451338",
+    "project_id": "dalpak",
+    "storage_bucket": "dalpak.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:531855451338:android:b67c3c2439e1aa4cb90033",
+        "android_client_info": {
+          "package_name": "com.dalpak.store"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA0l8koTaHHXqd0X-uh-PjS2XaAg-8yflA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
