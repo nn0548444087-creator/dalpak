@@ -43,6 +43,7 @@ export function createCloudStore(config) {
   const S = { prices: {}, catalog: [], employees: [], shifts: [], inventory: [], drinkUpdates: [], deliveries: [], tasks: [], notifications: [], grades: {}, notes: {}, images: {}, empPhotos: {}, openShifts: [], suppliers: [], orders: [], unavail: [], extras: [], currentUser: null };
   let synced = {}, loadedCols = new Set(), unsubs = [];
   // poster = the "חדשות מרקט" account, which may only post reels.
+  let myPush = null;
   let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, owner = false, viewer = false, poster = false, viewerLogins = [], setupDone = true, pinLen = 4;
   // The owner's phone and employee number are kept only in their own login record, never in the shared employee list.
   // In the shared list the owner shows as a regular permanent manager.
@@ -244,7 +245,14 @@ export function createCloudStore(config) {
 
   return {
     mode: 'cloud',
+    firebaseApp: app,
     S, ready,
+    // This phone's notification token, saved under the signed-in employee (the server reads it to send).
+    async savePushToken(token, platform) {
+      if (!empId || viewer || poster || !token) return;
+      myPush = token;
+      await setDoc(doc(db, 'pushTokens', token), { emp: empId, token, platform, ts: Date.now() }).catch(e => console.warn('push token', e));
+    },
     needsSetup: () => !setupDone,
     session: () => empId,
     isManager: () => mgr,
@@ -329,6 +337,8 @@ export function createCloudStore(config) {
     },
 
     async logout() {
+      // Stop notifications for this employee on this phone before the session ends.
+      if (myPush) { await deleteDoc(doc(db, 'pushTokens', myPush)).catch(() => { }); myPush = null; }
       const u = auth.currentUser;
       resetState();
       if (u) {
