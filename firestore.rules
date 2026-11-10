@@ -259,6 +259,12 @@ service cloud.firestore {
             && request.resource.data.hide.hasOnly(resource.data.pair)));
       allow delete: if isStaff() && resource.data.from == myEmpId();
     }
+    // Phone notification tokens: each phone saves its own under the signed-in employee. Only the server reads them.
+    match /pushTokens/{token} {
+      allow create, update: if isStaff() && request.resource.data.emp == myEmpId() && request.resource.data.token == token
+        && request.resource.data.keys().hasOnly(['emp', 'token', 'platform', 'ts']);
+      allow delete: if isAcct() && resource.data.emp == myEmpId();
+    }
     // Bills from the till screen: managers only.
     match /sales/{id} { allow read: if canSee(); allow write: if isMgr(); }
 
