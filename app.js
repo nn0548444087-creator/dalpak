@@ -254,7 +254,7 @@ function vClock() {
   const C = 2 * Math.PI * 46, ms0 = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1).getTime();
   const xT = exSum(extrasOf(me.id, sod(now), now + DAY)), xM = exSum(extrasOf(me.id, ms0, now + DAY));
   const myEx = (S.extras || []).filter(x => x.empId === me.id && x.ts >= ms0).sort((a, b) => b.ts - a.ts);
-  return `
+  return pushCard() + `
   <section class="hero">
     <div class="today">${fmtLong(now)}</div>
     <button class="dial ${open ? 'on' : ''}" data-action="clock" aria-label="${open ? 'יציאה מהמשמרת' : 'כניסה למשמרת'}">
@@ -583,6 +583,33 @@ function vSupplier() {
 const orderTotal = o => sum((o.lines || []).map(l => withVat(l) * l.qty));
 const orderRow = o => { const s = byId(S.suppliers, o.supplierId) || { name: 'ספק שנמחק' }, st = ORDER_ST[o.status] || ORDER_ST.draft; return `<div class="row tap" data-action="order-open" data-id="${o.id}"><div class="row-main"><div class="row-title">${esc(s.name)} · ${fmtD(o.ts)}</div>
   <div class="row-sub num"><span class="pill ${st[1]}">${st[0]}</span><span>${(o.lines || []).length} שורות</span><span>${money(orderTotal(o))} כולל מע״מ</span></div></div>${ic('chev', 'sm chev')}</div>`; };
+/* ---------- phone notifications ---------- */
+// The code that talks to Firebase Cloud Messaging lives in push.js and loads only in the real (cloud) app.
+let pushStatus = 'off', pushMod = null;
+const PUSH_TXT = { on: 'פעילות', ask: 'הפעלה', denied: 'חסומות', update: 'צריך גרסה חדשה', unsupported: 'לא נתמך כאן', error: 'נסו שוב' };
+const isNativeApp = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const pushLater = () => { try { return Date.now() - (+localStorage.getItem('push-later') || 0) < 7 * DAY; } catch (e) { return false; } };
+async function initPush(ask) {
+  if (local() || !session() || viewer || poster) return;
+  try {
+    pushMod = pushMod || await import('./push.js');
+    pushStatus = await pushMod.startPush(store, { ask, onForeground: (t, b) => { haptic(10); toast(`${t || 'התראה'}${b ? ' · ' + b : ''}`); }, onOpen: openFromPush });
+    if (pushStatus === 'error' && !ask) pushStatus = await pushMod.pushState();
+  } catch (e) { pushStatus = 'unsupported'; }
+  if (view === 'clock' && !layerOpen()) render();
+}
+function openFromPush(d) {
+  if (!session() || !d) return;
+  if (d.view === 'dm' && d.chat && emp(d.chat).id) { chatWith = d.chat; chatDraft = ''; go('dm'); }
+  else if (d.view && ['chat', 'tasks', 'clock', 'reels', 'alerts', 'hours'].includes(d.view)) go(d.view);
+}
+const pushCard = () => {
+  if (viewer || poster || pushLater()) return '';
+  if (pushStatus === 'ask') return `<div class="card push-card"><span class="push-ic">${ic('bell')}</span><div class="grow"><b>התראות בטלפון</b><p class="muted">הודעה חדשה, משימה, שינוי במשמרת או רילס חדש יקפצו לכם בטלפון.</p><div class="actions"><button class="btn primary sm" data-action="push-on">הפעלת התראות</button><button class="btn sm" data-action="push-later">לא עכשיו</button></div></div></div>`;
+  if (pushStatus === 'update') return `<div class="card push-card"><span class="push-ic">${ic('bell')}</span><div class="grow"><b>יש גרסה חדשה לאפליקציה</b><p class="muted">התקינו את הגרסה החדשה כדי לקבל התראות לטלפון.</p><div class="actions"><button class="btn sm" data-action="push-later">הבנתי</button></div></div></div>`;
+  return '';
+};
+
 /* ---------- private messages between employees ---------- */
 let chatWith = null, chatDraft = '';
 // A message deleted "for me" keeps the person's id in hide, so it disappears only from their phone.
@@ -1525,6 +1552,16 @@ const ACT = {
   'viewer-set': () => needMgr(() => sheet(`<h3>משתמש בקרה</h3><form class="form" data-form="viewer" style="margin-top:12px"><div class="two"><div class="field"><label for="vw-p">טלפון</label><input id="vw-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.phone : '0000000000')}" required></div><div class="field"><label for="vw-n">מספר עובד</label><input id="vw-n" name="num" inputmode="numeric" value="${esc(S.viewerLogin ? S.viewerLogin.num : '1234')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-set': () => needMgr(() => sheet(`<h3>חדשות מרקט</h3><p class="muted" style="margin-top:6px">פרטי הכניסה של חשבון הרילסים.</p><form class="form" data-form="poster" style="margin-top:12px"><div class="two"><div class="field"><label for="ps-p">טלפון</label><input id="ps-p" name="phone" class="ltr" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.phone : '')}" required></div><div class="field"><label for="ps-n">מספר עובד</label><input id="ps-n" name="num" inputmode="numeric" value="${esc(S.posterLogin ? S.posterLogin.num : '')}" required></div></div><button class="btn primary block">שמירה</button></form>`)),
   'poster-off': () => needMgr(async () => { const r = await store.setPoster(null); render(); toast(r.error || 'חשבון חדשות מרקט כובה'); }),
+  'push-on': async () => {
+    closeSheet();
+    if (pushStatus === 'denied') return toast('ההתראות חסומות. אפשר להפעיל אותן בהגדרות הטלפון › אפליקציות › שאבעס מרקט › התראות');
+    if (pushStatus === 'update') return toast('כדי לקבל התראות צריך להתקין את הגרסה החדשה של האפליקציה');
+    if (pushStatus === 'unsupported') return toast(/iPhone|iPad/.test(navigator.userAgent) ? 'באייפון: פתחו בספארי, שיתוף › הוספה למסך הבית, ופתחו את האפליקציה משם' : 'הדפדפן הזה לא תומך בהתראות');
+    await initPush(true);
+    toast(pushStatus === 'on' ? 'ההתראות הופעלו' : pushStatus === 'denied' ? 'ההתראות נחסמו. אפשר לשנות בהגדרות הטלפון' : 'לא הצלחתי להפעיל התראות. נסו שוב');
+    render();
+  },
+  'push-later': () => { try { localStorage.setItem('push-later', String(Date.now())); } catch (e) { } render(); },
   'dm-open': d => { chatWith = d.id; chatDraft = ''; go('dm'); },
   // Delete a message: your own for everyone or just for you; one you received just for you.
   'dm-msg': d => {
@@ -1646,7 +1683,7 @@ const ACT = {
   'fill-login': d => { const p = document.getElementById('lg-p'), n = document.getElementById('lg-n'); if (p) p.value = fmtPhone(d.p); if (n) n.value = d.n; },
   account: () => {
     const e = cur(); sheet(`<div class="emp-head" style="margin-bottom:14px">${avatar(e, 'xl')}<div><h3>${esc(e.name)}</h3>${poster ? '<div class="muted">משתמש להעלאת רילסים בלבד</div>' : `<div class="muted num">עובד מס׳ ${esc(e.num)} · <span class="ltr">${fmtPhone(e.phone)}</span></div>`}<label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת התמונה שלי' : 'הוספת תמונה שלי'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div>
-    <div class="list"><button class="menu-item" data-action="nav-close" data-view="display">${ic('eye')}<span class="grow">הגדרות תצוגה</span>${ic('chev', 'sm chev')}</button><button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span></button></div>`);
+    <div class="list">${poster || viewer || local() ? '' : `<button class="menu-item" data-action="push-on">${ic('bell')}<span class="grow">התראות בטלפון</span><small class="muted">${PUSH_TXT[pushStatus] || ''}</small></button>`}<button class="menu-item" data-action="nav-close" data-view="display">${ic('eye')}<span class="grow">הגדרות תצוגה</span>${ic('chev', 'sm chev')}</button><button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span></button></div>`);
   },
   'nav-close': d => { closeSheet(); view = d.view; render(); window.scrollTo(0, 0); },
   logout: async () => { closeSheet(); await store.logout(); view = 'clock'; render(); toast('התנתקת'); },
@@ -1779,6 +1816,7 @@ const FORMS = {
     busy = false;
     if (r.error) { render(); document.getElementById('lg-p').value = fmtPhone(p); document.getElementById('lg-n').value = n; return toast(r.error); }
     view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name));
+    initPush(isNativeApp());
   },
   setup: async f => {
     const p = normPhone(f.phone), n = String(f.num).trim();
@@ -1857,7 +1895,7 @@ const FORMS = {
     if (e > Date.now()) return toast('שעת הסיום לא יכולה להיות בעתיד');
     s.end = e; s.status = 'approved'; delete s.allowUntil; save(); closeSheet(); render(); toast(`אושרו ${fmtH(dur(s))} שעות`);
   },
-  deliv: f => { S.deliveries.push({ id: uid(), date: f.date, name: f.name.trim(), qty: f.qty.trim(), supplier: f.supplier.trim(), arrived: false }); save(); closeSheet(); render(); toast('האספקה נוספה'); },
+  deliv: f => { if (!String(f.name || '').trim()) return toast('מה אמור להגיע?'); S.deliveries.push({ id: uid(), date: /^\d{4}-\d{2}-\d{2}$/.test(f.date || '') && !isNaN(new Date(f.date + 'T12:00')) ? f.date : dateKey(Date.now()), name: f.name.trim(), qty: f.qty.trim(), supplier: f.supplier.trim(), arrived: false }); save(); closeSheet(); render(); toast('האספקה נוספה'); },
   item: f => { const [cat, sub] = f.cat.split('|'); S.inventory.push({ id: uid(), cat, sub: sub || null, name: f.name.trim(), qty: +f.qty || 0, min: +f.min || 0 }); save(); closeSheet(); render(); toast('הפריט נוסף למלאי'); },
   dm: f => {
     const text = String(f.text || '').trim(); if (!text || !chatWith) return;
@@ -2007,8 +2045,11 @@ function tick() {
   await store.ready;
   booting = false;
   if (session()) view = DS.home || 'clock';
-  try { history.replaceState({ view, d: 0 }, ''); } catch (e) { }
+  // A tapped web notification opens the app with ?open=<screen>&chat=<employee>.
+  const qs = new URLSearchParams(location.search), opened = qs.get('open');
+  try { history.replaceState({ view, d: 0 }, '', location.pathname); } catch (e) { }
   render();
+  if (session()) { if (opened) openFromPush({ view: opened, chat: qs.get('chat') }); initPush(false); }
   let lastCount = alerts().count;
   setInterval(() => { tick(); if (!session()) return; const c = alerts().count; if (c !== lastCount) { lastCount = c; renderNav(); } }, 1000);
 })();
