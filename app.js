@@ -1,5 +1,6 @@
 import './style.css';
 import { createStore } from './store.js';
+import { distM, geoOnce, geoStart, geoStop, geoWatching, geoBackground, geoSettings } from './geo.js';
 import { H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary, barcodeBits, barcodeSvg } from './util.js';
 
 const ROOT = document.documentElement; ROOT.lang = 'he'; ROOT.dir = 'rtl';
@@ -67,6 +68,7 @@ P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
 P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
 P.scale = '<path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z"/>';
 P.coin = '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5c0-1 1-1.8 2.5-1.8s2.5.8 2.5 1.9c0 2.6-5 1.4-5 4.2 0 1.1 1.1 1.9 2.5 1.9s2.5-.8 2.5-1.8M12 6.2v1.5M12 16.2v1.6"/>';
+P.pin = '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>';
 P.send = '<path d="M21 3 10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>';
 P.scan = '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/>';
 P.users = '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>';
@@ -146,7 +148,7 @@ function alerts() {
 
 /* ---------- shell ---------- */
 const MORE_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
-const MGR_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report'];
+const MGR_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report', 'geo'];
 function tabPill() {
   const nav = document.getElementById('nav'); if (!nav || document.getElementById('navbar').hidden) return;
   let p = nav.querySelector('.tab-pill'); if (!p) { p = document.createElement('span'); p.className = 'tab-pill'; p.setAttribute('aria-hidden', 'true'); nav.prepend(p); }
@@ -190,12 +192,14 @@ function render() {
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks' || invTab === 'all') invTab = 'drinks'; }
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
   if (view === 'dm') { fitCompose(); markRead(); scrollDmEnd(); }
   if (view !== 'pos' && scanStop && !layerOpen()) { scanStop(); scanStop = null; }
+  if (view !== 'pos' && !layerOpen()) camOff();
+  geoSync();
 }
 // Data from other phones arrives at any moment; wait while someone is typing or a sheet is open.
 function softRender() {
@@ -274,6 +278,7 @@ function vClock() {
     ${x.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : x.status === 'rejected' ? '<span class="pill bad">נדחה</span>' : DS.showPay ? `<b class="num">${money(+x.amount || 0)}</b>` : '<span class="pill ok">אושר</span>'}</div>`).join('')}</div>` : ''}</div>
   ${(() => { const crew = onShiftNow().map(s => ({ e: emp(s.empId), s, me: s.empId === me.id })).filter(x => x.e.id).sort((x, y) => y.me - x.me);
     return crew.length ? `<div class="crew"><span class="crew-l">${open ? (crew.length > 1 ? 'במשמרת איתך עכשיו' : 'במשמרת עכשיו') : 'במשמרת עכשיו'}</span><div class="crew-row">${crew.map(x => `<span class="crew-p ${x.me ? 'me' : ''}" title="${esc(x.e.name)} · מ-${fmtT(x.s.start)}">${avatar(x.e, 'md')}<small>${x.me ? 'אני' : esc(first(x.e.name))}</small></span>`).join('')}</div></div>` : ''; })()}
+  ${open ? geoBanner(open) : ''}
   ${open && now - open.start > 12 * H ? `<div class="banner bad">${ic('alert')}<span>המשמרת פתוחה יותר מ-12 שעות. נשלחה התראה למנהל המערכת.</span></div>` : ''}
   <div class="stats">
     <div class="stat"><span>שעות היום</span><b class="num">${fmtH(tH)}</b></div>
@@ -406,7 +411,7 @@ function vAlerts() {
 function vMore() {
   const it = (v, i, l, lockd) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${lockd && !manager ? ic('lock', 'sm') : ''}${ic('chev', 'sm chev')}</button>`;
   return `<h2 class="vt">תפריט</h2>
-  ${manager ? `<div class="list">${it('pos', 'scan', 'קופה', 1)}${it('products', 'tag', 'מוצרים, ברקודים ומחירים', 1)}${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
+  ${manager ? `<div class="list">${it('pos', 'scan', 'קופה', 1)}${it('products', 'tag', 'מוצרים, ברקודים ומחירים', 1)}${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('geo', 'pin', 'מיקום החנות וסגירת משמרת', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
   <div class="list">${it('avail', 'cal', manager ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד', 0)}${it('display', 'eye', 'הגדרות תצוגה', 0)}
   ${viewer ? '' : manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
@@ -611,6 +616,119 @@ const pushCard = () => {
   if (pushStatus === 'update') return `<div class="card push-card"><span class="push-ic">${ic('bell')}</span><div class="grow"><b>יש גרסה חדשה לאפליקציה</b><p class="muted">התקינו את הגרסה החדשה כדי לקבל התראות לטלפון.</p><div class="actions"><button class="btn sm" data-action="push-later">הבנתי</button></div></div></div>`;
   return '';
 };
+
+/* ---------- location: closing a shift when the employee leaves the shop ---------- */
+// The manager sets the shop's location and radius (config/geo); without one, the place where the employee
+// clocked in counts. While on shift the phone keeps the last time it was inside the area and when it left.
+// If it does not come back within the waiting time (1:15 by default), the shift is closed at the last time
+// it was inside. The server checks the same every few minutes, so it happens also while the app is closed.
+const GEO_DEF = { on: false, lat: null, lng: null, acc: null, radius: 150, grace: 75 };
+let geoCfg = null, geoCfgAt = 0, geoCfgBusy = false, geoSt = null, geoErr = '', geoMode = '', geoStarting = false, geoBusy = false;
+const geoOn = () => !!(geoCfg && geoCfg.on);
+const graceMs = () => (+(geoCfg && geoCfg.grace) || 75) * 60000;
+const fmtMin = m => ({ 30: 'חצי שעה', 45: '45 דקות', 60: 'שעה', 75: 'שעה ורבע', 90: 'שעה וחצי', 120: 'שעתיים' })[+m] || `${m} דקות`;
+async function geoLoad(force) {
+  if (geoCfgBusy || (!force && geoCfgAt && Date.now() - geoCfgAt < 10 * 60000)) return;
+  geoCfgBusy = true; geoCfgAt = Date.now();
+  const was = JSON.stringify(geoCfg);
+  try { geoCfg = { ...GEO_DEF, ...((await store.getGeoCfg()) || {}) }; } catch (e) { geoCfg = geoCfg || { ...GEO_DEF }; }
+  geoCfgBusy = false;
+  if (JSON.stringify(geoCfg) !== was) { geoSync(); if (view === 'geo' || view === 'clock') softRender(); }
+}
+const geoSave = () => store.setGeoCfg(geoCfg).catch(() => toast('השמירה נכשלה, בדקו את החיבור'));
+// Starts or stops reading the location to match: feature on + my shift open.
+function geoSync() {
+  if (!session() || viewer || poster || !store.getGeoCfg) return;
+  geoLoad();
+  const me = cur(), o = me && me.id ? openShift(me.id) : null, want = geoOn() && !!o;
+  if (want && !geoWatching() && !geoStarting) geoWatchStart(o);
+  else if (!want && geoWatching()) { geoStop(); geoMode = ''; }
+}
+async function geoWatchStart(o) {
+  geoStarting = true;
+  try {
+    if (!geoSt || geoSt.id !== o.id) {
+      geoSt = { id: o.id, lastIn: o.start, outAt: null, home: null, unsure: false, saved: 0 };
+      try { const g = await store.getGeo(o.id); if (g && geoSt.id === o.id) Object.assign(geoSt, { lastIn: g.lastIn || o.start, outAt: g.outAt || null, home: g.home || null, unsure: !!g.unsure }); } catch (e) { }
+    }
+    geoErr = '';
+    geoMode = (await geoStart(geoPos, e => { geoErr = e; if (view === 'clock') softRender(); })) || '';
+  } finally { geoStarting = false; }
+}
+// Each location reading while on shift.
+function geoPos(p) {
+  const me = cur(), o = me && me.id ? openShift(me.id) : null;
+  if (!o || !geoOn() || !geoSt || geoSt.id !== o.id || !(p.acc < 300)) return;
+  const g = geoSt, now = Date.now(), t = p.t && p.t <= now && now - p.t < 10 * 60000 ? p.t : now, hadErr = !!geoErr;
+  geoErr = '';
+  if (geoCfg.lat == null && !g.home) g.home = { lat: p.lat, lng: p.lng };
+  const z = geoCfg.lat != null ? { lat: +geoCfg.lat, lng: +geoCfg.lng } : g.home;
+  const d = distM(p, z), inside = d <= (+geoCfg.radius || 150) + Math.min(p.acc, 100), wasOut = !!g.outAt;
+  let write = !g.saved;
+  if (inside) {
+    if (g.outAt) { g.outAt = null; g.unsure = false; write = true; }
+    if (t - (g.saved || 0) > 3 * 60000) write = true;
+    g.lastIn = Math.max(g.lastIn || 0, t);
+  } else if (!g.outAt) {
+    // More than half an hour without a reading before leaving (iPhone with the app closed): the manager is told to check.
+    g.outAt = t; g.unsure = !!g.lastIn && t - g.lastIn > 30 * 60000; write = true;
+  }
+  if (write) { g.saved = t; store.geoPing(o.id, { home: g.home || null, lastIn: g.lastIn || null, outAt: g.outAt || null, dist: Math.round(d), acc: Math.round(p.acc), unsure: !!g.unsure }).catch(() => { }); }
+  if ((wasOut !== !!g.outAt || hadErr) && view === 'clock') softRender();
+  geoCheck();
+}
+// Closes my shift once I have been outside for the whole waiting time.
+function geoCheck() {
+  const g = geoSt, me = cur();
+  if (!g || !g.outAt || !geoOn() || !me || !me.id || Date.now() - g.outAt < graceMs()) return;
+  const o = openShift(me.id); if (!o || o.id !== g.id) return;
+  o.end = Math.max(o.start, Math.min(g.lastIn || o.start, Date.now())); o.status = 'approved'; o.autoGeo = true;
+  if (g.unsure) o.geoUnsure = true;
+  delete o.allowUntil;
+  save(); geoEnd(o.id); haptic([10, 60, 10]); render();
+  toast(`המשמרת נסגרה: יצאת מאזור החנות ולא חזרת. נרשמה עד ${fmtT(o.end)}`);
+}
+function geoBegin(id, t) { if (geoOn()) geoSt = { id, lastIn: t, outAt: null, home: null, unsure: false, saved: 0 }; }
+function geoEnd(id) {
+  geoStop(); geoMode = ''; geoErr = '';
+  if (geoSt && geoSt.id === id) geoSt = null;
+  if (store.geoClear) store.geoClear(id).catch(() => { });
+}
+function geoBanner(o) {
+  if (!geoOn() || geoErr === 'unsupported') return '';
+  if (geoErr === 'denied') return `<div class="banner bad">${ic('pin')}<span>כדי שהמשמרת תיבדק לפי מיקום צריך לאשר לאפליקציה גישה למיקום.</span><button class="btn sm" data-action="geo-retry">אישור מיקום</button></div>`;
+  const g = geoSt && geoSt.id === o.id ? geoSt : null;
+  if (g && g.outAt) return `<div class="banner bad">${ic('pin')}<span>יצאת מאזור החנות ב-${fmtT(g.outAt)}. אם לא תחזור עד ${fmtT(g.outAt + graceMs())} המשמרת תיסגר ותירשם עד ${fmtT(g.lastIn || o.start)}.</span></div>`;
+  return `<p class="geo-note">${ic('pin', 'sm')}${geoMode === 'bg' ? 'המיקום נבדק במשמרת, גם כשהאפליקציה סגורה' : 'המיקום נבדק במשמרת כשהאפליקציה פתוחה'}</p>`;
+}
+function vGeo() {
+  const title = `<h2 class="vt">מיקום החנות וסגירת משמרת</h2>`;
+  if (!manager) return back() + title + locked('מיקום החנות וסגירת משמרת אוטומטית');
+  if (!geoCfg) { geoLoad(true); return back() + title + `<div class="card empty">טוען…</div>`; }
+  const c = geoCfg, has = c.lat != null;
+  const segs = (k, list, fmt) => `<div class="seg-wrap" role="radiogroup">${list.map(v => `<button class="seg ${+c[k] === v ? 'on' : ''}" role="radio" aria-checked="${+c[k] === v}" data-action="geo-set" data-k="${k}" data-v="${v}">${fmt(v)}</button>`).join('')}</div>`;
+  return back() + title + `
+  <p class="lead">כשעובד במשמרת יוצא מאזור החנות מתחילה ספירה של ${fmtMin(c.grace)}. אם הוא לא חוזר בזמן הזה, המשמרת נסגרת לבד ונרשמת עד הרגע האחרון שהוא היה בחנות. חזר בזמן? הספירה מתבטלת.</p>
+  <div class="list"><button class="set-row" role="switch" aria-checked="${!!c.on}" data-action="geo-tog"><span class="grow"><b>סגירת משמרת לפי מיקום</b><small>${c.on ? 'פועל לכל העובדים' : 'כבוי'}</small></span><span class="sw ${c.on ? 'on' : ''}"></span></button></div>
+  <h3 class="sec">איפה החנות</h3>
+  <div class="card geo-card">${has
+    ? `<b>${ic('pin', 'sm')} מיקום החנות נקבע</b><span class="muted num ltr">${(+c.lat).toFixed(5)}, ${(+c.lng).toFixed(5)}${c.acc ? ` · דיוק כ-${c.acc} מ׳` : ''}</span>
+      <a class="link-btn" href="https://www.google.com/maps?q=${+c.lat},${+c.lng}" target="_blank" rel="noopener">הצגה במפה</a>
+      <div class="actions"><button class="btn sm" data-action="geo-here" ${geoBusy ? 'disabled' : ''}>${geoBusy ? 'מאתר…' : 'עדכון למיקום שלי עכשיו'}</button><button class="btn sm" data-action="geo-clear">לפי מקום הכניסה</button></div>`
+    : `<b>כרגע: לפי המקום שבו כל עובד נכנס למשמרת</b><span class="muted">מדויק יותר לקבוע את מיקום החנות. עמדו בתוך החנות ולחצו:</span>
+      <button class="btn primary" data-action="geo-here" ${geoBusy ? 'disabled' : ''}>${ic('pin', 'sm')}${geoBusy ? 'מאתר…' : 'קביעת מיקום החנות כאן'}</button>`}
+  </div>
+  <form class="form geo-ll" data-form="geo-ll"><div class="field"><label for="geo-ll">או הדביקו מיקום מגוגל מפות</label><input id="geo-ll" name="ll" dir="ltr" inputmode="decimal" autocomplete="off" placeholder="31.76830, 35.21370"><small>בגוגל מפות: לחיצה ארוכה על החנות › העתקת המספרים שמופיעים למעלה.</small></div><button class="btn">שמירת המיקום</button></form>
+  <h3 class="sec">רדיוס האזור</h3>
+  ${segs('radius', [50, 100, 150, 250, 400], v => v + ' מ׳')}
+  <p class="muted geo-hint">בתוך מבנים ה-GPS פחות מדויק. 150 מ׳ מתאים לרוב החנויות.</p>
+  <h3 class="sec">כמה זמן לחכות לפני שסוגרים</h3>
+  ${segs('grace', [30, 45, 60, 75, 90, 120], fmtMin)}
+  <div class="card geo-info"><b>מה צריך לדעת</b>
+    <span>• <b>אנדרואיד (האפליקציה):</b> המיקום נבדק גם כשהאפליקציה סגורה. בזמן משמרת מופיעה הודעה קבועה. צריך להתקין את הגרסה החדשה ולאשר מיקום.</span>
+    <span>• <b>אייפון ודפדפן:</b> המיקום נבדק רק כשהאפליקציה פתוחה. אם לפני היציאה לא היה מידע מיקום יותר מחצי שעה, המשמרת נסגרת ותקבלו התראה לבדוק אותה.</span>
+    <span>• העובד מקבל התראה כשהוא יוצא מהאזור, וגם כשהמשמרת נסגרת.</span></div>`;
+}
 
 /* ---------- notification settings: what to get, quiet hours, Shabbat ---------- */
 // Saved under the employee in the database (pushPrefs/{employee}), so they follow them to every phone;
@@ -819,6 +937,18 @@ async function salePdf(s, share) {
 // A short beep when a barcode is read, on the same moment as the vibration.
 let audioCtx = null;
 function beep() { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); const o = audioCtx.createOscillator(), g = audioCtx.createGain(); o.frequency.value = 1320; g.gain.setValueAtTime(0.08, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.09); o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.1); } catch (e) { } }
+// The camera stays on between scans while in the till, so the phone does not ask for permission every time.
+// Each scan gets a copy of the same stream; the camera itself turns off when leaving the till or after 10 idle minutes.
+let camStream = null, camT = null;
+async function camGet() {
+  clearTimeout(camT);
+  if (camStream && camStream.getVideoTracks().some(t => t.readyState === 'live')) return camStream.clone();
+  camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+  return camStream.clone();
+}
+function camIdle() { clearTimeout(camT); camT = setTimeout(camOff, 10 * 60000); }
+function camOff() { clearTimeout(camT); if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; } }
+document.addEventListener('visibilitychange', () => { if (document.hidden && !scanStop) camOff(); });
 async function startScan() {
   sheet(`<h3>סריקת ברקוד</h3><p class="muted" style="margin-bottom:10px">כוונו את המצלמה לברקוד. כל מוצר שנסרק נכנס לחשבון.</p><div class="scan-box"><video id="scan-v" playsinline muted autoplay></video><div class="scan-frame"></div></div><div id="scan-log" class="scan-log"></div><button class="btn primary block" style="margin-top:12px" data-action="close">סיום</button>`);
   const v = document.getElementById('scan-v'), log = document.getElementById('scan-log');
@@ -833,10 +963,10 @@ async function startScan() {
   try {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('nocam');
     if ('BarcodeDetector' in window) {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      const stream = await camGet();
       v.srcObject = stream; await v.play().catch(() => { });
       const det = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'] });
-      let on = true; scanStop = () => { on = false; stream.getTracks().forEach(t => t.stop()); };
+      let on = true; scanStop = () => { on = false; stream.getTracks().forEach(t => t.stop()); camIdle(); };
       const loop = async () => { if (!on) return; if (!v.isConnected) return scanStop(); try { const r = await det.detect(v); if (r && r[0]) hit(r[0].rawValue); } catch (e) { } setTimeout(loop, 120); };
       loop();
     } else {
@@ -844,8 +974,9 @@ async function startScan() {
       for (const ver of ['0.21.3', '0.21.0', '0.20.0']) { try { Z = await import(/* @vite-ignore */ `https://cdn.jsdelivr.net/npm/@zxing/library@${ver}/+esm`); break; } catch (e) { } }
       if (!Z) throw new Error('noreader');
       const reader = new Z.BrowserMultiFormatReader();
-      scanStop = () => { try { reader.reset(); } catch (e) { } };
-      await reader.decodeFromConstraints({ video: { facingMode: 'environment' } }, v, res => { if (res) hit(res.getText()); });
+      scanStop = () => { try { reader.reset(); } catch (e) { } camIdle(); };
+      if (typeof reader.decodeFromStream === 'function') { const stream = await camGet(); await reader.decodeFromStream(stream, v, res => { if (res) hit(res.getText()); }); }
+      else await reader.decodeFromConstraints({ video: { facingMode: 'environment' } }, v, res => { if (res) hit(res.getText()); });
     }
   } catch (e) { log.innerHTML = '<div class="scan-bad">לא הצלחתי לפתוח את המצלמה. אפשר להקליד את הברקוד, או לחבר סורק ברקוד.</div>'; }
 }
@@ -1622,6 +1753,22 @@ const ACT = {
   'pp-tog': d => {
     if (!pp) return; pp[d.k] = !pp[d.k]; haptic(6); savePP(); render();
   },
+  'geo-tog': () => needMgr(() => { geoCfg.on = !geoCfg.on; geoSave(); haptic(6); render(); toast(geoCfg.on ? 'סגירת משמרת לפי מיקום הופעלה' : 'סגירת משמרת לפי מיקום כובתה'); }),
+  'geo-set': d => needMgr(() => { geoCfg[d.k] = +d.v; geoSave(); haptic(6); render(); }),
+  'geo-here': () => needMgr(async () => {
+    if (geoBusy) return; geoBusy = true; render();
+    try {
+      const p = await geoOnce(); geoCfg.lat = +p.lat.toFixed(6); geoCfg.lng = +p.lng.toFixed(6); geoCfg.acc = Math.round(p.acc); geoSave();
+      toast(p.acc > 60 ? `המיקום נשמר, בדיוק של כ-${Math.round(p.acc)} מ׳. ליד חלון או בכניסה יוצא מדויק יותר` : 'מיקום החנות נשמר');
+    } catch (e) { toast(e === 'denied' ? 'אין הרשאה למיקום. אשרו מיקום בהגדרות הטלפון ונסו שוב' : 'לא הצלחתי לאתר מיקום. נסו שוב'); }
+    geoBusy = false; render();
+  }),
+  'geo-clear': () => needMgr(() => { geoCfg.lat = null; geoCfg.lng = null; geoCfg.acc = null; geoSave(); render(); toast('מעכשיו: לפי המקום שבו העובד נכנס למשמרת'); }),
+  'geo-retry': async () => {
+    if (await geoSettings()) return;
+    await geoStop(); geoErr = ''; geoMode = ''; geoSync();
+    setTimeout(() => { if (geoErr === 'denied') toast(/iPhone|iPad/.test(navigator.userAgent) ? 'באייפון: הגדרות › אפליקציות › Safari › מיקום › לאפשר' : 'אשרו מיקום לאתר בהגדרות הדפדפן (סמל המנעול ליד הכתובת)'); }, 1500);
+  },
   'push-test': async () => {
     try { await store.testPush(); toast('נשלחה התראת ניסיון. היא תקפוץ תוך כמה שניות'); } catch (e) { toast('לא הצלחתי לשלוח'); }
   },
@@ -1765,8 +1912,8 @@ const ACT = {
   logout: async () => { closeSheet(); await store.logout(); view = 'clock'; render(); toast('התנתקת'); },
   clock: () => {
     const me = cur(), o = openShift(me.id);
-    if (o) { o.end = Date.now(); o.status = 'approved'; delete o.allowUntil; toast(`יצאת מהמשמרת · ${fmtH(dur(o))} ש׳${DS.showPay ? ' · ' + money(dur(o) * me.wage) : ''}`); }
-    else { S.shifts.push({ id: uid(), empId: me.id, start: Date.now(), end: null, status: 'open', source: 'clock' }); toast('נכנסת למשמרת. עבודה נעימה'); }
+    if (o) { geoEnd(o.id); o.end = Date.now(); o.status = 'approved'; delete o.allowUntil; toast(`יצאת מהמשמרת · ${fmtH(dur(o))} ש׳${DS.showPay ? ' · ' + money(dur(o) * me.wage) : ''}`); }
+    else { const id = uid(), t = Date.now(); S.shifts.push({ id, empId: me.id, start: t, end: null, status: 'open', source: 'clock' }); geoBegin(id, t); toast('נכנסת למשמרת. עבודה נעימה'); }
     haptic(o ? [10, 60, 10] : 14); save(); render();
   },
   'req-hours': () => sheet(`<h3>בקשת אישור שעות</h3><p class="muted" style="margin-bottom:14px">לשעות שלא הוחתמו בשעון. הבקשה תישלח למנהל המערכת.</p>
@@ -1979,6 +2126,11 @@ const FORMS = {
     S.messages.push({ id: uid(), pair: [session(), chatWith], from: session(), to: chatWith, text, ts: Date.now(), read: false });
     chatDraft = ''; haptic(6); save(); render(); const t = document.getElementById('dm-t'); if (t) t.focus();
   },
+  'geo-ll': f => {
+    const m = String(f.ll || '').match(/(-?\d{1,2}\.\d+)\s*[,،\s]\s*(-?\d{1,3}\.\d+)/);
+    if (!m || Math.abs(+m[1]) > 90 || Math.abs(+m[2]) > 180) return toast('לא מצאתי מיקום. מדביקים שני מספרים, למשל 31.7683, 35.2137');
+    geoCfg.lat = +(+m[1]).toFixed(6); geoCfg.lng = +(+m[2]).toFixed(6); geoCfg.acc = null; geoSave(); render(); toast('מיקום החנות נשמר');
+  },
   'pos-free': f => {
     const price = Math.round(parseFloat(f.price) * 100) / 100, qty = Math.max(1, Math.floor(+f.qty || 1));
     if (!(price > 0)) return toast('רשמו סכום');
@@ -2142,5 +2294,5 @@ function tick() {
   render();
   if (session()) { if (opened) openFromPush({ view: opened, chat: qs.get('chat') }); initPush(false); }
   let lastCount = alerts().count;
-  setInterval(() => { tick(); if (!session()) return; const c = alerts().count; if (c !== lastCount) { lastCount = c; renderNav(); } }, 1000);
+  setInterval(() => { tick(); if (!session()) return; geoCheck(); const c = alerts().count; if (c !== lastCount) { lastCount = c; renderNav(); } }, 1000);
 })();
