@@ -247,6 +247,22 @@ export function createCloudStore(config) {
     mode: 'cloud',
     firebaseApp: app,
     S, ready,
+    // Notification settings of the signed-in employee (what to get, quiet hours, Shabbat).
+    async getPushPrefs() {
+      if (!empId) return null;
+      const d = await withTimeout(getDoc(doc(db, 'pushPrefs', empId)), 10000);
+      return d.exists() ? d.data() : null;
+    },
+    async setPushPrefs(p) {
+      if (!empId || viewer || poster) return;
+      const keep = ['msg', 'preview', 'task', 'shift', 'req', 'reels', 'alerts', 'quiet', 'quietFrom', 'quietTo', 'shabbat'];
+      await setDoc(doc(db, 'pushPrefs', empId), { ...Object.fromEntries(keep.map(k => [k, p[k]])), ts: Date.now() });
+    },
+    // Asks the server to send this employee a test notification.
+    async testPush() {
+      if (!empId) return;
+      await setDoc(doc(db, 'pushTests', newId()), { emp: empId, ts: Date.now() });
+    },
     // This phone's notification token, saved under the signed-in employee (the server reads it to send).
     async savePushToken(token, platform) {
       if (!empId || viewer || poster || !token) return;
