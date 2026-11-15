@@ -596,3 +596,26 @@ main{transform-origin:50% 30%;transition:none}
 .push-card p{margin:2px 0 10px;font-size:.9rem}
 .push-card .actions{margin:0}
 .push-ic{flex:none;width:2.6rem;height:2.6rem;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+/* ---------- iPhone: a text field under 16px makes Safari zoom in when typing; keep them at 16px or more ---------- */
+@supports (-webkit-touch-callout: none) { input, textarea, select { font-size: max(16px, 1rem) !important; } }
+.dm-compose textarea{font-size:16px}
+body.kb-open .dm-list{padding-bottom:70px}
+/* ---------- notification settings ---------- */
+.pp-status{display:flex;flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.pp-status .grow{flex:1;min-width:10rem}
+.pp-dot{flex:none;width:.7rem;height:.7rem;border-radius:50%;background:var(--warn,#FF9500);box-shadow:0 0 0 4px color-mix(in srgb,var(--warn,#FF9500) 20%,transparent)}
+.pp-status.ok .pp-dot{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 20%,transparent)}
+.pp-status.bad .pp-dot{background:var(--bad);box-shadow:0 0 0 4px color-mix(in srgb,var(--bad) 20%,transparent)}
+.set-row.dim{opacity:.45}
+.pp-times{display:flex;gap:12px;justify-content:flex-start}
+.pp-times label{display:flex;align-items:center;gap:8px;font-weight:600}
+.pp-times input{border:0;background:color-mix(in srgb,var(--ink) 6%,transparent);border-radius:10px;padding:8px 10px;font:inherit;color:var(--ink)}
+/* ---------- till: free amount and weighed items ---------- */
+.pos-quick{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pos-quick .btn{justify-content:center}
+.pw-wt{display:flex;gap:6px}
+.pw-wt input{flex:1;min-width:0}
+.pw-wt select{flex:none;width:auto;border:0;background:color-mix(in srgb,var(--ink) 6%,transparent);border-radius:10px;padding:0 10px;font:inherit;color:var(--ink)}
+.pw-total{display:flex;justify-content:space-between;align-items:baseline;padding:10px 2px 14px;border-top:1px solid var(--line);margin-top:4px}
+.pw-total b{font-size:1.6rem;font-weight:800}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
