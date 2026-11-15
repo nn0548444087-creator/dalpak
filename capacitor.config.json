@@ -6,5 +6,8 @@
     "url": "https://nn0548444087-creator.github.io/dalpak/",
     "errorPath": "offline.html"
   },
-  "android": { "allowMixedContent": false }
+  "android": {
+    "allowMixedContent": false,
+    "useLegacyBridge": true
+  }
 }
