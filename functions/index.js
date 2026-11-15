@@ -9,7 +9,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 initializeApp();
 const db = getFirestore();
 const SITE = 'https://nn0548444087-creator.github.io/dalpak/';
-const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications'];
+const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests'];
 
 const first = n => String(n || '').trim().split(/\s+/)[0] || '';
 const cut = (t, n = 120) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -32,7 +32,65 @@ async function tokensOf(empIds) {
   return out;
 }
 
-async function send(empIds, title, body, data = {}) {
+/* ---------- each employee's notification settings (pushPrefs/{employee}) ---------- */
+const PP_DEF = { msg: true, preview: true, task: true, shift: true, req: true, reels: true, alerts: true, quiet: false, quietFrom: '22:00', quietTo: '07:00', shabbat: false };
+async function prefsOf(empIds) {
+  const ids = [...new Set(empIds.filter(Boolean).map(String))];
+  if (!ids.length) return {};
+  const snaps = await db.getAll(...ids.map(id => db.collection('pushPrefs').doc(id)));
+  return Object.fromEntries(snaps.map((d, i) => [ids[i], { ...PP_DEF, ...(d.exists ? d.data() : {}) }]));
+}
+// Date and time in Israel.
+function il(ms) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', weekday: 'short', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+  return { wd: p.weekday, y: +p.year, m: +p.month, d: +p.day, min: (+p.hour % 24) * 60 + +p.minute };
+}
+// Sunset in Jerusalem on a calendar day (standard sunrise equation, about a minute of accuracy).
+function sunsetJerusalem(y, m, d) {
+  const lat = 31.778, lng = 35.235, r = Math.PI / 180;
+  const n = Math.round(Date.UTC(y, m - 1, d, 12) / 864e5 + 2440587.5 - 2451545.0 + 0.0008);
+  const J = n - lng / 360, M = (357.5291 + 0.98560028 * J) % 360;
+  const C = 1.9148 * Math.sin(M * r) + 0.02 * Math.sin(2 * M * r) + 0.0003 * Math.sin(3 * M * r);
+  const L = (M + C + 180 + 102.9372) % 360;
+  const transit = 2451545.0 + J + 0.0053 * Math.sin(M * r) - 0.0069 * Math.sin(2 * L * r);
+  const dec = Math.asin(Math.sin(L * r) * Math.sin(23.44 * r));
+  const w = Math.acos((Math.sin(-0.833 * r) - Math.sin(lat * r) * Math.sin(dec)) / (Math.cos(lat * r) * Math.cos(dec))) / r;
+  return (transit + w / 360 - 2440587.5) * 864e5;
+}
+// From candle lighting (Jerusalem custom: 40 minutes before sunset on Friday) until Shabbat ends (about 40 minutes after sunset on Saturday).
+function isShabbat(ms) {
+  const t = il(ms);
+  if (t.wd === 'Fri') return ms >= sunsetJerusalem(t.y, t.m, t.d) - 40 * 60000;
+  if (t.wd === 'Sat') return ms < sunsetJerusalem(t.y, t.m, t.d) + 40 * 60000;
+  return false;
+}
+function inQuiet(p, ms) {
+  const hm = s => { const [h, m] = String(s || '').split(':').map(Number); return h * 60 + m; };
+  const now = il(ms).min, a = hm(p.quietFrom), b = hm(p.quietTo);
+  if (isNaN(a) || isNaN(b) || a === b) return false;
+  return a < b ? now >= a && now < b : now >= a || now < b;
+}
+function allowed(p, kind, ms) {
+  if (kind && p[kind] === false) return false;
+  if (p.quiet && inQuiet(p, ms)) return false;
+  if (p.shabbat && isShabbat(ms)) return false;
+  return true;
+}
+
+// kind: which setting controls this notification (msg · task · shift · req · reels · alerts); null for a test.
+async function send(empIds, title, body, data = {}, kind = null, bodyIfHidden = null) {
+  const now = Date.now(), prefs = await prefsOf(empIds);
+  const to = kind === null ? empIds : empIds.filter(id => allowed(prefs[String(id)] || PP_DEF, kind, now));
+  // Employees who hide message text get the short version.
+  if (bodyIfHidden !== null) {
+    const hide = to.filter(id => (prefs[String(id)] || PP_DEF).preview === false), show = to.filter(id => !hide.includes(id));
+    if (hide.length) await deliver(hide, title, bodyIfHidden, data);
+    return deliver(show, title, body, data);
+  }
+  return deliver(to, title, body, data);
+}
+
+async function deliver(empIds, title, body, data = {}) {
   const tokens = await tokensOf(empIds);
   if (!tokens.length) return;
   const q = new URLSearchParams({ open: data.view || '', ...(data.chat ? { chat: data.chat } : {}) }).toString();
@@ -61,12 +119,12 @@ async function managers() {
 async function onMessage(before, after) {
   if (before || !after || !after.to) return;
   const from = first(await empName(after.from)) || 'עובד';
-  await send([after.to], `הודעה מ${from}`, cut(after.text), { view: 'dm', chat: after.from });
+  await send([after.to], `הודעה מ${from}`, cut(after.text), { view: 'dm', chat: after.from }, 'msg', 'הודעה חדשה');
 }
 
 async function onTask(before, after) {
   if (before || !after || !after.empId) return;
-  await send([after.empId], 'משימה חדשה', cut(after.title), { view: 'tasks' });
+  await send([after.empId], 'משימה חדשה', cut(after.title), { view: 'tasks' }, 'task');
 }
 
 async function onShift(before, after) {
@@ -85,7 +143,7 @@ async function onShift(before, after) {
   else if (before.start !== after.start || (before.status !== 'open' && before.end !== after.end)) title = 'המשמרת שלך עודכנה';
   else if (before.status === 'open' && after.status === 'approved' && after.end && Math.abs(Date.now() - after.end) > 3 * 60000) title = 'המנהל סגר את המשמרת שלך';
   else if ((before.allowUntil || null) !== (after.allowUntil || null) && after.allowUntil) title = 'קיבלת אישור להמשיך במשמרת';
-  if (title) await send([s.empId], title, when, { view: 'clock' });
+  if (title) await send([s.empId], title, when, { view: 'clock' }, /בקשת השעות/.test(title) ? 'req' : 'shift');
 }
 
 async function onReel(before, after) {
@@ -94,12 +152,19 @@ async function onReel(before, after) {
   const emps = await db.collection('employees').get();
   const to = emps.docs.map(d => d.id).filter(id => id !== after.by);
   const who = after.by === 'news' ? 'חדשות מרקט' : first(await empName(after.by)) || 'מישהו';
-  await send(to, `רילס חדש מ${who}`, cut(after.caption, 90) || 'יש סרטון חדש בפיד', { view: 'reels' });
+  await send(to, `רילס חדש מ${who}`, cut(after.caption, 90) || 'יש סרטון חדש בפיד', { view: 'reels' }, 'reels');
 }
 
 async function onAlert(before, after) {
   if (before || !after || !after.text) return;
-  await send(await managers(), 'התראה למנהלים', cut(after.text), { view: 'alerts' });
+  await send(await managers(), 'התראה למנהלים', cut(after.text), { view: 'alerts' }, 'alerts');
+}
+
+// A test notification the employee asked for from the settings screen (always sent, then the request is removed).
+async function onTest(before, after, id) {
+  if (before || !after || !after.emp) return;
+  await send([after.emp], 'התראת ניסיון', 'ההתראות עובדות בטלפון הזה 👍', { view: 'clock' });
+  await db.collection('pushTests').doc(id).delete().catch(() => { });
 }
 
 exports.notify = onDocumentWritten({ document: '{col}/{id}', region: 'me-west1', retry: false }, async event => {
@@ -107,6 +172,6 @@ exports.notify = onDocumentWritten({ document: '{col}/{id}', region: 'me-west1',
   if (!WATCHED.includes(col)) return;
   const before = event.data.before.exists ? event.data.before.data() : null;
   const after = event.data.after.exists ? event.data.after.data() : null;
-  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert }[col];
-  try { await run(before, after); } catch (e) { console.error(col, event.params.id, e); }
+  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest }[col];
+  try { await run(before, after, event.params.id); } catch (e) { console.error(col, event.params.id, e); }
 });
