@@ -265,6 +265,16 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['emp', 'token', 'platform', 'ts']);
       allow delete: if isAcct() && resource.data.emp == myEmpId();
     }
+    // Notification settings: each employee reads and writes only their own.
+    match /pushPrefs/{emp} {
+      allow read: if isStaff() && emp == myEmpId();
+      allow write: if isStaff() && emp == myEmpId()
+        && request.resource.data.keys().hasOnly(['msg', 'preview', 'task', 'shift', 'req', 'reels', 'alerts', 'quiet', 'quietFrom', 'quietTo', 'shabbat', 'ts']);
+    }
+    // A request for a test notification to yourself; the server sends it and deletes the request.
+    match /pushTests/{id} {
+      allow create: if isStaff() && request.resource.data.emp == myEmpId() && request.resource.data.keys().hasOnly(['emp', 'ts']);
+    }
     // Bills from the till screen: managers only.
     match /sales/{id} { allow read: if canSee(); allow write: if isMgr(); }
 
