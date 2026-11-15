@@ -79,6 +79,12 @@ service cloud.firestore {
 
     // Who the owner is stays private; config/public only says that one exists.
     // Employee names only, kept by managers, so the poster account can show who posted.
+    // Closing a shift by location: the shop's location, radius and waiting time.
+    match /config/geo {
+      allow read: if isEmp();
+      allow write: if isMgr()
+        && request.resource.data.keys().hasOnly(['on', 'lat', 'lng', 'acc', 'radius', 'grace', 'ts']);
+    }
     match /config/names {
       allow read: if isAcct();
       allow write: if isMgr();
@@ -143,6 +149,14 @@ service cloud.firestore {
           && request.resource.data.start == resource.data.start
           && request.resource.data.end <= nowMs() + 300000);
       allow delete: if isOwner();
+    }
+
+    // Where each open shift stands by location (written by the employee's own phone, read by the server).
+    match /shiftGeo/{id} {
+      allow read: if canSee() || (isEmp() && resource.data.emp == myEmpId());
+      allow create, update: if isStaff() && request.resource.data.emp == myEmpId()
+        && request.resource.data.keys().hasOnly(['emp', 'home', 'lastIn', 'outAt', 'dist', 'acc', 'unsure', 'ts']);
+      allow delete: if isMgr() || (isStaff() && resource.data.emp == myEmpId());
     }
 
     match /inventory/{id} {
