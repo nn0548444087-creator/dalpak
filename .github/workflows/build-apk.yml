@@ -63,11 +63,13 @@ jobs:
       - name: Turn on phone notifications (Firebase settings for Android)
         run: |
           if [ -f google-services.json ]; then cp google-services.json android/app/google-services.json && echo copied; fi
-      - name: Allow the camera (barcode scanning in the till)
+      - name: Allow the camera (barcode scanning) and location (closing a shift when leaving the shop)
         run: |
           M=android/app/src/main/AndroidManifest.xml
-          grep -q 'permission.CAMERA' $M || sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n</manifest>#' $M
-          grep -n CAMERA $M
+          for P in CAMERA ACCESS_COARSE_LOCATION ACCESS_FINE_LOCATION FOREGROUND_SERVICE FOREGROUND_SERVICE_LOCATION POST_NOTIFICATIONS; do
+            grep -q "permission.$P\"" $M || sed -i "s#</manifest>#    <uses-permission android:name=\"android.permission.$P\" />\n</manifest>#" $M
+          done
+          grep -n 'uses-permission' $M
       - name: Set the app icon
         run: |
           python3 -m pip install --quiet --break-system-packages pillow || python3 -m pip install --quiet pillow
