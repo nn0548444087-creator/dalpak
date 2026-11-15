@@ -258,6 +258,28 @@ export function createCloudStore(config) {
       const keep = ['msg', 'preview', 'task', 'shift', 'req', 'reels', 'alerts', 'quiet', 'quietFrom', 'quietTo', 'shabbat'];
       await setDoc(doc(db, 'pushPrefs', empId), { ...Object.fromEntries(keep.map(k => [k, p[k]])), ts: Date.now() });
     },
+    // Closing a shift by location: the shop's location, radius and waiting time (config/geo, set by managers).
+    async getGeoCfg() {
+      const d = await withTimeout(getDoc(doc(db, 'config', 'geo')), 10000);
+      return d.exists() ? d.data() : null;
+    },
+    async setGeoCfg(c) {
+      const n = v => (v === null || v === undefined || v === '' || isNaN(+v)) ? null : +v;
+      await setDoc(doc(db, 'config', 'geo'), { on: !!c.on, lat: n(c.lat), lng: n(c.lng), acc: n(c.acc), radius: n(c.radius) || 150, grace: n(c.grace) || 75, ts: Date.now() });
+    },
+    // Where an open shift stands: the last time inside the area and when the employee left (shiftGeo/{shift}).
+    async getGeo(shiftId) {
+      const d = await withTimeout(getDoc(doc(db, 'shiftGeo', shiftId)), 10000);
+      return d.exists() ? d.data() : null;
+    },
+    async geoPing(shiftId, g) {
+      if (!empId || viewer || poster) return;
+      await setDoc(doc(db, 'shiftGeo', shiftId), { emp: empId, home: g.home || null, lastIn: g.lastIn || null, outAt: g.outAt || null, dist: g.dist ?? null, acc: g.acc ?? null, unsure: !!g.unsure, ts: Date.now() });
+    },
+    async geoClear(shiftId) {
+      if (!empId || viewer || poster) return;
+      await deleteDoc(doc(db, 'shiftGeo', shiftId));
+    },
     // Asks the server to send this employee a test notification.
     async testPush() {
       if (!empId) return;
