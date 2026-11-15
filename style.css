@@ -619,3 +619,16 @@ body.kb-open .dm-list{padding-bottom:70px}
 .pw-total{display:flex;justify-content:space-between;align-items:baseline;padding:10px 2px 14px;border-top:1px solid var(--line);margin-top:4px}
 .pw-total b{font-size:1.6rem;font-weight:800}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* location: closing a shift when leaving the shop */
+.banner > span{flex:1}
+.banner .btn{flex:none;align-self:center}
+.geo-note{display:flex;align-items:center;gap:6px;justify-content:center;color:var(--muted);font-size:.84rem;margin:2px 0}
+.geo-card{gap:8px}
+.geo-card .actions{margin-top:2px}
+.geo-card .ltr{direction:ltr;text-align:right}
+.geo-ll{margin-top:12px}
+.geo-hint{font-size:.84rem;margin-top:6px}
+.geo-info{margin-top:16px;gap:8px;font-size:.9rem}
+.geo-info span{color:var(--muted)}
+.geo-info span b{color:var(--ink)}
