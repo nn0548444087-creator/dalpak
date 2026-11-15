@@ -2,6 +2,7 @@
 // a private message, a new task, a change in someone's shift, a new reel, or a new alert for the managers.
 // Every phone saves its delivery token in pushTokens/{token} = { emp, token, platform }.
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
@@ -9,7 +10,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 initializeApp();
 const db = getFirestore();
 const SITE = 'https://nn0548444087-creator.github.io/dalpak/';
-const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests'];
+const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo'];
 
 const first = n => String(n || '').trim().split(/\s+/)[0] || '';
 const cut = (t, n = 120) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -141,6 +142,14 @@ async function onShift(before, after) {
   } else if (before.status === 'pending' && after.status === 'approved') title = 'בקשת השעות שלך אושרה';
   else if (before.status === 'pending' && after.status === 'rejected') title = 'בקשת השעות שלך נדחתה';
   else if (before.start !== after.start || (before.status !== 'open' && before.end !== after.end)) title = 'המשמרת שלך עודכנה';
+  else if (after.autoGeo && !before.autoGeo) {
+    // Closed by location (by the server or by the employee's own phone).
+    await send([s.empId], 'המשמרת נסגרה אוטומטית', `יצאת מאזור החנות ולא חזרת. המשמרת נרשמה עד ${hm(after.end)}`, { view: 'clock' }, 'shift');
+    const name = await empName(s.empId);
+    await db.collection('notifications').add({ type: 'info', kind: 'geo', empId: s.empId, ts: Date.now(),
+      text: `המשמרת של ${name || 'עובד'} נסגרה אוטומטית ב-${hm(after.end)} (${dm(after.start)}, נכנס ב-${hm(after.start)}): יצא/ה מאזור החנות ולא חזר/ה` + (after.geoUnsure ? '. לפני היציאה לא היה מידע מיקום יותר מחצי שעה, כדאי לבדוק את השעות' : '') });
+    return;
+  }
   else if (before.status === 'open' && after.status === 'approved' && after.end && Math.abs(Date.now() - after.end) > 3 * 60000) title = 'המנהל סגר את המשמרת שלך';
   else if ((before.allowUntil || null) !== (after.allowUntil || null) && after.allowUntil) title = 'קיבלת אישור להמשיך במשמרת';
   if (title) await send([s.empId], title, when, { view: 'clock' }, /בקשת השעות/.test(title) ? 'req' : 'shift');
@@ -160,6 +169,47 @@ async function onAlert(before, after) {
   await send(await managers(), 'התראה למנהלים', cut(after.text), { view: 'alerts' }, 'alerts');
 }
 
+/* ---------- closing a shift by location ---------- */
+async function geoCfg() {
+  const d = await db.collection('config').doc('geo').get();
+  return d.exists ? d.data() : null;
+}
+const graceOf = c => (+(c && c.grace) || 75) * 60000;
+// The employee's phone noticed they left the shop's area: tell them when the shift will close.
+async function onShiftGeo(before, after, id) {
+  if (!after || !after.outAt || (before && before.outAt) || !after.emp) return;
+  const c = await geoCfg(); if (!c || !c.on) return;
+  const sh = await db.collection('shifts').doc(String(id)).get();
+  if (!sh.exists || sh.data().status !== 'open') return;
+  await send([after.emp], 'יצאת מאזור החנות', `אם לא תחזור עד ${hm(after.outAt + graceOf(c))} המשמרת תיסגר ותירשם עד ${hm(after.lastIn || sh.data().start)}`, { view: 'clock' }, 'shift');
+}
+// Every few minutes: close shifts whose employee left the area and did not come back in time,
+// at the last time they were inside. Works also when the employee's app is closed.
+exports.geoWatch = onSchedule({ schedule: 'every 5 minutes', region: 'europe-west1', timeZone: 'Asia/Jerusalem', retryCount: 0 }, async () => {
+  const c = await geoCfg(); if (!c || !c.on) return;
+  const now = Date.now(), grace = graceOf(c);
+  const snap = await db.collection('shiftGeo').where('outAt', '>', 0).get();
+  for (const g of snap.docs) {
+    const d = g.data();
+    if (now - d.outAt < grace) continue;
+    try {
+      const ref = db.collection('shifts').doc(g.id);
+      await db.runTransaction(async t => {
+        const s = await t.get(ref);
+        if (!s.exists) return;
+        const sh = s.data();
+        if (sh.status !== 'open' || String(sh.empId) !== String(d.emp)) return;
+        const end = Math.max(sh.start, Math.min(d.lastIn || sh.start, now));
+        t.update(ref, { end, status: 'approved', autoGeo: true, ...(d.unsure ? { geoUnsure: true } : {}) });
+      });
+      await g.ref.delete();
+    } catch (e) { console.error('geoWatch', g.id, e); }
+  }
+  // Leftovers of shifts that were closed in other ways.
+  const old = await db.collection('shiftGeo').where('ts', '<', now - 2 * 86400000).get();
+  await Promise.all(old.docs.map(d => d.ref.delete().catch(() => { })));
+});
+
 // A test notification the employee asked for from the settings screen (always sent, then the request is removed).
 async function onTest(before, after, id) {
   if (before || !after || !after.emp) return;
@@ -172,6 +222,6 @@ exports.notify = onDocumentWritten({ document: '{col}/{id}', region: 'me-west1',
   if (!WATCHED.includes(col)) return;
   const before = event.data.before.exists ? event.data.before.data() : null;
   const after = event.data.after.exists ? event.data.after.data() : null;
-  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest }[col];
+  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo }[col];
   try { await run(before, after, event.params.id); } catch (e) { console.error(col, event.params.id, e); }
 });
