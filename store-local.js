@@ -83,6 +83,10 @@ export function createLocalStore() {
     get S() { return S; },
     ready: Promise.resolve(),
     needsSetup: () => false,
+    // Demo: notification settings live on this phone only, and there are no real notifications.
+    async getPushPrefs() { try { return JSON.parse(localStorage.getItem('push-prefs-' + session) || 'null'); } catch (e) { return null; } },
+    async setPushPrefs(p) { try { localStorage.setItem('push-prefs-' + session, JSON.stringify(p)); } catch (e) { } },
+    async testPush() { },
     session: () => session,
     isManager: () => mgr,
     hasOwner: () => S.employees.some(e => e.owner),
