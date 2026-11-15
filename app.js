@@ -65,6 +65,8 @@ P.play = '<path d="M8 5v14l11-7z"/>';
 P.tag = '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>';
 P.x = '<path d="M6 6l12 12M18 6 6 18"/>';
 P.camera = '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>';
+P.scale = '<path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z"/>';
+P.coin = '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5c0-1 1-1.8 2.5-1.8s2.5.8 2.5 1.9c0 2.6-5 1.4-5 4.2 0 1.1 1.1 1.9 2.5 1.9s2.5-.8 2.5-1.8M12 6.2v1.5M12 16.2v1.6"/>';
 P.send = '<path d="M21 3 10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>';
 P.scan = '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/>';
 P.users = '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>';
@@ -180,7 +182,7 @@ function render() {
   const me = cur();
   const chatBtn = viewer ? '' : `<button class="hbell ${view === 'chat' || view === 'dm' ? 'on' : ''}" id="hchat" data-action="nav" data-view="chat" aria-label="הודעות">${ic('send')}<span class="badge" id="hcbadge" hidden></span></button>`;
   const bell = chatBtn + `<button class="hbell ${view === 'alerts' ? 'on' : ''}" id="hbell" data-action="nav" data-view="alerts" aria-label="התראות">${ic('bell')}<span class="badge" id="hbadge" hidden></span></button>`;
-  if ((viewer || poster) && (view === 'chat' || view === 'dm')) view = poster ? 'reels' : 'clock';
+  if ((viewer || poster) && (view === 'chat' || view === 'dm' || view === 'notif')) view = poster ? 'reels' : 'clock';
   if (view === 'dm' && !chatWith) view = 'chat';
   hdr.innerHTML = (poster ? brand : brand.replace(/<\/div>$/, bell + '</div>')) + `
     <div class="top-actions">
@@ -188,7 +190,7 @@ function render() {
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks' || invTab === 'all') invTab = 'drinks'; }
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
@@ -585,7 +587,7 @@ const orderRow = o => { const s = byId(S.suppliers, o.supplierId) || { name: 'ס
   <div class="row-sub num"><span class="pill ${st[1]}">${st[0]}</span><span>${(o.lines || []).length} שורות</span><span>${money(orderTotal(o))} כולל מע״מ</span></div></div>${ic('chev', 'sm chev')}</div>`; };
 /* ---------- phone notifications ---------- */
 // The code that talks to Firebase Cloud Messaging lives in push.js and loads only in the real (cloud) app.
-let pushStatus = 'off', pushMod = null;
+let pushStatus = 'off', pushMod = null, ppTimer = null;
 const PUSH_TXT = { on: 'פעילות', ask: 'הפעלה', denied: 'חסומות', update: 'צריך גרסה חדשה', unsupported: 'לא נתמך כאן', error: 'נסו שוב' };
 const isNativeApp = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const pushLater = () => { try { return Date.now() - (+localStorage.getItem('push-later') || 0) < 7 * DAY; } catch (e) { return false; } };
@@ -609,6 +611,54 @@ const pushCard = () => {
   if (pushStatus === 'update') return `<div class="card push-card"><span class="push-ic">${ic('bell')}</span><div class="grow"><b>יש גרסה חדשה לאפליקציה</b><p class="muted">התקינו את הגרסה החדשה כדי לקבל התראות לטלפון.</p><div class="actions"><button class="btn sm" data-action="push-later">הבנתי</button></div></div></div>`;
   return '';
 };
+
+/* ---------- notification settings: what to get, quiet hours, Shabbat ---------- */
+// Saved under the employee in the database (pushPrefs/{employee}), so they follow them to every phone;
+// the server function reads them before sending.
+const PP_DEF = { msg: true, preview: true, task: true, shift: true, req: true, reels: true, alerts: true, quiet: false, quietFrom: '22:00', quietTo: '07:00', shabbat: false };
+let pp = null, ppLoading = false;
+async function loadPP() {
+  if (ppLoading) return; ppLoading = true;
+  try { pp = { ...PP_DEF, ...((await store.getPushPrefs()) || {}) }; } catch (e) { pp = { ...PP_DEF }; }
+  ppLoading = false; if (view === 'notif' && !layerOpen()) render();
+}
+const savePP = () => { store.setPushPrefs(pp).catch(() => toast('השמירה נכשלה, בדקו את החיבור')); };
+const ppTog = (k, l, sub, off) => `<button class="set-row ${off ? 'dim' : ''}" role="switch" aria-checked="${!!pp[k]}" data-action="pp-tog" data-k="${k}" ${off ? 'disabled' : ''}><span class="grow"><b>${l}</b>${sub ? `<small>${sub}</small>` : ''}</span><span class="sw ${pp[k] ? 'on' : ''}"></span></button>`;
+function vNotif() {
+  if (!pp) { loadPP(); return back('display', 'הגדרות') + `<h2 class="vt">הגדרות התראות</h2><div class="card empty">טוען…</div>`; }
+  if (pushStatus === 'off' && !local()) initPush(false);
+  const st = {
+    on: ['ההתראות פעילות בטלפון הזה', 'ok', ''],
+    ask: ['ההתראות עוד לא הופעלו בטלפון הזה', 'warn', `<button class="btn primary sm" data-action="push-on">הפעלה</button>`],
+    denied: ['ההתראות חסומות בהגדרות הטלפון', 'bad', '<small class="muted">הגדרות הטלפון › אפליקציות › שאבעס מרקט › התראות</small>'],
+    update: ['צריך להתקין את הגרסה החדשה של האפליקציה', 'warn', ''],
+    unsupported: [/iPhone|iPad/.test(navigator.userAgent) ? 'באייפון: פתחו בספארי › שיתוף › הוספה למסך הבית, ופתחו משם' : 'הדפדפן הזה לא תומך בהתראות', 'warn', ''],
+    error: ['לא הצלחתי להפעיל התראות', 'bad', `<button class="btn sm" data-action="push-on">נסו שוב</button>`],
+    off: [local() ? 'בגרסת ההדגמה אין התראות אמיתיות' : 'בודק…', 'warn', '']
+  }[pushStatus] || ['', 'warn', ''];
+  const q = pp.quiet, mgr = isMgrUser();
+  return back('display', 'הגדרות') + `<h2 class="vt">הגדרות התראות</h2>
+  <p class="lead">בחרו על מה תקפוץ לכם התראה בטלפון. ההגדרות נשמרות בחשבון שלכם ועוברות איתכם לכל טלפון.</p>
+  <div class="card pp-status ${st[1]}"><span class="pp-dot"></span><div class="grow"><b>${st[0]}</b>${st[2] && !/button/.test(st[2]) ? '<br>' + st[2] : ''}</div>${/button/.test(st[2]) ? st[2] : ''}${pushStatus === 'on' ? `<button class="btn sm" data-action="push-test">התראת ניסיון</button>` : ''}</div>
+  <h3 class="sec">על מה לקבל התראה</h3>
+  <div class="list">
+    ${ppTog('msg', 'הודעות פרטיות', 'כשמישהו שולח לך הודעה')}
+    ${ppTog('preview', 'להציג את תוכן ההודעה', pp.msg ? 'כבוי: יופיע רק "הודעה חדשה מ…" בלי הטקסט' : 'זמין כשהתראות על הודעות פועלות', !pp.msg)}
+    ${ppTog('task', 'משימות חדשות', 'כשמנהל נותן לך משימה')}
+    ${ppTog('shift', 'שינויים במשמרות שלי', 'משמרת שנוספה, עודכנה, נמחקה או נסגרה בידי מנהל')}
+    ${ppTog('req', 'תשובה לבקשת שעות', 'כשבקשה לאישור שעות אושרה או נדחתה')}
+    ${ppTog('reels', 'רילסים חדשים', 'כשעולה סרטון או פוסט חדש לפיד')}
+    ${mgr ? ppTog('alerts', 'התראות למנהלים', 'מלאי שנגמר, בקשות של עובדים ועדכונים לניהול') : ''}
+  </div>
+  <h3 class="sec">זמני שקט</h3>
+  <div class="list">
+    ${ppTog('quiet', 'שעות שקט', q ? `אין התראות בין ${pp.quietFrom} ל-${pp.quietTo}` : 'בלי התראות בשעות שתבחרו, למשל בלילה')}
+    ${q ? `<div class="set-row pp-times"><label>מ־<input type="time" value="${esc(pp.quietFrom)}" data-pp-time="quietFrom"></label><label>עד<input type="time" value="${esc(pp.quietTo)}" data-pp-time="quietTo"></label></div>` : ''}
+    ${ppTog('shabbat', 'בלי התראות בשבת', 'מכניסת שבת ועד צאת שבת, לפי זמני ירושלים')}
+  </div>
+  <p class="muted" style="font-size:.85rem;margin-top:12px">התראות שלא נשלחו בזמני שקט לא נשלחות אחר כך. מה שחשוב תמיד מחכה באפליקציה.</p>`;
+}
+const isMgrUser = () => !!(manager || (store.isPermAdmin && store.isPermAdmin()));
 
 /* ---------- private messages between employees ---------- */
 let chatWith = null, chatDraft = '';
@@ -651,8 +701,12 @@ function patchDm() {
 }
 function fitCompose() {
   const f = document.querySelector('.dm-compose'), n = document.getElementById('navbar'); if (!f) return;
-  f.style.bottom = (n && !n.hidden ? Math.max(0, innerHeight - n.getBoundingClientRect().top) : 0) + 'px';
+  // With the keyboard open (iPhone), sit right above it; otherwise above the tab bar.
+  const vv = window.visualViewport, kb = vv ? Math.max(0, innerHeight - vv.height - vv.offsetTop) : 0;
+  f.style.bottom = (kb > 60 ? kb : n && !n.hidden ? Math.max(0, innerHeight - n.getBoundingClientRect().top) : 0) + 'px';
+  document.body.classList.toggle('kb-open', kb > 60);
 }
+if (window.visualViewport) ['resize', 'scroll'].forEach(ev => visualViewport.addEventListener(ev, () => { if (view === 'dm') { fitCompose(); if (document.activeElement && document.activeElement.id === 'dm-t') scrollDmEnd(); } }));
 
 /* ---------- till: scan products into a bill, record how it was paid, keep a PDF ---------- */
 const PAY = [['cash', 'מזומן'], ['card', 'אשראי'], ['bit', 'ביט'], ['paybox', 'פייבוקס'], ['tab', 'הקפה'], ['other', 'אחר']];
@@ -671,6 +725,11 @@ function posAdd(p) {
 }
 const posFind = code => { code = String(code || '').trim(); return code ? allProducts().find(p => p.barcode === code) || null : null; };
 const posSearch = q => { const n = normName(q); return n ? allProducts().filter(p => normName(p.name).includes(n) || p.barcode.startsWith(n)).slice(0, 8) : []; };
+function pwCalc() {
+  const f = document.querySelector('[data-form=pos-weigh]'), out = document.getElementById('pw-total'); if (!f || !out) return;
+  const perKg = parseFloat(f.perKg.value), w = parseFloat(f.weight.value), kg = f.unit.value === 'g' ? w / 1000 : w;
+  out.textContent = perKg > 0 && kg > 0 ? money2(Math.round(perKg * kg * 100) / 100) : '₪0.00';
+}
 const posSugHtml = () => posSearch(posQ).map(p => { const s = sellOf(p); return `<button class="pos-s" data-action="pos-add" data-k="${p.key}"><span>${esc(p.name)}</span><b class="num">${s ? money(s.v) : '—'}</b></button>`; }).join('');
 function vPos() {
   if (!manager) return back() + `<h2 class="vt">קופה</h2>` + locked('קופה');
@@ -678,6 +737,7 @@ function vPos() {
   return back() + `<h2 class="vt">קופה</h2>
   ${viewer ? '' : `<button class="btn primary block" data-action="pos-scan">${ic('scan')}סריקת ברקוד במצלמה</button>
   <form class="pos-find" data-form="pos-find"><input id="pos-q" name="q" autocomplete="off" placeholder="ברקוד או שם מוצר · גם סורק ברקוד עובד" value="${esc(posQ)}" data-pos-q><button class="btn">הוספה</button></form>
+  <div class="pos-quick"><button class="btn" data-action="pos-free">${ic('coin', 'sm')}סכום חופשי</button><button class="btn" data-action="pos-weigh">${ic('scale', 'sm')}פריט שקיל</button></div>
   <div class="pos-sug" id="pos-sug">${posSugHtml()}</div>
   <div class="card pos-bill"><div class="card-head"><b>חשבון חדש · מס׳ ${nextSaleNo()}</b>${pos.lines.length ? '<button class="link-btn danger-t" data-action="pos-clear">ניקוי</button>' : ''}</div>
   <div class="pos-lines">${pos.lines.map((l, i) => `<div class="pos-line"><div class="row-main"><div class="row-title">${esc(l.name)}</div><button class="link-btn num" data-action="pos-price" data-i="${i}">${l.price ? money(l.price) + ' ליחידה' : 'אין מחיר · הוספה'}</button></div>
@@ -1277,6 +1337,7 @@ function vDisplay() {
   const t = ROOT.getAttribute('data-theme'), dark = t === 'dark' || (!t && mq.matches);
   return back() + `<h2 class="vt">הגדרות תצוגה</h2>
   <p class="lead">ההגדרות נשמרות בטלפון הזה בלבד, כך שכל עובד מסדר את התצוגה לפי הנוחות שלו.</p>
+  ${viewer || poster ? '' : `<div class="list"><button class="menu-item" data-action="nav" data-view="notif">${ic('bell')}<span class="grow">הגדרות התראות</span><small class="muted">על מה לקבל התראה, שעות שקט ושבת</small>${ic('chev', 'sm chev')}</button></div>`}
   <h3 class="sec">צבעים</h3>
   ${grp('מצב תצוגה', '', segCtl('theme', [['light', 'בהיר'], ['dark', 'כהה'], ['system', 'לפי המכשיר']]))}
   ${grp('צבע מבטא', ACC[DS.accent].n, `<div class="swatches">${Object.entries(ACC).map(([k, a]) => `<button class="sw-c ${DS.accent === k ? 'on' : ''}" style="--c:${a[dark ? 'd' : 'l'][0]}" data-action="ds" data-k="accent" data-v="${k}"><i></i>${a.n}</button>`).join('')}</div>`)}
@@ -1558,6 +1619,12 @@ const ACT = {
     toast(pushStatus === 'on' ? 'ההתראות הופעלו' : pushStatus === 'denied' ? 'ההתראות נחסמו. אפשר לשנות בהגדרות הטלפון' : 'לא הצלחתי להפעיל התראות. נסו שוב');
     render();
   },
+  'pp-tog': d => {
+    if (!pp) return; pp[d.k] = !pp[d.k]; haptic(6); savePP(); render();
+  },
+  'push-test': async () => {
+    try { await store.testPush(); toast('נשלחה התראת ניסיון. היא תקפוץ תוך כמה שניות'); } catch (e) { toast('לא הצלחתי לשלוח'); }
+  },
   'push-later': () => { try { localStorage.setItem('push-later', String(Date.now())); } catch (e) { } render(); },
   'dm-open': d => { chatWith = d.id; chatDraft = ''; go('dm'); },
   // Delete a message: your own for everyone or just for you; one you received just for you.
@@ -1584,6 +1651,18 @@ const ACT = {
     save(); closeSheet(); render(); toast('השיחה נמחקה אצלך');
   },
   'pos-scan': () => needMgr(() => startScan()),
+  // An item without a barcode or a fixed price: any name and any amount.
+  'pos-free': () => sheet(`<h3>סכום חופשי</h3><p class="muted">לפריט בלי ברקוד או בלי מחיר קבוע. השם לא חובה.</p>
+    <form class="form" data-form="pos-free" style="margin-top:12px"><div class="field"><label for="pf-n">שם הפריט</label><input id="pf-n" name="name" maxlength="60" placeholder="פריט כללי" autocomplete="off"></div>
+    <div class="field-row"><div class="field"><label for="pf-p">סכום (₪)</label><input id="pf-p" name="price" type="number" min="0.01" step="0.01" inputmode="decimal" required></div><div class="field"><label for="pf-q">כמות</label><input id="pf-q" name="qty" type="number" min="1" step="1" value="1" inputmode="numeric"></div></div>
+    <button class="btn primary block">הוספה לחשבון</button></form>`),
+  // A weighed item: price per kilo and weight are typed each time, the amount is calculated.
+  'pos-weigh': () => sheet(`<h3>פריט שקיל</h3><p class="muted">רושמים מחיר לקילו ומשקל, והסכום מחושב לבד.</p>
+    <form class="form" data-form="pos-weigh" style="margin-top:12px"><div class="field"><label for="pw-n">שם הפריט</label><input id="pw-n" name="name" maxlength="60" placeholder="פריט שקיל" autocomplete="off"></div>
+    <div class="field-row"><div class="field"><label for="pw-k">מחיר לק״ג (₪)</label><input id="pw-k" name="perKg" type="number" min="0.01" step="0.01" inputmode="decimal" required data-pw></div>
+    <div class="field"><label for="pw-w">משקל</label><div class="pw-wt"><input id="pw-w" name="weight" type="number" min="0.001" step="0.001" inputmode="decimal" required data-pw><select name="unit" data-pw aria-label="יחידת משקל"><option value="kg">ק״ג</option><option value="g">גרם</option></select></div></div></div>
+    <div class="pw-total"><span>סה״כ</span><b class="num" id="pw-total">₪0.00</b></div>
+    <button class="btn primary block">הוספה לחשבון</button></form>`),
   'pos-add': d => { const p = findProd(d.k); if (!p) return; posAdd(p); posQ = ''; haptic(8); render(); },
   'pos-inc': d => { pos.lines[+d.i].qty++; posKeep(); render(); },
   'pos-dec': d => { const l = pos.lines[+d.i]; if (!l) return; l.qty--; if (l.qty <= 0) pos.lines.splice(+d.i, 1); posKeep(); render(); },
@@ -1680,7 +1759,7 @@ const ACT = {
   'fill-login': d => { const p = document.getElementById('lg-p'), n = document.getElementById('lg-n'); if (p) p.value = fmtPhone(d.p); if (n) n.value = d.n; },
   account: () => {
     const e = cur(); sheet(`<div class="emp-head" style="margin-bottom:14px">${avatar(e, 'xl')}<div><h3>${esc(e.name)}</h3>${poster ? '<div class="muted">משתמש להעלאת רילסים בלבד</div>' : `<div class="muted num">עובד מס׳ ${esc(e.num)} · <span class="ltr">${fmtPhone(e.phone)}</span></div>`}<label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת התמונה שלי' : 'הוספת תמונה שלי'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div>
-    <div class="list">${poster || viewer || local() ? '' : `<button class="menu-item" data-action="push-on">${ic('bell')}<span class="grow">התראות בטלפון</span><small class="muted">${PUSH_TXT[pushStatus] || ''}</small></button>`}<button class="menu-item" data-action="nav-close" data-view="display">${ic('eye')}<span class="grow">הגדרות תצוגה</span>${ic('chev', 'sm chev')}</button><button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span></button></div>`);
+    <div class="list">${poster || viewer ? '' : `<button class="menu-item" data-action="nav-close" data-view="notif">${ic('bell')}<span class="grow">הגדרות התראות</span><small class="muted">${PUSH_TXT[pushStatus] || ''}</small>${ic('chev', 'sm chev')}</button>`}<button class="menu-item" data-action="nav-close" data-view="display">${ic('eye')}<span class="grow">הגדרות תצוגה</span>${ic('chev', 'sm chev')}</button><button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span></button></div>`);
   },
   'nav-close': d => { closeSheet(); view = d.view; render(); window.scrollTo(0, 0); },
   logout: async () => { closeSheet(); await store.logout(); view = 'clock'; render(); toast('התנתקת'); },
@@ -1900,6 +1979,19 @@ const FORMS = {
     S.messages.push({ id: uid(), pair: [session(), chatWith], from: session(), to: chatWith, text, ts: Date.now(), read: false });
     chatDraft = ''; haptic(6); save(); render(); const t = document.getElementById('dm-t'); if (t) t.focus();
   },
+  'pos-free': f => {
+    const price = Math.round(parseFloat(f.price) * 100) / 100, qty = Math.max(1, Math.floor(+f.qty || 1));
+    if (!(price > 0)) return toast('רשמו סכום');
+    pos.lines.unshift({ key: 'free:' + uid(), name: String(f.name || '').trim() || 'פריט כללי', bc: '', price, qty });
+    posKeep(); haptic(10); closeSheet(); render();
+  },
+  'pos-weigh': f => {
+    const perKg = parseFloat(f.perKg), w = parseFloat(f.weight), kg = f.unit === 'g' ? w / 1000 : w;
+    if (!(perKg > 0) || !(kg > 0)) return toast('רשמו מחיר לק״ג ומשקל');
+    const price = Math.round(perKg * kg * 100) / 100, name = String(f.name || '').trim() || 'פריט שקיל';
+    pos.lines.unshift({ key: 'kg:' + uid(), name: `${name} · ${kg.toFixed(3)} ק״ג × ${money2(perKg)}`, bc: '', price, qty: 1, kg, perKg });
+    posKeep(); haptic(10); closeSheet(); render();
+  },
   'pos-find': f => {
     const q = String(f.q || '').trim(); if (!q) return;
     const p = posFind(q) || (r => r.length === 1 ? r[0] : null)(posSearch(q));
@@ -1972,6 +2064,8 @@ document.addEventListener('input', e => {
   if (e.target.matches('[data-dm]')) { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'; }
   if (e.target.matches('[data-pos-q]')) { posQ = e.target.value; const b = document.getElementById('pos-sug'); if (b) b.innerHTML = posSugHtml(); }
   if (e.target.matches('[data-pos-till]')) { pos.till = e.target.value; posKeep(); }
+  if (e.target.matches('[data-pp-time]') && pp && /^\d\d:\d\d$/.test(e.target.value)) { pp[e.target.dataset.ppTime] = e.target.value; clearTimeout(ppTimer); ppTimer = setTimeout(savePP, 600); }
+  if (e.target.matches('[data-pw]')) pwCalc();
   if (e.target.matches('[data-inv-q]')) { invQ = e.target.value; invShown = 80; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); }
 });
 document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
