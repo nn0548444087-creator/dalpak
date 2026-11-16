@@ -101,6 +101,10 @@ export function createLocalStore() {
     isOwner: () => !!(S.employees.find(e => e.id === session) || {}).owner,
     async setOwner(id) { const e = S.employees.find(x => x.id === id); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; if (id === session) mgr = true; persist(); return { ok: true }; },
     async claimOwner() { const e = S.employees.find(x => x.id === session); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; mgr = true; persist(); return { ok: true }; },
+    // Google sign-in is checked only in the real (cloud) app.
+    needGoogle: () => null,
+    async googleSignIn() { return { ok: true }; },
+    async cancelGoogle() { },
     // Closing a shift by location (demo: kept on this phone).
     async getGeoCfg() { return S.geoCfg || null; },
     async setGeoCfg(c) { S.geoCfg = { on: !!c.on, lat: c.lat ?? null, lng: c.lng ?? null, acc: c.acc ?? null, radius: +c.radius || 150, grace: +c.grace || 75 }; persist(); },
