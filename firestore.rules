@@ -319,6 +319,49 @@ service cloud.firestore {
       allow create: if isStaff() && request.resource.data.emp == myEmpId() && request.resource.data.keys().hasOnly(['emp', 'ts']);
     }
 
+    // ---- leisure ----
+    // The shop's photo gallery: every employee sees the photos; the author or a shop manager may delete one.
+    match /gallery/{id} {
+      allow read: if isEmp();
+      allow create: if isStaff() && request.resource.data.by == myEmpId()
+        && request.resource.data.keys().hasOnly(['by', 'ts', 'thumb', 'caption'])
+        && request.resource.data.thumb is string && request.resource.data.thumb.size() < 60000
+        && request.resource.data.get('caption', '').size() <= 300
+        && math.abs(request.resource.data.ts - nowMs()) < 600000;
+      allow delete: if isStaff() && (resource.data.by == myEmpId() || canEdit('admin'));
+    }
+    match /galleryParts/{id} {
+      allow read: if isEmp();
+      allow create: if isStaff() && request.resource.data.by == myEmpId() && request.resource.data.g == id
+        && request.resource.data.data is string && request.resource.data.data.size() < 950000;
+      allow delete: if isStaff() && (resource.data.by == myEmpId() || canEdit('admin'));
+    }
+    // Game scores: everyone sees the tables; each employee writes only their own line per game.
+    match /scores/{id} {
+      allow read: if isEmp();
+      allow create, update: if isStaff() && request.resource.data.emp == myEmpId()
+        && request.resource.data.game in ['snake', 'bg'] && id == request.resource.data.game + '_' + myEmpId()
+        && request.resource.data.keys().hasOnly(['game', 'emp', 'best', 'plays', 'total', 'wins', 'losses', 'aiWins', 'aiLosses', 'ts'])
+        && request.resource.data.get('best', 0) is int && request.resource.data.get('best', 0) >= 0 && request.resource.data.get('best', 0) < 400;
+    }
+    // Backgammon between two employees: only the two players see the game. The invited one accepts it;
+    // after that only the player whose turn it is may change the board. Either one may resign or remove the game.
+    match /bgGames/{id} {
+      allow read: if isStaff() && myEmpId() in resource.data.players;
+      allow create: if isStaff() && request.resource.data.a == myEmpId() && request.resource.data.b != myEmpId()
+        && request.resource.data.players == [myEmpId(), request.resource.data.b]
+        && request.resource.data.status == 'invite';
+      allow update: if isStaff() && myEmpId() in resource.data.players
+        && request.resource.data.players == resource.data.players
+        && request.resource.data.a == resource.data.a && request.resource.data.b == resource.data.b
+        && ((resource.data.status == 'invite' && myEmpId() == resource.data.b && request.resource.data.status == 'play')
+          || (resource.data.status == 'play' && request.resource.data.status in ['play', 'done']
+            && resource.data.turn == (myEmpId() == resource.data.a ? 'w' : 'b'))
+          || (resource.data.status == 'play' && request.resource.data.status == 'done'
+            && request.resource.data.resign == myEmpId() && onlyChanges(['status', 'winner', 'resign', 'ts'])));
+      allow delete: if isStaff() && myEmpId() in resource.data.players;
+    }
+
     // Deliveries and bonuses: an employee reports a delivery, an hours manager approves it with an amount.
     match /extras/{id} {
       allow read: if canView('hours') || (isEmp() && resource.data.empId == myEmpId());
