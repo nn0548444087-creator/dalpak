@@ -60,7 +60,7 @@ let viewer = false;
 // The "חדשות מרקט" account: it can only post reels and sees nothing else in the app.
 let poster = false;
 const NEWS = { id: 'news', name: 'חדשות מרקט', num: '', phone: '', wage: 0 };
-const POSTER_OK = ['cap-more', 'nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
+const POSTER_OK = ['sync-info', 'cap-more', 'nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
 P.play = '<path d="M8 5v14l11-7z"/>';
 P.tag = '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>';
@@ -166,6 +166,27 @@ function renderNav() {
   const hc = document.getElementById('hcbadge'); if (hc) { const u = unreadCount(); hc.textContent = u; hc.hidden = !u; }
   const bb = document.getElementById('hbell'); if (bb) bb.classList.toggle('on', view === 'alerts');
 }
+/* ---------- how fresh the data is ---------- */
+const whenTxt = ts => !ts ? 'עוד לא התעדכנו' : (dateKey(ts) === dateKey(Date.now()) ? 'היום ב-' : new Date(ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' }) + ' ב-') + fmtT(ts);
+function syncNow() {
+  const s = store && store.syncInfo ? store.syncInfo() : null; if (!s) return null;
+  if (local()) return { cls: 'ok', chip: '', line: 'גרסת דמו: הנתונים שמורים בטלפון הזה ותמיד מעודכנים' };
+  if (s.state === 'connecting') return { cls: 'wait', chip: '', line: 'מתחבר לשרת…' };
+  if (s.state === 'live') return s.pending ? { cls: 'wait', chip: 'שולח…', line: 'שולח שינויים לשרת…' } : { cls: 'ok', chip: '', line: `הנתונים מעודכנים · מחובר לשרת (${fmtT(Date.now())})` };
+  return { cls: 'bad', chip: 'לא מחובר', line: `אין חיבור לשרת · עודכן לאחרונה ${whenTxt(s.last)}${s.pending ? ' · יש שינויים שיישלחו כשהחיבור יחזור' : ''}` };
+}
+let syncShown = '';
+function updateSync() {
+  const t = syncNow(); if (!t) return;
+  const key = t.cls + t.chip + t.line; if (key === syncShown && document.getElementById('sync-line')?.dataset.k === key) return; syncShown = key;
+  const c = document.getElementById('sync-chip');
+  if (c) { c.hidden = !t.chip; c.className = 'chip sync-chip ' + t.cls; c.querySelector('.st').textContent = t.chip; }
+  const l = document.getElementById('sync-line');
+  if (l) { l.dataset.k = key; l.className = 'sync-line ' + t.cls; l.querySelector('span').textContent = t.line; }
+}
+window.addEventListener('online', () => setTimeout(updateSync, 300));
+window.addEventListener('offline', () => setTimeout(updateSync, 300));
+
 function render() {
   renderPending = false;
   if (!store) return;
@@ -188,13 +209,14 @@ function render() {
   if (view === 'dm' && !chatWith) view = 'chat';
   hdr.innerHTML = (poster ? brand : brand.replace(/<\/div>$/, bell + '</div>')) + `
     <div class="top-actions">
+      <button class="chip sync-chip" id="sync-chip" data-action="sync-info" hidden>${ic('alert', 'sm')}<span class="st"></span></button>
       ${poster ? '' : viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}<span class="cl">נעל</span></button>` : `<button class="chip" data-action="pin" aria-label="מנהל">${ic('lock', 'sm')}<span class="cl">מנהל</span></button>`}
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks' || invTab === 'all') invTab = 'drinks'; }
   const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
-  renderNav(); tick(); watchReels(); cleanReels();
+  renderNav(); tick(); watchReels(); cleanReels(); syncShown = ''; updateSync();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
   if (view === 'dm') { fitCompose(); markRead(); scrollDmEnd(); }
   if (view !== 'pos' && scanStop && !layerOpen()) { scanStop(); scanStop = null; }
@@ -422,6 +444,7 @@ function vAlerts() {
 function vMore() {
   const it = (v, i, l, lockd) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${lockd && !manager ? ic('lock', 'sm') : ''}${ic('chev', 'sm chev')}</button>`;
   return `<h2 class="vt">תפריט</h2>
+  <button class="sync-line" id="sync-line" data-action="sync-info"><i class="pp-dot"></i><span></span></button>
   ${manager ? `<div class="list">${it('pos', 'scan', 'קופה', 1)}${it('products', 'tag', 'מוצרים, ברקודים ומחירים', 1)}${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('geo', 'pin', 'מיקום החנות וסגירת משמרת', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
   <div class="list">${it('avail', 'cal', manager ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד', 0)}${it('display', 'eye', 'הגדרות תצוגה', 0)}
   ${viewer ? '' : manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
@@ -1774,6 +1797,7 @@ const ACT = {
     view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name));
     initPush(isNativeApp());
   },
+  'sync-info': () => { const t = syncNow(); if (t) toast(t.line); },
   'g-cancel': async () => { if (busy) return; await store.cancelGoogle(); render(); },
   'geo-tog': () => needMgr(() => { geoCfg.on = !geoCfg.on; geoSave(); haptic(6); render(); toast(geoCfg.on ? 'סגירת משמרת לפי מיקום הופעלה' : 'סגירת משמרת לפי מיקום כובתה'); }),
   'geo-set': d => needMgr(() => { geoCfg[d.k] = +d.v; geoSave(); haptic(6); render(); }),
@@ -2230,7 +2254,7 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
@@ -2321,5 +2345,5 @@ function tick() {
   render();
   if (session()) { if (opened) openFromPush({ view: opened, chat: qs.get('chat') }); initPush(false); }
   let lastCount = alerts().count;
-  setInterval(() => { tick(); if (!session()) return; geoCheck(); const c = alerts().count; if (c !== lastCount) { lastCount = c; renderNav(); } }, 1000);
+  setInterval(() => { tick(); if (!session()) return; geoCheck(); updateSync(); const c = alerts().count; if (c !== lastCount) { lastCount = c; renderNav(); } }, 1000);
 })();
