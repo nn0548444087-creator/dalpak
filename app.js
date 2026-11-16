@@ -1,5 +1,7 @@
 import './style.css';
 import { createStore } from './store.js';
+import { BG_START, other, bgKey, turnInfo, applyMove, bgBest, bgWinner, pips, roll, createSnake } from './games.js';
+import { shareFiles, download } from './share.js';
 import { distM, geoOnce, geoStart, geoStop, geoWatching, geoBackground, geoSettings } from './geo.js';
 import { AREAS, H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary, barcodeBits, barcodeSvg } from './util.js';
 
@@ -60,7 +62,7 @@ let viewer = false;
 // The "חדשות מרקט" account: it can only post reels and sees nothing else in the app.
 let poster = false;
 const NEWS = { id: 'news', name: 'חדשות מרקט', num: '', phone: '', wage: 0 };
-const POSTER_OK = ['sync-info', 'cap-more', 'nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
+const POSTER_OK = ['reel-share', 'sync-info', 'cap-more', 'nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
 P.play = '<path d="M8 5v14l11-7z"/>';
 P.tag = '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/>';
@@ -77,6 +79,8 @@ P.cal = '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v
 P.trash = '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>';
 P.copy = '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>';
 P.down = '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>';
+P.fun = '<path d="M7 8h10a4.5 4.5 0 0 1 4.4 5.5l-.9 3.8a2.4 2.4 0 0 1-4.2.9L14.5 16h-5l-1.8 2.2a2.4 2.4 0 0 1-4.2-.9l-.9-3.8A4.5 4.5 0 0 1 7 8z"/><path d="M8 10.8v3.4M6.3 12.5h3.4"/><circle cx="15.6" cy="11.6" r=".9"/><circle cx="17.6" cy="13.6" r=".9"/>';
+P.image = '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="m21 15.5-5-5-9 8.5"/>';
 P.share = '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 10.8 15.7 7.2M8.3 13.2l7.4 3.6"/>';
 P.crown = '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/>';
 P.note = '<path d="M5 4h14v12l-4 4H5z"/><path d="M15 20v-4h4M8 9h8M8 13h5"/>';
@@ -190,8 +194,9 @@ function renderNav() {
   if (poster) { document.getElementById('nav').innerHTML = `<button class="tab on" data-action="nav" data-view="reels">${ic('play')}רילס</button><button class="tab" data-action="logout">${ic('out')}יציאה</button>`; tabPill(); return; }
   const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length + newActivity().length;
   // The bell is there for everyone: employees see their own tasks, managers also see approvals.
-  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ['more', 'עוד', 'menu']];
-  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}</button>`).join('');
+  const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ...(funOk() ? [['fun', 'פנאי', 'fun']] : []), ['more', 'עוד', 'menu']];
+  const fb = funOk() ? bgWaiting() : 0;
+  document.getElementById('nav').innerHTML = tabs.map(([v, l, i]) => `<button class="tab ${view === v || (v === 'more' && MORE_VIEWS.includes(view)) || (v === 'fun' && FUN_VIEWS.includes(view)) ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}${v === 'fun' && fb ? `<span class="badge">${fb}</span>` : ''}</button>`).join('');
   tabPill();
   const hb = document.getElementById('hbadge'); if (hb) { hb.textContent = n; hb.hidden = !n; }
   const hc = document.getElementById('hcbadge'); if (hc) { const u = unreadCount(); hc.textContent = u; hc.hidden = !u; }
@@ -252,10 +257,12 @@ function render() {
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
   if (!manager && MGR_VIEWS.includes(view)) view = 'clock';
+  if (FUN_VIEWS.includes(view) && !funOk()) view = 'clock';
+  if (view !== 'snake' && snakeG) { snakeG.destroy(); snakeG = null; }
   if (!invAll && (invTab === 'snacks' || invTab === 'all')) invTab = 'drinks';
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels, fun: vFun, gallery: vGallery, snake: vSnake, bg: vBg };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
-  renderNav(); tick(); watchReels(); cleanReels(); watchMore(); syncShown = ''; updateSync();
+  renderNav(); tick(); watchReels(); cleanReels(); watchMore(); if (view === 'snake') mountSnake(); syncShown = ''; updateSync();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
   if (view === 'dm') { fitCompose(); markRead(); scrollDmEnd(); }
   if (view !== 'pos' && scanStop && !layerOpen()) { scanStop(); scanStop = null; }
@@ -269,6 +276,9 @@ function softRender() {
   if (document.querySelector('form[data-form=comment]')) refreshComments();
   // In a conversation, new messages appear in place so the half-typed message stays.
   if (view === 'dm' && !document.querySelector('.sheet')) { patchDm(); renderNav(); return; }
+  // Games keep running: only the score table or the board is updated.
+  if (view === 'snake') { updSnakeBoard(); renderNav(); return; }
+  if (view === 'bg' && !document.querySelector('.sheet')) return patchBg();
   if (typing || document.querySelector('.sheet')) { renderPending = true; renderNav(); return; }
   if (view === 'reels') return patchReels();
   render();
@@ -726,7 +736,7 @@ async function initPush(ask) {
 function openFromPush(d) {
   if (!session() || !d) return;
   if (d.view === 'dm' && d.chat && emp(d.chat).id) { chatWith = d.chat; chatDraft = ''; go('dm'); }
-  else if (d.view && ['chat', 'tasks', 'clock', 'reels', 'alerts', 'hours'].includes(d.view)) go(d.view);
+  else if (d.view && ['chat', 'tasks', 'clock', 'reels', 'alerts', 'hours', 'fun', 'bg', 'gallery'].includes(d.view)) go(d.view);
 }
 const pushCard = () => {
   if (viewer || poster || pushLater()) return '';
@@ -1348,6 +1358,7 @@ function reelCard(r) {
     <div class="reel-side">
       ${REACTS.map(([k, e]) => `<button class="rx ${mine === k ? 'on' : ''}" data-action="react" data-id="${r.id}" data-r="${k}" aria-label="תגובה ${e}"><span>${e}</span><small data-cnt="${k}">${counts[k] || ''}</small></button>`).join('')}
       <button class="rx" data-action="reel-comments" data-id="${r.id}" aria-label="תגובות"><span>💬</span><small data-cnt="c">${n || ''}</small></button>
+      <button class="rx" data-action="reel-share" data-id="${r.id}" aria-label="שיתוף"><span>${ic('share', 'sm')}</span></button>
       ${manager && !viewer ? `<button class="rx" data-action="reel-save" data-id="${r.id}" aria-label="שמירה למכשיר"><span>${ic('down', 'sm')}</span></button>` : ''}
       ${!viewer && r.by === session() ? `<button class="rx" data-action="reel-del" data-id="${r.id}" aria-label="מחיקה"><span>🗑</span></button>` : ''}
     </div>
@@ -1657,7 +1668,7 @@ function slideSegs(root = document) {
   });
 }
 // Moving between screens: forward slides in from the leading edge, back from the other side, tabs cross-fade.
-const TAB_VIEWS = ['clock', 'inv', 'deliv', 'reels', 'more', 'alerts'];
+const TAB_VIEWS = ['clock', 'inv', 'deliv', 'reels', 'fun', 'more', 'alerts'];
 let navDir = null;
 function animateView(dir) {
   const v = document.querySelector('#main > .view'); if (!v || !dir) return;
@@ -2374,7 +2385,392 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['reel-share', 'sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+/* ---------- leisure: the shop's photo gallery, Snake and backgammon ---------- */
+const FUN_VIEWS = ['fun', 'gallery', 'snake', 'bg'];
+const funOk = () => !viewer && !poster;
+const scoreOf = (game, id = session()) => (S.scores || []).find(s => s.game === game && s.emp === id) || null;
+const dataToBlob = d => { const [h, b] = String(d).split(','), bin = atob(b), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Blob([u8], { type: (h.match(/data:([^;]+)/) || [])[1] || 'image/jpeg' }); };
+const shareDone = r => { if (r === 'saved') toast('הקובץ ירד למכשיר'); };
+const backFun = () => back('fun', 'חזרה לפנאי');
+function vFun() {
+  const g = galList(), sn = scoreOf('snake'), top = snakeRows()[0], wait = bgWaiting();
+  return `<h2 class="vt">פנאי</h2>
+  <div class="fun-cards">
+    <button class="fun-card" data-action="nav" data-view="gallery">
+      <div class="fc-thumbs">${g.slice(0, 4).map(p => `<img src="${p.thumb}" alt="">`).join('') || `<span class="fc-ph">${ic('image')}</span>`}</div>
+      <div class="fc-txt"><b>גלריה</b><small>${g.length ? `${g.length.toLocaleString('he-IL')} תמונות` : 'עוד אין תמונות'} · מצלמים ישר לאפליקציה</small></div>
+    </button>
+    <button class="fun-card" data-action="nav" data-view="snake">
+      <span class="fc-ic" aria-hidden="true">🐍</span>
+      <div class="fc-txt"><b>סנייק</b><small>${sn ? `השיא שלך: ${sn.best || 0}` : 'עוד לא שיחקת'}${top ? ` · מוביל/ה: ${esc(first(emp(top.emp).name))} (${top.best})` : ''}</small></div>
+    </button>
+    <button class="fun-card" data-action="nav" data-view="bg">
+      <span class="fc-ic" aria-hidden="true">🎲</span>
+      <div class="fc-txt"><b>שש בש</b><small>נגד המחשב או נגד עובד אחר</small></div>
+      ${wait ? `<span class="pill bad">${wait} מחכים לך</span>` : ''}
+    </button>
+  </div>`;
+}
+
+/* gallery: everyone sees the photos; each photo is a small preview plus the full photo, loaded when opened */
+const GAL = new Map();
+let galPending = null;
+const galList = () => (S.gallery || []).filter(p => p.thumb).sort((a, b) => b.ts - a.ts);
+function vGallery() {
+  const list = galList();
+  return backFun() + `<h2 class="vt">גלריה${list.length ? ' · ' + list.length.toLocaleString('he-IL') : ''}</h2>
+  <div class="actions gal-actions">
+    <label class="btn primary">${ic('camera', 'sm')}צילום<input type="file" accept="image/*" capture="environment" data-gal-file hidden></label>
+    <label class="btn">${ic('image', 'sm')}מהטלפון<input type="file" accept="image/*" multiple data-gal-file hidden></label>
+  </div>
+  ${list.length ? `<div class="gal-grid">${list.map(p => `<button class="gal-th" data-action="gal-open" data-id="${p.id}" aria-label="תמונה של ${esc(emp(p.by).name)}"><img src="${p.thumb}" alt="" loading="lazy"></button>`).join('')}</div>`
+    : `<div class="lock"><div class="lk">${ic('image')}</div><h4>עוד אין תמונות</h4><p class="muted">צלמו משהו בחנות והוא יופיע כאן לכולם.</p></div>`}`;
+}
+function galViewHtml(p) {
+  const list = galList(), i = list.findIndex(x => x.id === p.id), a = emp(p.by);
+  const canDel = p.by === session() || canE('admin');
+  return `<div class="gal-view" data-id="${p.id}">
+    <div class="gal-stage"><img id="gal-img" src="${GAL.get(p.id) || p.thumb}" alt="">${GAL.has(p.id) ? '' : '<span class="gal-load">טוען…</span>'}
+      ${i > 0 ? `<button class="gal-nav prev" data-action="gal-go" data-d="-1" aria-label="התמונה הקודמת">›</button>` : ''}
+      ${i < list.length - 1 ? `<button class="gal-nav next" data-action="gal-go" data-d="1" aria-label="התמונה הבאה">‹</button>` : ''}</div>
+    <div class="gal-meta">${avatar(a, 'md')}<div><b>${esc(a.name || 'עובד')}</b><small class="muted"> · ${ago(p.ts)}</small>${p.caption ? `<p>${esc(p.caption)}</p>` : ''}</div></div>
+    <div class="actions"><button class="btn primary" data-action="gal-share" data-id="${p.id}">${ic('share', 'sm')}שיתוף</button><button class="btn" data-action="gal-save" data-id="${p.id}">${ic('down', 'sm')}שמירה</button>${canDel ? `<button class="btn danger" data-action="gal-del" data-id="${p.id}">${ic('trash', 'sm')}מחיקה</button>` : ''}</div>
+  </div>`;
+}
+async function galFull(id) {
+  if (GAL.has(id)) return GAL.get(id);
+  const d = await store.loadPhoto(id); if (d) GAL.set(id, d); return d;
+}
+function galShow(id) {
+  const p = galList().find(x => x.id === id); if (!p) return;
+  const cur = document.querySelector('.gal-view');
+  if (cur) cur.outerHTML = galViewHtml(p); else sheet(galViewHtml(p));
+  if (!GAL.has(id)) galFull(id).then(d => { const v = document.querySelector(`.gal-view[data-id="${id}"]`); if (!v || !d) return; v.querySelector('#gal-img').src = d; v.querySelector('.gal-load')?.remove(); }).catch(() => { const l = document.querySelector('.gal-load'); if (l) l.textContent = 'לא הצלחתי לטעון. בדקו את החיבור'; });
+}
+async function galPick(inp) {
+  const files = [...(inp.files || [])].slice(0, 10); inp.value = ''; if (!files.length) return;
+  toast('מכין את התמונות…');
+  try {
+    galPending = [];
+    for (const f of files) galPending.push({ full: await shrinkImage(f, 1600, 650000), thumb: await shrinkImage(f, 420, 45000) });
+  } catch (e) { galPending = null; return toast('לא הצלחתי לקרוא את התמונה. נסו תמונה אחרת'); }
+  sheet(`<h3>${galPending.length > 1 ? `${galPending.length} תמונות לגלריה` : 'תמונה לגלריה'}</h3>
+    <div class="gal-prev">${galPending.map(p => `<img src="${p.thumb}" alt="">`).join('')}</div>
+    <form class="form" data-form="gal-up"><div class="field"><label for="gal-cap">כיתוב (לא חובה)</label><input id="gal-cap" name="caption" maxlength="300" placeholder="מה רואים בתמונה?"></div>
+    <button class="btn primary block">העלאה לגלריה</button></form>`);
+}
+document.addEventListener('change', e => { if (e.target.matches('input[data-gal-file]')) galPick(e.target); });
+
+/* Snake: one shared score table for everyone */
+let snakeG = null;
+const snakeRows = () => (S.scores || []).filter(s => s.game === 'snake' && (s.plays || 0) > 0 && emp(s.emp).name).sort((a, b) => (b.best || 0) - (a.best || 0) || (a.ts || 0) - (b.ts || 0));
+const MEDAL = ['🥇', '🥈', '🥉'];
+function snakeBoardHtml() {
+  const rows = snakeRows();
+  return rows.map((s, i) => `<div class="row ${s.emp === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(emp(s.emp), 'md')}<div class="row-main"><div class="row-title">${esc(emp(s.emp).name)}</div><div class="row-sub"><span>${s.plays} משחקים</span><span>ממוצע ${Math.round((s.total || 0) / Math.max(1, s.plays))}</span></div></div><b class="num big-score">${s.best || 0}</b></div>`).join('')
+    || '<div class="row muted">עוד אף אחד לא שיחק. תהיו הראשונים!</div>';
+}
+function vSnake() {
+  const my = scoreOf('snake');
+  return backFun() + `<h2 class="vt">סנייק</h2>
+  <div class="snake-top"><span>ניקוד <b id="sn-score" class="num">0</b></span><span>השיא שלי <b id="sn-best" class="num">${my ? my.best || 0 : 0}</b></span></div>
+  <div class="snake-wrap"><canvas id="snake" aria-label="לוח המשחק. החליקו או השתמשו בחיצים"></canvas></div>
+  <div class="snake-pad" dir="ltr">
+    <button data-action="snake-dir" data-d="u" aria-label="למעלה">▲</button>
+    <button data-action="snake-dir" data-d="l" aria-label="שמאלה">◀</button>
+    <button data-action="snake-go" aria-label="התחלה או הפסקה" class="sp-mid">▶︎❚❚</button>
+    <button data-action="snake-dir" data-d="r" aria-label="ימינה">▶</button>
+    <button data-action="snake-dir" data-d="d" aria-label="למטה">▼</button>
+  </div>
+  <p class="muted snake-help">החליקו על הלוח או לחצו על החיצים. כל פרי = נקודה, והנחש מאיץ.</p>
+  <h3 class="sec">טבלת הניקוד של כולם</h3><div class="list" id="snake-board">${snakeBoardHtml()}</div>`;
+}
+function mountSnake() {
+  if (snakeG) { snakeG.destroy(); snakeG = null; }
+  const cv = document.getElementById('snake'); if (!cv) return;
+  const size = Math.min(cv.parentElement.clientWidth || 340, 440), dpr = Math.min(3, window.devicePixelRatio || 1);
+  cv.style.width = cv.style.height = size + 'px'; cv.width = cv.height = Math.round(size * dpr);
+  const cs = getComputedStyle(ROOT), v = n => cs.getPropertyValue(n).trim();
+  snakeG = createSnake(cv, {
+    colors: { bg: v('--surface') || '#fff', grid: v('--sunk') || '#eee', head: v('--accent') || '#25528D', body: v('--ok') || '#2B7550', food: '#E5484D', eye: '#fff', veil: 'rgba(0,0,0,.5)', text: '#fff', font: v('--f-body') || 'sans-serif' },
+    onScore: s => { const e = document.getElementById('sn-score'); if (e) e.textContent = s; haptic(6); },
+    onOver: s => snakeOver(s)
+  });
+  let sx = 0, sy = 0, moved = false;
+  cv.addEventListener('touchstart', e => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; moved = false; }, { passive: true });
+  cv.addEventListener('touchmove', e => {
+    e.preventDefault(); const t = e.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 20 || !snakeG) return;
+    if (!snakeG.running()) snakeG.start();
+    snakeG.turn(Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)]); sx = t.clientX; sy = t.clientY; moved = true;
+  }, { passive: false });
+  cv.addEventListener('click', () => { if (!moved && snakeG) { if (snakeG.isOver()) { const e = document.getElementById('sn-score'); if (e) e.textContent = 0; } snakeG.toggle(); } moved = false; });
+}
+async function snakeOver(s) {
+  const my = scoreOf('snake') || {}, best = Math.max(my.best || 0, s);
+  haptic([30, 40, 30]);
+  if (s > 0 && s > (my.best || 0)) toast(my.plays ? `שיא אישי חדש: ${s}! 🎉` : `ניקוד ראשון: ${s}`);
+  const r = await store.saveScore('snake', { best, plays: (my.plays || 0) + 1, total: (my.total || 0) + s });
+  if (r && r.error) toast(r.error);
+  const b = document.getElementById('sn-best'); if (b) b.textContent = best;
+  updSnakeBoard();
+}
+function updSnakeBoard() { const b = document.getElementById('snake-board'); if (b) b.innerHTML = snakeBoardHtml(); }
+const SNAKE_DIRS = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+document.addEventListener('keydown', e => {
+  if (view !== 'snake' || !snakeG || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '')) return;
+  if (SNAKE_DIRS[e.key]) { e.preventDefault(); if (!snakeG.running()) snakeG.start(); snakeG.turn(SNAKE_DIRS[e.key]); }
+  else if (e.key === ' ') { e.preventDefault(); snakeG.toggle(); }
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && snakeG) snakeG.pause(); });
+
+/* backgammon: against the computer (kept on this phone) or against another employee (kept on the server) */
+const BG_AI = 'dalpak-bg-ai', BG_REC = 'dalpak-bg-recorded';
+let bg = null, bgBusy = false;
+const DIE = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+const bgBoardOf = g => ({ pts: (g.pts || []).slice(), bar: { w: g.barW || 0, b: g.barB || 0 }, off: { w: g.offW || 0, b: g.offB || 0 } });
+const bgFields = b => ({ pts: b.pts, barW: b.bar.w, barB: b.bar.b, offW: b.off.w, offB: b.off.b });
+const myGames = () => (S.bgGames || []).filter(g => (g.players || []).includes(session()));
+const bgMine = g => g.a === session() ? 'w' : 'b';
+const bgOppOf = g => g.a === session() ? g.b : g.a;
+const bgWaiting = () => myGames().filter(g => (g.status === 'invite' && g.b === session()) || (g.status === 'play' && g.turn === bgMine(g))).length;
+function bgSaveAi() { if (!bg || bg.mode !== 'ai') return; try { localStorage.setItem(BG_AI, JSON.stringify({ board: bg.board, me: bg.me, turn: bg.turn, t: bg.t, over: bg.over, last: bg.last })); } catch (e) { } }
+function bgLoadAi() { try { return JSON.parse(localStorage.getItem(BG_AI) || 'null'); } catch (e) { return null; } }
+const bgRecorded = () => { try { return new Set(JSON.parse(localStorage.getItem(BG_REC) || '[]')); } catch (e) { return new Set(); } };
+// Each player counts their own wins and losses once (online games: once per finished game).
+async function bgRecord(won, ai, gameId) {
+  if (gameId) { const s = bgRecorded(); if (s.has(gameId)) return; s.add(gameId); try { localStorage.setItem(BG_REC, JSON.stringify([...s].slice(-200))); } catch (e) { } }
+  const c = scoreOf('bg') || {}, k = ai ? ['aiWins', 'aiLosses'] : ['wins', 'losses'];
+  await store.saveScore('bg', { [won ? k[0] : k[1]]: (c[won ? k[0] : k[1]] || 0) + 1 });
+}
+function bgFromDoc(g) {
+  const me = bgMine(g), board = bgBoardOf(g), myTurn = g.status === 'play' && g.turn === me;
+  const prev = bg && bg.mode === 'online' && bg.id === g.id ? bg : null;
+  let t = null;
+  if (myTurn && g.dice) t = prev && prev.t && prev.t.dice.join() === g.dice.join() && bgKey(prev.t.start) === bgKey(board) ? prev.t : { start: board, dice: g.dice, played: [], board };
+  const over = g.status === 'done' ? { winner: g.winner === session() ? me : other(me), mult: g.mult || 1, resign: g.resign || null } : null;
+  bg = { mode: 'online', id: g.id, me, opp: bgOppOf(g), board, turn: g.turn, t, last: g.last || null, over, status: g.status, sel: prev && t === prev.t ? prev.sel : null };
+  if (over) bgRecord(g.winner === session(), false, g.id);
+}
+function bgStartAi(fresh) {
+  const s = fresh ? null : bgLoadAi();
+  if (s && !s.over) { bg = { mode: 'ai', me: s.me || 'w', board: s.board, turn: s.turn, t: s.t, over: null, last: s.last, sel: null }; if (bg.turn !== bg.me) bgAiTurn(); return; }
+  bg = { mode: 'ai', me: 'w', board: BG_START(), turn: null, t: null, over: null, last: null, sel: null };
+  // Opening roll: each side rolls one die, the higher one starts.
+  let d; do d = roll(); while (d[0] === d[1]);
+  bg.turn = d[0] > d[1] ? 'w' : 'b'; bgSaveAi();
+  toast(`פתיחה: ${DIE[d[0] - 1]} מול ${DIE[d[1] - 1]} · ${bg.turn === 'w' ? 'את/ה מתחיל/ה' : 'המחשב מתחיל'}`);
+  if (bg.turn === 'b') setTimeout(bgAiTurn, 900);
+}
+function bgAiTurn() {
+  if (!bg || bg.mode !== 'ai' || bg.over) return;
+  const ai = other(bg.me), d = roll(); bg.turn = ai; bg.aiDice = d; drawBg();
+  setTimeout(() => {
+    if (!bg || bg.mode !== 'ai') return;
+    const best = bgBest(bg.board, ai, d); let i = 0;
+    const step = () => {
+      if (!bg || bg.mode !== 'ai') return;
+      if (i < best.moves.length) { bg.board = applyMove(bg.board, ai, best.moves[i]); bg.hl = best.moves[i]; i++; drawBg(); return setTimeout(step, 450); }
+      bg.last = { by: ai, dice: d, moves: best.moves.map(m => `${m.from}>${m.to}`) }; bg.aiDice = null; bg.hl = null;
+      const w = bgWinner(bg.board); if (w) return bgOver(w);
+      if (!best.moves.length) toast('למחשב אין מהלכים אפשריים');
+      bg.turn = bg.me; bgSaveAi(); drawBg();
+    };
+    step();
+  }, 900);
+}
+function bgOver(w, resign) {
+  bg.over = { ...w, resign: resign || null }; bg.turn = null; bg.t = null; bgSaveAi(); drawBg();
+  const won = w.winner === bg.me;
+  toast(won ? (w.mult === 3 ? 'ניצחון משולש (בקגמון)! 🏆' : w.mult === 2 ? 'ניצחון כפול (מארס)! 🏆' : 'ניצחת! 🏆') : 'הפעם המחשב ניצח');
+  if (bg.mode === 'ai') bgRecord(won, true);
+}
+function bgPlay(m) {
+  bg.t.board = applyMove(bg.t.board, bg.me, m); bg.t.played.push(m); bg.sel = null; haptic(8);
+  if (bg.mode === 'ai') bgSaveAi();
+  if (bgWinner(bg.t.board)) return bgFinish();
+  drawBg();
+}
+async function bgFinish() {
+  if (!bg || !bg.t || bgBusy) return;
+  const b = bg.t.board, w = bgWinner(b), dice = bg.t.dice, moves = bg.t.played.map(m => `${m.from}>${m.to}`);
+  if (bg.mode === 'ai') {
+    bg.board = b; bg.last = { by: bg.me, dice, moves }; bg.t = null;
+    if (w) return bgOver(w);
+    bg.turn = other(bg.me); bgSaveAi(); drawBg(); return bgAiTurn();
+  }
+  const patch = { ...bgFields(b), turn: other(bg.me), dice: null, last: { by: bg.me, dice, moves }, ts: Date.now() };
+  if (w) Object.assign(patch, { status: 'done', winner: session(), mult: w.mult });
+  bgBusy = true; const r = await store.bgUpdate(bg.id, patch); bgBusy = false;
+  if (r && r.error) return toast(r.error);
+  bg.board = b; bg.turn = patch.turn; bg.t = null; bg.last = patch.last;
+  if (w) { bg.over = { winner: bg.me, mult: w.mult }; bgRecord(true, false, bg.id); toast('ניצחת! 🏆'); }
+  drawBg();
+}
+// The board, drawn from the player's side: their home is always at the bottom right.
+function bgSvg(board, me, o = {}) {
+  const W = 376, H = 300, L = 6, PW = 26, BAR = 22, R = 12, TH = 118;
+  const disp = i => me === 'w' ? i : 23 - i;
+  const px = p => p < 6 ? L + 6 * PW + BAR + (5 - p) * PW : p < 12 ? L + (11 - p) * PW : p < 18 ? L + (p - 12) * PW : L + 6 * PW + BAR + (p - 18) * PW;
+  const opp = other(me), from = o.from || new Set(), dests = o.dests || new Set();
+  let s = `<svg class="bg-board" viewBox="0 0 ${W} ${H}" role="img" aria-label="לוח שש בש"><rect class="bgb-frame" x="0" y="0" width="${W}" height="${H}" rx="10"/>
+    <rect class="bgb-felt" x="${L}" y="6" width="${6 * PW}" height="${H - 12}"/><rect class="bgb-felt" x="${L + 6 * PW + BAR}" y="6" width="${6 * PW}" height="${H - 12}"/>
+    <rect class="bgb-bar" x="${L + 6 * PW}" y="6" width="${BAR}" height="${H - 12}"/><rect class="bgb-tray" x="${L + 12 * PW + BAR + 4}" y="6" width="${W - (L + 12 * PW + BAR + 4) - 6}" height="${H - 12}" rx="4"/>`;
+  for (let i = 0; i < 24; i++) {
+    const p = disp(i), x = px(p), bot = p < 12, n = Math.abs(board.pts[i]), col = board.pts[i] > 0 ? 'w' : 'b';
+    const y0 = bot ? H - 6 : 6, tip = bot ? H - 6 - TH : 6 + TH;
+    s += `<polygon class="bgb-pt ${p % 2 ? 'a' : 'b'} ${from.has(i) ? 'can' : ''} ${o.sel === i ? 'sel' : ''}" points="${x},${y0} ${x + PW},${y0} ${x + PW / 2},${tip}"/>`;
+    for (let k = 0; k < Math.min(n, 5); k++) {
+      const cy = bot ? H - 6 - R - k * 2 * R : 6 + R + k * 2 * R;
+      s += `<circle class="bgc ${col} ${o.hl && o.hl.to === i && k === Math.min(n, 5) - 1 ? 'hl' : ''}" cx="${x + PW / 2}" cy="${cy}" r="${R - 1}"/>`;
+    }
+    if (n > 5) s += `<text class="bgc-n ${col}" x="${x + PW / 2}" y="${(bot ? H - 6 - R - 4 * 2 * R : 6 + R + 4 * 2 * R) + 4}">${n}</text>`;
+    if (dests.has(i)) s += `<circle class="bgb-dest" cx="${x + PW / 2}" cy="${bot ? H - 6 - R - Math.min(n, 4) * 2 * R : 6 + R + Math.min(n, 4) * 2 * R}" r="${R - 2}"/>`;
+    s += `<rect class="bgb-hit" x="${x}" y="${bot ? H / 2 : 6}" width="${PW}" height="${H / 2 - 6}" data-action="bg-pt" data-p="${i}"/>`;
+  }
+  // The bar: the player's own checkers below the middle, the other side's above.
+  const bx = L + 6 * PW + BAR / 2;
+  for (let k = 0; k < board.bar[me]; k++) s += `<circle class="bgc ${me}" cx="${bx}" cy="${H / 2 + 16 + k * 2 * (R - 2)}" r="${R - 2}"/>`;
+  for (let k = 0; k < board.bar[opp]; k++) s += `<circle class="bgc ${opp}" cx="${bx}" cy="${H / 2 - 16 - k * 2 * (R - 2)}" r="${R - 2}"/>`;
+  if (from.has('bar')) s += `<rect class="bgb-can" x="${L + 6 * PW + 1}" y="${H / 2}" width="${BAR - 2}" height="${H / 2 - 8}" rx="4"/>`;
+  s += `<rect class="bgb-hit" x="${L + 6 * PW}" y="${H / 2}" width="${BAR}" height="${H / 2 - 6}" data-action="bg-pt" data-p="bar"/>`;
+  // Borne-off checkers in the tray at the side.
+  const tx = L + 12 * PW + BAR + 7, tw = W - tx - 9;
+  for (let k = 0; k < board.off[me]; k++) s += `<rect class="bgc ${me}" x="${tx}" y="${H - 10 - (k + 1) * 8}" width="${tw}" height="7" rx="2"/>`;
+  for (let k = 0; k < board.off[opp]; k++) s += `<rect class="bgc ${opp}" x="${tx}" y="${10 + k * 8}" width="${tw}" height="7" rx="2"/>`;
+  if (dests.has('off')) s += `<rect class="bgb-dest-off" x="${tx - 2}" y="${H / 2}" width="${tw + 4}" height="${H / 2 - 10}" rx="4"/>`;
+  s += `<rect class="bgb-hit" x="${tx - 3}" y="${H / 2}" width="${tw + 6}" height="${H / 2 - 6}" data-action="bg-pt" data-p="off"/>`;
+  return s + '</svg>';
+}
+const diceHtml = (d, used = []) => { if (!d) return ''; const all = d[0] === d[1] ? [d[0], d[0], d[0], d[0]] : [d[0], d[1]], u = used.slice(); return all.map(v => { const k = u.indexOf(v), x = k >= 0; if (x) u.splice(k, 1); return `<span class="die ${x ? 'used' : ''}">${DIE[v - 1]}</span>`; }).join(''); };
+function bgGameHtml() {
+  const me = bg.me, opp = other(me), oppName = bg.mode === 'ai' ? 'המחשב' : first(emp(bg.opp).name || 'עובד');
+  const myTurn = !bg.over && bg.status !== 'invite' && bg.turn === me;
+  const board = bg.t ? bg.t.board : bg.board, info = myTurn && bg.t ? turnInfo(bg.t, me) : null;
+  const from = new Set(info ? info.moves.map(m => m.from) : []), dests = new Set(info && bg.sel !== null && bg.sel !== undefined ? info.moves.filter(m => m.from === bg.sel).map(m => m.to) : []);
+  let status = '', btns = '';
+  if (bg.over) {
+    const won = bg.over.winner === me;
+    status = won ? (bg.over.mult === 3 ? 'ניצחון משולש! 🏆' : bg.over.mult === 2 ? 'ניצחון כפול! 🏆' : 'ניצחת! 🏆') : bg.over.resign ? (bg.mode === 'ai' || bg.over.resign === session() ? 'פרשת מהמשחק' : `${oppName} פרש/ה. ניצחת!`) : `${oppName} ניצח/ה`;
+    btns = bg.mode === 'ai' ? `<button class="btn primary" data-action="bg-ai-new">משחק חדש</button>` : `<button class="btn primary" data-action="bg-invite-to" data-id="${bg.opp}">משחק חוזר</button><button class="btn" data-action="bg-del" data-id="${bg.id}">מחיקה מהרשימה</button>`;
+  } else if (bg.status === 'invite') status = `מחכה ש${oppName} יאשר/תאשר את ההזמנה`;
+  else if (!myTurn) status = bg.mode === 'ai' ? 'המחשב משחק…' : `התור של ${oppName}`;
+  else if (!bg.t) { status = 'התור שלך'; btns = `<button class="btn primary" data-action="bg-roll">🎲 הטלת קוביות</button>`; }
+  else if (info.done) { status = 'סיימת את המהלכים'; btns = `<button class="btn primary" data-action="bg-done" ${bgBusy ? 'disabled' : ''}>סיום תור</button><button class="btn" data-action="bg-undo">ביטול המהלכים</button>`; }
+  else if (!info.moves.length) { status = 'אין מהלכים אפשריים בהטלה הזו'; btns = `<button class="btn primary" data-action="bg-done">העברת התור</button>`; }
+  else { status = bg.sel !== null && bg.sel !== undefined ? 'לאן להזיז? המקומות המסומנים' : 'בחרו כלי להזזה'; if (bg.t.played.length) btns = `<button class="btn" data-action="bg-undo">ביטול המהלכים</button>`; }
+  const dice = myTurn && bg.t ? diceHtml(bg.t.dice, bg.t.played.map(m => m.die)) : bg.aiDice ? diceHtml(bg.aiDice) : bg.last ? `<span class="last-dice">${bg.last.by === me ? 'ההטלה שלך' : oppName}: ${diceHtml(bg.last.dice)}</span>` : '';
+  return `<button class="link-btn" data-action="bg-lobby">${ic('chev', 'sm')}<span>לכל המשחקים</span></button>
+  <div class="bg-players"><span class="bgp ${opp}"><i></i>${esc(oppName)} · ${pips(board, opp)} צעדים</span><span class="bgp ${me}"><i></i>את/ה · ${pips(board, me)} צעדים</span></div>
+  ${bgSvg(board, me, { from, dests, sel: bg.sel, hl: bg.hl })}
+  <div class="bg-dice">${dice}</div>
+  <p class="bg-status">${status}</p>
+  <div class="actions bg-btns">${btns}</div>
+  ${!bg.over && bg.status !== 'invite' ? `<button class="link-btn danger-t bg-resign" data-action="bg-resign">פרישה מהמשחק</button>` : ''}`;
+}
+function bgLobbyHtml() {
+  const saved = bgLoadAi(), open = saved && !saved.over, games = myGames().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const inv = games.filter(g => g.status === 'invite' && g.b === session()), sent = games.filter(g => g.status === 'invite' && g.a === session());
+  const play = games.filter(g => g.status === 'play'), done = games.filter(g => g.status === 'done').slice(0, 6);
+  const row = (g, right) => `<div class="row tap" data-action="bg-open" data-id="${g.id}">${avatar(emp(bgOppOf(g)), 'md')}<div class="row-main"><div class="row-title">${esc(emp(bgOppOf(g)).name)}</div><div class="row-sub">${right}</div></div></div>`;
+  const champs = (S.scores || []).filter(s => s.game === 'bg' && emp(s.emp).name && ((s.wins || 0) + (s.losses || 0) + (s.aiWins || 0) + (s.aiLosses || 0))).sort((a, b) => (b.wins || 0) - (a.wins || 0) || (b.aiWins || 0) - (a.aiWins || 0));
+  return `<h2 class="vt">שש בש</h2>
+  <div class="list">
+    <div class="row"><span class="fc-ic sm" aria-hidden="true">🤖</span><div class="row-main"><div class="row-title">נגד המחשב</div><div class="row-sub">${open ? 'יש לך משחק פתוח' : 'משחק מיידי, בלי לחכות לאף אחד'}</div></div><button class="btn primary sm" data-action="bg-ai">${open ? 'המשך' : 'משחק'}</button></div>
+    <div class="row"><span class="fc-ic sm" aria-hidden="true">👥</span><div class="row-main"><div class="row-title">נגד עובד אחר</div><div class="row-sub">כל אחד משחק מהטלפון שלו</div></div><button class="btn primary sm" data-action="bg-invite">הזמנה</button></div>
+  </div>
+  ${inv.length ? `<h3 class="sec">הזמנות אליך</h3><div class="list">${inv.map(g => `<div class="row">${avatar(emp(g.a), 'md')}<div class="row-main"><div class="row-title">${esc(emp(g.a).name)}</div><div class="row-sub">מזמין/ה אותך למשחק</div></div><div class="actions"><button class="btn primary sm" data-action="bg-accept" data-id="${g.id}">משחק</button><button class="btn sm" data-action="bg-del" data-id="${g.id}">לא עכשיו</button></div></div>`).join('')}</div>` : ''}
+  ${play.length || sent.length ? `<h3 class="sec">המשחקים שלי</h3><div class="list">${play.map(g => row(g, g.turn === bgMine(g) ? '<span class="pill ok">התור שלך</span>' : '<span>התור שלו/ה</span>')).join('')}${sent.map(g => row(g, '<span>מחכה לאישור ההזמנה</span>')).join('')}</div>` : ''}
+  ${done.length ? `<h3 class="sec">הסתיימו</h3><div class="list">${done.map(g => row(g, g.winner === session() ? '<span class="pill ok">ניצחת</span>' : '<span class="pill">הפסדת</span>')).join('')}</div>` : ''}
+  <h3 class="sec">טבלת האלופים</h3><div class="list">${champs.map((s, i) => `<div class="row ${s.emp === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(emp(s.emp), 'md')}<div class="row-main"><div class="row-title">${esc(emp(s.emp).name)}</div><div class="row-sub"><span>נגד עובדים: ${s.wins || 0} ניצחונות, ${s.losses || 0} הפסדים</span><span>נגד המחשב: ${s.aiWins || 0}–${s.aiLosses || 0}</span></div></div><b class="num big-score">${s.wins || 0}</b></div>`).join('') || '<div class="row muted">עוד לא נגמר אף משחק.</div>'}</div>`;
+}
+function vBg() { return `<div id="bg-wrap">${bg ? bgGameHtml() : backFun() + bgLobbyHtml()}</div>`; }
+function drawBg() { const w = document.getElementById('bg-wrap'); if (w && view === 'bg') w.innerHTML = bg ? bgGameHtml() : backFun() + bgLobbyHtml(); renderNav(); }
+// Server changes while on the backgammon screen: update the board in place.
+function patchBg() {
+  if (bg && bg.mode === 'online') { const g = myGames().find(x => x.id === bg.id); if (!g) { bg = null; toast('המשחק נמחק'); } else bgFromDoc(g); }
+  drawBg();
+}
+
+const FUN_ACT = {
+  'gal-open': d => galShow(d.id),
+  'gal-go': d => { const v = document.querySelector('.gal-view'); if (!v) return; const list = galList(), i = list.findIndex(x => x.id === v.dataset.id), n = list[i + +d.d]; if (n) galShow(n.id); },
+  'gal-share': async d => { try { const f = await galFull(d.id); if (!f) return toast('לא הצלחתי לטעון את התמונה'); shareDone(await shareFiles([{ blob: dataToBlob(f), name: `shabbes-${d.id}.jpg` }])); } catch (e) { toast('השיתוף נכשל'); } },
+  'gal-save': async d => { try { const f = await galFull(d.id); if (f) { download(dataToBlob(f), `shabbes-${d.id}.jpg`); toast('התמונה ירדה למכשיר'); } } catch (e) { toast('ההורדה נכשלה'); } },
+  'gal-del': d => { const b = document.querySelector(`[data-action="gal-del"][data-id="${d.id}"]`); if (b) { b.dataset.action = 'gal-del-yes'; b.lastChild.textContent = 'למחוק? לחצו שוב'; } },
+  'gal-del-yes': async d => { const p = (S.gallery || []).find(x => x.id === d.id); if (!p) return; const r = await store.deletePhoto(p); if (r && r.error) return toast(r.error); GAL.delete(d.id); closeSheet(); render(); toast('התמונה נמחקה'); },
+  'reel-share': async d => {
+    const r = byId(S.reels, d.id); if (!r) return; toast('מכין לשיתוף…');
+    try {
+      const m = await getMedia(r), name = `shabbes-reel-${r.id}`;
+      const files = m.blob ? [{ blob: m.blob, name: name + (/webm/.test(r.mime || '') ? '.webm' : '.mp4') }] : m.imgs.map((s, i) => ({ blob: dataToBlob(s), name: `${name}_${i + 1}.jpg` }));
+      shareDone(await shareFiles(files, r.caption || 'שאבעס מרקט'));
+    } catch (e) { toast('השיתוף נכשל. בדקו את החיבור'); }
+  },
+  'snake-dir': d => { if (!snakeG) return; if (!snakeG.running()) snakeG.start(); snakeG.turn(SNAKE_DIRS[d.d]); },
+  'snake-go': () => { if (!snakeG) return; if (snakeG.isOver()) { const e = document.getElementById('sn-score'); if (e) e.textContent = 0; } snakeG.toggle(); },
+  'bg-ai': () => { bgStartAi(false); drawBg(); },
+  'bg-ai-new': () => { try { localStorage.removeItem(BG_AI); } catch (e) { } bgStartAi(true); drawBg(); },
+  'bg-lobby': () => { bg = null; drawBg(); window.scrollTo(0, 0); },
+  'bg-open': d => { const g = myGames().find(x => x.id === d.id); if (!g) return; bgFromDoc(g); drawBg(); window.scrollTo(0, 0); },
+  'bg-invite': () => {
+    const list = S.employees.filter(e => e.id !== session() && e.id !== 'news').sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    sheet(`<h3>את מי להזמין?</h3><p class="muted" style="margin:4px 0 12px">ההזמנה תופיע אצלו/ה בפנאי › שש בש, עם התראה לטלפון.</p><div class="list">${list.map(e => `<button class="row tap" data-action="bg-invite-to" data-id="${e.id}">${avatar(e, 'md')}<div class="row-main"><div class="row-title">${esc(e.name)}</div></div></button>`).join('') || '<div class="row muted">אין עובדים אחרים</div>'}</div>`);
+  },
+  'bg-invite-to': async d => {
+    if (bgBusy) return; bgBusy = true; const r = await store.bgCreate(d.id); bgBusy = false;
+    if (r.error) return toast(r.error);
+    closeSheet(); toast(`ההזמנה נשלחה ל${first(emp(d.id).name)}`);
+    const g = myGames().find(x => x.id === r.id); if (g) bgFromDoc(g); else bg = null;
+    if (view !== 'bg') go('bg'); else drawBg();
+  },
+  'bg-accept': async d => {
+    const g = myGames().find(x => x.id === d.id); if (!g) return;
+    const r = await store.bgUpdate(d.id, { status: 'play', turn: Math.random() < .5 ? 'w' : 'b', ts: Date.now() }); if (r && r.error) return toast(r.error);
+    const n = myGames().find(x => x.id === d.id); if (n) bgFromDoc(n); drawBg();
+  },
+  'bg-del': async d => { const r = await store.bgDelete(d.id); if (r && r.error) return toast(r.error); if (bg && bg.id === d.id) bg = null; drawBg(); },
+  'bg-pt': d => {
+    if (!bg || !bg.t || bgBusy) return; const info = turnInfo(bg.t, bg.me); if (info.done) return;
+    const p = d.p === 'bar' || d.p === 'off' ? d.p : +d.p;
+    if (bg.sel !== null && bg.sel !== undefined) { const o = info.moves.filter(m => m.from === bg.sel && m.to === p).sort((a, b) => a.die - b.die); if (o.length) return bgPlay(o[0]); }
+    const mv = info.moves.filter(m => m.from === p).sort((a, b) => a.die - b.die);
+    if (!mv.length) { bg.sel = null; return drawBg(); }
+    // Only one place this checker can go: move it right away.
+    if (new Set(mv.map(m => m.to)).size === 1) return bgPlay(mv[0]);
+    bg.sel = p; drawBg();
+  },
+  'bg-roll': async () => {
+    if (!bg || bg.t || bgBusy) return; const d = roll();
+    if (bg.mode === 'online') { bgBusy = true; const r = await store.bgUpdate(bg.id, { dice: d, ts: Date.now() }); bgBusy = false; if (r && r.error) return toast(r.error); }
+    bg.t = { start: bg.board, dice: d, played: [], board: bg.board }; bg.sel = null; haptic(12);
+    if (bg.mode === 'ai') bgSaveAi();
+    drawBg();
+  },
+  'bg-undo': () => { if (!bg || !bg.t) return; bg.t.board = bg.t.start; bg.t.played = []; bg.sel = null; if (bg.mode === 'ai') bgSaveAi(); drawBg(); },
+  'bg-done': () => bgFinish(),
+  'bg-resign': () => { const b = document.querySelector('[data-action="bg-resign"]'); if (b) { b.dataset.action = 'bg-resign-yes'; b.textContent = 'לפרוש? לחצו שוב'; } },
+  'bg-resign-yes': async () => {
+    if (!bg || bg.over) return;
+    if (bg.mode === 'ai') return bgOver({ winner: other(bg.me), mult: 1 }, true);
+    const r = await store.bgUpdate(bg.id, { status: 'done', winner: bg.opp, resign: session(), ts: Date.now() }); if (r && r.error) return toast(r.error);
+    bg.over = { winner: other(bg.me), mult: 1, resign: session() }; bgRecord(false, false, bg.id); drawBg();
+  }
+};
+Object.assign(ACT, FUN_ACT);
+FORMS['gal-up'] = async (v, f) => {
+  if (!galPending || busy) return; busy = true; const list = galPending, btn = f.querySelector('button');
+  try {
+    for (let i = 0; i < list.length; i++) {
+      if (btn) btn.textContent = list.length > 1 ? `מעלה ${i + 1} מתוך ${list.length}…` : 'מעלה…';
+      const r = await store.uploadPhoto({ ...list[i], caption: (v.caption || '').trim().slice(0, 300) });
+      if (r && r.error) { toast(r.error); return; }
+    }
+    galPending = null; closeSheet(); toast(list.length > 1 ? 'התמונות עלו לגלריה' : 'התמונה עלתה לגלריה'); render();
+  } finally { busy = false; if (btn && galPending) btn.textContent = 'העלאה לגלריה'; }
+};
+
 document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if ((viewer || ro) && !VIEW_OK.includes(b.dataset.action)) return toast(viewer ? 'משתמש בקרה · צפייה בלבד' : 'יש לך הרשאת צפייה בלבד באזור הזה'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
 document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if ((viewer || ro) && f.dataset.form !== 'login') return toast(viewer ? 'משתמש בקרה · צפייה בלבד' : 'יש לך הרשאת צפייה בלבד באזור הזה'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
@@ -2409,7 +2805,7 @@ document.addEventListener('change', async e => {
 document.addEventListener('scroll', e => { const t = e.target; if (!t.classList || !t.classList.contains('rp-track')) return; const i = Math.round(Math.abs(t.scrollLeft) / t.clientWidth); t.parentElement.querySelectorAll('.rp-dots i').forEach((d, k) => d.classList.toggle('on', k === i)); }, true);
 new MutationObserver(() => { if (document.getElementById('pr-calc') && !document.getElementById('pr-calc').innerHTML) drawCalc(); }).observe(document.getElementById('layer') || document.body, { childList: true, subtree: true });
 // Item photos are shrunk on the phone before saving, so the shared database stays small and fast.
-function shrinkImage(file, max = 360) {
+function shrinkImage(file, max = 360, limit = 120000) {
   return new Promise((res, rej) => {
     const url = URL.createObjectURL(file), im = new Image();
     im.onload = () => {
@@ -2417,7 +2813,7 @@ function shrinkImage(file, max = 360) {
       c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
       const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url); let q = .78, d = c.toDataURL('image/jpeg', q);
-      while (d.length > 120000 && q > .4) { q -= .1; d = c.toDataURL('image/jpeg', q); }
+      while (d.length > limit && q > .3) { q -= .1; d = c.toDataURL('image/jpeg', q); }
       res(d);
     };
     im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad image')); };
