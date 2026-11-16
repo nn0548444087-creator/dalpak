@@ -636,3 +636,12 @@ body.kb-open .dm-list{padding-bottom:70px}
 /* login: second step with a Google account */
 .login .g-back{margin-top:10px}
 .login .g-note{font-size:.84rem;margin-top:14px;text-align:center}
+
+/* how fresh the data is */
+.sync-line{display:flex;align-items:center;gap:10px;width:100%;text-align:start;font-size:.86rem;color:var(--muted);padding:2px 4px 12px;background:none;border:0}
+.sync-line.ok .pp-dot{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 20%,transparent)}
+.sync-line.bad .pp-dot{background:var(--bad);box-shadow:0 0 0 4px color-mix(in srgb,var(--bad) 20%,transparent)}
+.sync-line.bad{color:var(--bad)}
+.chip.sync-chip.bad{color:var(--bad)}
+.chip.sync-chip.wait{color:var(--warn,#FF9500)}
+@media (max-width:430px){.top-actions .sync-chip .st{display:none}}
