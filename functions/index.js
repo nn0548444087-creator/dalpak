@@ -10,7 +10,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 initializeApp();
 const db = getFirestore();
 const SITE = 'https://nn0548444087-creator.github.io/dalpak/';
-const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo'];
+const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo', 'signups'];
 
 const first = n => String(n || '').trim().split(/\s+/)[0] || '';
 const cut = (t, n = 120) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -111,10 +111,14 @@ async function deliver(empIds, title, body, data = {}) {
   }
 }
 
-// Permanent managers (logins marked admin), for the managers' alerts.
-async function managers() {
-  const snap = await db.collection('logins').where('admin', '==', true).get();
-  return snap.docs.map(d => d.data().empId).filter(Boolean);
+// Managers for the managers' alerts: the owner and whoever may edit hours, inventory or staff.
+// staffOnly: only those who may approve new employees.
+async function managers(staffOnly = false) {
+  const snap = await db.collection('members').get();
+  const areas = staffOnly ? ['staff'] : ['hours', 'inv', 'staff'];
+  return [...new Set(snap.docs.map(d => d.data())
+    .filter(m => m.empId && (m.owner === true || areas.some(a => (m.perms || {})[a] === 'edit')))
+    .map(m => m.empId))];
 }
 
 async function onMessage(before, after) {
@@ -210,6 +214,13 @@ exports.geoWatch = onSchedule({ schedule: 'every 5 minutes', region: 'europe-wes
   await Promise.all(old.docs.map(d => d.ref.delete().catch(() => { })));
 });
 
+// Someone signed in with Google for the first time: the managers who approve employees hear about it.
+async function onSignup(before, after) {
+  if (before || !after) return;
+  const who = after.name || after.email || 'מישהו';
+  await send(await managers(true), 'בקשת הצטרפות חדשה', `${who} נכנס/ה לאפליקציה ומחכה לאישור שלך`, { view: 'staff' }, 'alerts');
+}
+
 // A test notification the employee asked for from the settings screen (always sent, then the request is removed).
 async function onTest(before, after, id) {
   if (before || !after || !after.emp) return;
@@ -222,6 +233,6 @@ exports.notify = onDocumentWritten({ document: '{col}/{id}', region: 'me-west1',
   if (!WATCHED.includes(col)) return;
   const before = event.data.before.exists ? event.data.before.data() : null;
   const after = event.data.after.exists ? event.data.after.data() : null;
-  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo }[col];
+  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo, signups: onSignup }[col];
   try { await run(before, after, event.params.id); } catch (e) { console.error(col, event.params.id, e); }
 });
