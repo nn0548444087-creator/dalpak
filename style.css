@@ -673,3 +673,9 @@ body.kb-open .dm-list{padding-bottom:70px}
 .perm-seg input:focus-visible+span{outline:2px solid var(--accent,#007AFF)}
 @media (max-width:380px){.perm-row{flex-direction:column;align-items:stretch}.perm-seg{align-self:flex-start}}
 .av img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+
+/* lists that keep loading while scrolling */
+.more-sent{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:8px;padding:18px 12px;color:var(--muted);font-size:.85rem}
+.spin-sm{width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent,#007AFF);animation:morespin .8s linear infinite}
+@keyframes morespin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin-sm{animation:none}}
