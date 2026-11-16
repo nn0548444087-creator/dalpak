@@ -177,7 +177,7 @@ function render() {
   if (booting) { hdr.innerHTML = brand; main.innerHTML = `<div class="view"><div class="lock"><p class="muted">טוען נתונים…</p></div></div>`; renderNav(); return; }
   if (!session()) {
     hdr.innerHTML = brand + `<div class="top-actions"><button class="chip" data-action="nav" data-view="display">${ic('eye', 'sm')}תצוגה</button></div>`;
-    main.innerHTML = `<div class="view">${view === 'display' ? vDisplay() : store.needsSetup() ? vSetup() : vLogin()}</div>`;
+    main.innerHTML = `<div class="view">${view === 'display' ? vDisplay() : store.needsSetup() ? vSetup() : store.needGoogle && store.needGoogle() ? vGoogle() : vLogin()}</div>`;
     renderNav(); return;
   }
   checkMonthly();
@@ -228,6 +228,17 @@ function vLogin() {
       <div class="field"><label for="lg-n">מספר עובד</label><input id="lg-n" class="phone-in" name="num" inputmode="numeric" autocomplete="off" placeholder="101" required></div>
       <button class="btn primary block" ${busy ? 'disabled' : ''}>${busy ? 'מתחבר…' : 'כניסה'}</button></form>
     ${local() ? `<div class="demo-box"><b>עובדי הדמו · לחיצה ממלאת את הפרטים</b><div class="demo-phones">${S.employees.map(e => `<button data-action="fill-login" data-p="${esc(e.phone)}" data-n="${esc(e.num)}">${esc(first(e.name))} · <span class="ltr">${fmtPhone(e.phone)}</span> · ${esc(e.num)}</button>`).join('')}</div></div>` : ''}
+  </div>`;
+}
+// Second step of the login, for an employee the manager set a Google account for.
+function vGoogle() {
+  return `<div class="login">
+    <img class="mark" src="./logo.png" alt="שאבעס מרקט">
+    <h2>אימות עם חשבון Google</h2>
+    <p class="lead">מנהל החנות ביקש שהכניסה שלך תאומת גם עם חשבון Google. התחברו עם החשבון <b class="ltr">${esc(store.needGoogle())}</b>.</p>
+    <button class="btn primary block" data-action="g-in" ${busy ? 'disabled' : ''}>${ic('lock', 'sm')}${busy ? 'מתחבר…' : 'התחברות עם Google'}</button>
+    <button class="btn block g-back" data-action="g-cancel" ${busy ? 'disabled' : ''}>חזרה למסך הכניסה</button>
+    <p class="muted g-note">צריך לעשות את זה רק בכניסה לאפליקציה, לא בכל פתיחה.</p>
   </div>`;
 }
 function vSetup() {
@@ -501,6 +512,7 @@ const empFields = (e, p) => isPriv(e) ? `
   <div class="two"><div class="field"><label for="${p}-u">מספר עובד</label><input id="${p}-u" name="num" inputmode="numeric" required value="${esc(e.num || nextNum())}"></div>
   <div class="field"><label for="${p}-w">שכר לשעה (₪)</label><input id="${p}-w" name="wage" type="number" min="0" step="0.5" value="${e.wage ?? 50}" required></div></div>
   <div class="field"><label for="${p}-p">טלפון נייד</label><input id="${p}-p" class="ltr" style="text-align:right" name="phone" type="tel" inputmode="tel" placeholder="050-000-0000" required value="${esc(e.phone ? fmtPhone(e.phone) : '')}"><small>העובד מתחבר עם מספר הטלפון ומספר העובד.</small></div>
+  <div class="field"><label for="${p}-g">חשבון Google לאימות (לא חובה)</label><input id="${p}-g" class="ltr" style="text-align:right" name="google" type="email" inputmode="email" autocomplete="off" placeholder="name@gmail.com" value="${esc(e.google || '')}"><small>אם ממלאים, העובד יצטרך להתחבר גם עם חשבון ה-Google הזה. ריק = רק טלפון ומספר עובד.</small></div>
   ${e.owner ? `<p class="hint">${ic('crown', 'sm')} בעל הבית: גישה מלאה לכל הנתונים. אי אפשר להסיר את ההרשאה.</p>`
     : !canSetFlags() ? (e.admin ? '<p class="hint">מנהל קבוע. רק בעל הבית יכול לשנות את ההרשאה.</p>' : '')
     : e.id && e.id === session() && e.admin
@@ -510,6 +522,7 @@ function validateEmp(f, id) {
   if (f.phone === undefined) return !f.name.trim() ? 'צריך למלא שם' : !(parseFloat(f.wage) >= 0) ? 'הזן שכר תקין' : null;
   const ph = normPhone(f.phone), num = String(f.num).trim();
   if (!f.name.trim()) return 'צריך למלא שם';
+  if (f.google && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(f.google).trim())) return 'כתובת ה-Google לא תקינה';
   if (!/^\d{1,6}$/.test(num)) return 'מספר עובד צריך להיות עד 6 ספרות';
   if (!/^05\d{8}$/.test(ph)) return 'מספר הטלפון צריך להיות נייד ישראלי בן 10 ספרות';
   if (S.employees.some(e => e.id !== id && normPhone(e.phone) === ph)) return 'מספר הטלפון כבר רשום לעובד אחר';
@@ -1753,6 +1766,15 @@ const ACT = {
   'pp-tog': d => {
     if (!pp) return; pp[d.k] = !pp[d.k]; haptic(6); savePP(); render();
   },
+  'g-in': async () => {
+    if (busy) return; busy = true; render();
+    const r = await store.googleSignIn();
+    busy = false;
+    if (!r.ok) { render(); if (r.error) toast(r.error); return; }
+    view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name));
+    initPush(isNativeApp());
+  },
+  'g-cancel': async () => { if (busy) return; await store.cancelGoogle(); render(); },
   'geo-tog': () => needMgr(() => { geoCfg.on = !geoCfg.on; geoSave(); haptic(6); render(); toast(geoCfg.on ? 'סגירת משמרת לפי מיקום הופעלה' : 'סגירת משמרת לפי מיקום כובתה'); }),
   'geo-set': d => needMgr(() => { geoCfg[d.k] = +d.v; geoSave(); haptic(6); render(); }),
   'geo-here': () => needMgr(async () => {
@@ -2038,6 +2060,7 @@ const FORMS = {
     const r = await store.login(p, n);
     busy = false;
     if (r.error) { render(); document.getElementById('lg-p').value = fmtPhone(p); document.getElementById('lg-n').value = n; return toast(r.error); }
+    if (r.needGoogle) return render();
     view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name));
     initPush(isNativeApp());
   },
@@ -2182,7 +2205,8 @@ const FORMS = {
   },
   emp: f => {
     if (!manager) return openPin(); const err = validateEmp(f, null); if (err) return toast(err);
-    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage), ...(f.admin && canSetFlags() ? { admin: true } : {}) });
+    const g = String(f.google || '').trim().toLowerCase();
+    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage), ...(f.admin && canSetFlags() ? { admin: true } : {}), ...(g ? { google: g } : {}) });
     save(); closeSheet(); render(); toast(`${f.name.trim()} נוסף/ה. התחברות: ${fmtPhone(f.phone)} + מספר עובד ${String(f.num).trim()}`);
   },
   'emp-edit': (f, el) => {
@@ -2191,7 +2215,10 @@ const FORMS = {
     const keepAdmin = (e.id === session() && e.admin) || e.owner || (!canSetFlags() && e.admin);
     Object.assign(e, { name: f.name.trim(), num: String(f.num).trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage) });
     if (keepAdmin || (f.admin && canSetFlags())) e.admin = true; else delete e.admin;
-    save(); closeSheet(); render(); toast('פרטי העובד נשמרו');
+    const g = String(f.google || '').trim().toLowerCase(), gNew = g && g !== (e.google || '');
+    if (g) e.google = g; else delete e.google;
+    save(); closeSheet(); render();
+    toast(gNew ? (e.id === session() ? 'נשמר. עכשיו תתבקש/י להתחבר עם Google' : `נשמר. בפעם הבאה ${first(e.name)} יתבקש/תתבקש להתחבר עם Google`) : 'פרטי העובד נשמרו');
   },
   'pin-change': async f => {
     if (!manager) return openPin();
