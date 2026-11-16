@@ -9,7 +9,7 @@ import {
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import {
   initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, deleteDoc,
-  collection, query, where, onSnapshot, writeBatch, getDocs
+  collection, query, where, onSnapshot, writeBatch, getDocs, orderBy, limit
 } from 'firebase/firestore';
 import { uid as newId, normPhone, AREAS } from './util.js';
 
@@ -22,7 +22,8 @@ const MSG_Q = 'messages';
 const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos', prices: 'prices' };
 const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras', 'messages', 'sales'];
 // Shown to everyone, never written from this list (each phone writes only its own shifts).
-const READONLY = { openShifts: 'openShifts', members: 'members', signups: 'signups' };
+// The leisure tab (gallery, game scores, backgammon games) is written only through its own functions below.
+const READONLY = { openShifts: 'openShifts', members: 'members', signups: 'signups', gallery: 'gallery', scores: 'scores', bgGames: 'bgGames' };
 const PUBLIC_CATS = ['drinks', 'salads'];
 // Google sign-in inside the Android app goes through the phone's own Google account picker
 // (Google does not allow signing in from inside an app's web view).
@@ -222,7 +223,7 @@ export function createCloudStore(config) {
   }
   function resetState() {
     unsubs.forEach(u => u()); unsubs = []; fresh = {};
-    ARRAYS.forEach(c => S[c] = []); S.members = []; S.signups = []; S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = [];
+    ARRAYS.forEach(c => S[c] = []); S.members = []; S.signups = []; S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = []; S.gallery = []; S.scores = []; S.bgGames = [];
     synced = {}; loadedCols = new Set(); namesSynced = null; S.names = {};
     COLS.forEach(c => synced[c] = new Map());
   }
@@ -257,7 +258,10 @@ export function createCloudStore(config) {
         ...(can('orders') ? [all('orders')] : []),
         ...(can('pos') ? [all('sales')] : []),
         ...(staffMgr() ? [['logins', query(c('logins'), where('owner', '==', false))]] : []),
-        ...(can('staff') ? [all('members'), all('signups')] : [])];
+        ...(can('staff') ? [all('members'), all('signups')] : []),
+        // Leisure: the newest photos (small previews only), everyone's game scores, and this employee's backgammon games.
+        ['gallery', query(c('gallery'), orderBy('ts', 'desc'), limit(300))], all('scores'),
+        ['bgGames', query(c('bgGames'), where('players', 'array-contains', empId))]];
     specs.forEach(([name, q]) => {
       unsubs.push(onSnapshot(q, { includeMetadataChanges: true }, snap => {
         noteSync(name, snap);
@@ -456,6 +460,43 @@ export function createCloudStore(config) {
       for (let i = 0; i < (r.parts || 0); i++) await deleteDoc(doc(db, 'reelParts', r.id + '_' + i)).catch(() => { });
       for (const c of S.reelComments.filter(c => c.reel === r.id)) await deleteDoc(doc(db, 'reelComments', c.id)).catch(() => { });
       await deleteDoc(doc(db, 'reels', r.id)).catch(() => { });
+    },
+    // ---- leisure ----
+    // A gallery photo: a small preview in gallery/{id} (listed for everyone) and the full photo in galleryParts/{id}.
+    async uploadPhoto({ full, thumb, caption }) {
+      const id = newId();
+      try {
+        await withTimeout(setDoc(doc(db, 'galleryParts', id), { g: id, by: empId, data: full }), 60000);
+        await withTimeout(setDoc(doc(db, 'gallery', id), { by: empId, ts: Date.now(), thumb, caption: caption || '' }));
+        return { ok: true, id };
+      } catch (e) { deleteDoc(doc(db, 'galleryParts', id)).catch(() => { }); return { error: errText(e) }; }
+    },
+    async loadPhoto(id) { const d = await getDoc(doc(db, 'galleryParts', id)); return d.exists() ? d.data().data : null; },
+    async deletePhoto(p) {
+      try { await withTimeout(deleteDoc(doc(db, 'gallery', p.id))); await deleteDoc(doc(db, 'galleryParts', p.id)).catch(() => { }); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    // Scores: one document per game and employee (scores/snake_<id>, scores/bg_<id>).
+    async saveScore(game, data) {
+      try { await withTimeout(setDoc(doc(db, 'scores', game + '_' + empId), { ...data, game, emp: empId, ts: Date.now() }, { merge: true })); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    // Backgammon between two employees: the one who invites plays white.
+    async bgCreate(opp) {
+      const id = newId(), b = {};
+      b.pts = Array(24).fill(0); b.pts[23] = 2; b.pts[12] = 5; b.pts[7] = 3; b.pts[5] = 5; b.pts[0] = -2; b.pts[11] = -5; b.pts[16] = -3; b.pts[18] = -5;
+      try {
+        await withTimeout(setDoc(doc(db, 'bgGames', id), { a: empId, b: opp, players: [empId, opp], status: 'invite', pts: b.pts, barW: 0, barB: 0, offW: 0, offB: 0, turn: 'w', dice: null, last: null, ts: Date.now() }));
+        return { ok: true, id };
+      } catch (e) { return { error: errText(e) }; }
+    },
+    async bgUpdate(id, patch) {
+      try { await withTimeout(setDoc(doc(db, 'bgGames', id), patch, { merge: true })); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    async bgDelete(id) {
+      try { await withTimeout(deleteDoc(doc(db, 'bgGames', id))); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
     },
     loaded: (...names) => names.every(n => loadedCols.has(n)),
     pinLength: () => pinLen,
