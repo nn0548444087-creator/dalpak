@@ -71,7 +71,17 @@ export function createCloudStore(config) {
   const PRIVATE = ['phone', 'num', 'owner'];
   // Employee names for the poster account, which may not read the employee list itself.
   let namesSynced = null;
-  const changeCbs = [], errorCbs = [];
+  const changeCbs = [], errorCbs = [], syncCbs = [];
+  // How fresh the data on this phone is: each live list says whether it came from the server or from the
+  // phone's saved copy, and whether it holds changes not yet sent. lastSync = last moment everything was live.
+  let fresh = {}, lastSync = 0;
+  try { lastSync = +localStorage.getItem('dalpak-last-sync') || 0; } catch (e) { }
+  function noteSync(name, snap) {
+    fresh[name] = { cache: snap.metadata.fromCache, pending: snap.metadata.hasPendingWrites };
+    const all = Object.values(fresh);
+    if (all.length && all.every(f => !f.cache)) { lastSync = Date.now(); try { localStorage.setItem('dalpak-last-sync', String(lastSync)); } catch (e) { } }
+    syncCbs.forEach(f => f());
+  }
   const emit = () => changeCbs.forEach(f => f());
   const fail = e => { console.error(e); if (/permission/i.test((e && e.code) || '')) recheck(); errorCbs.forEach(f => f(errText(e))); };
   // A login that requires Google, on a phone that is not signed in with that Google account: { email, phone, num }.
@@ -137,7 +147,7 @@ export function createCloudStore(config) {
     setDoc(doc(db, 'config', 'names'), want).catch(() => { });
   }
   function resetState() {
-    unsubs.forEach(u => u()); unsubs = [];
+    unsubs.forEach(u => u()); unsubs = []; fresh = {};
     ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = [];
     synced = {}; loadedCols = new Set(); namesSynced = null; S.names = {};
     COLS.forEach(c => synced[c] = new Map());
@@ -166,7 +176,12 @@ export function createCloudStore(config) {
         [MSG_Q, query(c(MSG_Q), where('pair', 'array-contains', empId))],
         ['itemImages', query(c('itemImages'), where('cat', 'in', PUBLIC_CATS))]];
     specs.forEach(([name, q]) => {
-      unsubs.push(onSnapshot(q, snap => { apply(name, snap); emit(); }, e => fail(e)));
+      unsubs.push(onSnapshot(q, { includeMetadataChanges: true }, snap => {
+        noteSync(name, snap);
+        // A change only in the sync state (sent, back online) needs no new data.
+        if (loadedCols.has(name) && !snap.docChanges().length) return;
+        apply(name, snap); emit();
+      }, e => fail(e)));
     });
     emit();
     if (mgr) migrate();
@@ -376,6 +391,13 @@ export function createCloudStore(config) {
     pinLength: () => pinLen,
     onChange: cb => changeCbs.push(cb),
     onError: cb => errorCbs.push(cb),
+    onSync: cb => syncCbs.push(cb),
+    // { state: 'live' | 'offline' | 'connecting', last: time everything was last up to date, pending: changes not sent yet }
+    syncInfo() {
+      const all = Object.values(fresh), pending = all.some(f => f.pending);
+      const state = !navigator.onLine ? 'offline' : !all.length ? 'connecting' : all.every(f => !f.cache) ? 'live' : 'offline';
+      return { state, last: state === 'live' ? Date.now() : lastSync, pending };
+    },
     save,
 
     async setup({ name, phone, num, wage, pin }) {
