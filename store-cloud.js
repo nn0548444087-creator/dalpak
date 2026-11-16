@@ -11,7 +11,7 @@ import {
   initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, deleteDoc,
   collection, query, where, onSnapshot, writeBatch, getDocs
 } from 'firebase/firestore';
-import { uid as newId, normPhone } from './util.js';
+import { uid as newId, normPhone, AREAS } from './util.js';
 
 const COLS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'grades', 'logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'unavail', 'empPhotos', 'reels', 'reelComments', 'extras', 'prices', 'catalog', 'messages', 'sales'];
 // Private messages: each phone reads only the conversations it is part of.
@@ -22,7 +22,7 @@ const MSG_Q = 'messages';
 const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos', prices: 'prices' };
 const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras', 'messages', 'sales'];
 // Shown to everyone, never written from this list (each phone writes only its own shifts).
-const READONLY = { openShifts: 'openShifts' };
+const READONLY = { openShifts: 'openShifts', members: 'members', signups: 'signups' };
 const PUBLIC_CATS = ['drinks', 'salads'];
 // Google sign-in inside the Android app goes through the phone's own Google account picker
 // (Google does not allow signing in from inside an app's web view).
@@ -33,8 +33,10 @@ const nativeGoogle = () => Capacitor.isNativePlatform() && Capacitor.isPluginAva
 const WEB_CLIENT = '531855451338-6cmn5v1tttc1fcasq01fa864801elvl6.apps.googleusercontent.com';
 const RETURN_URL = () => location.origin + location.pathname.replace(/index\.html$/, '');
 const rnd = () => [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
-const maskMail = m => String(m || '').replace(/^(.{2})[^@]*(@.*)$/, '$1•••$2');
-const gmailOf = e => (e && e.google ? { google: String(e.google).trim().toLowerCase() } : {});
+// Each employee's level per area of the app (AREAS) is in members/{email}.perms.
+const ALL_EDIT = Object.fromEntries(AREAS.map(a => [a, 'edit']));
+// What a regular employee gets (must match the rules' claimOk).
+const BASIC = { reels: 'edit', chat: 'edit' };
 const googleErr = e => {
   const c = String((e && (e.code || e.message)) || '');
   if (/popup-closed|cancelled-popup|cancel|12501|16:/i.test(c)) return { cancel: true };
@@ -69,10 +71,15 @@ export function createCloudStore(config) {
   let synced = {}, loadedCols = new Set(), unsubs = [];
   // poster = the "חדשות מרקט" account, which may only post reels.
   let myPush = null;
-  let empId = null, myPhone = null, myNum = null, mgr = false, permAdmin = false, owner = false, viewer = false, poster = false, viewerLogins = [], setupDone = true, pinLen = 4;
-  // The owner's phone and employee number are kept only in their own login record, never in the shared employee list.
-  // In the shared list the owner shows as a regular permanent manager.
-  let myLogin = null, ownerSet = false, migrated = false;
+  let empId = null, myPhone = null, myNum = null, owner = false, viewer = false, poster = false, viewerLogins = [], setupDone = true, pinLen = 4;
+  // The signed-in Google account (email), its permissions per area, and a sign-up waiting for approval.
+  let me = null, perms = {}, pend = null, unsubPend = null, ownerEmp = null;
+  let ownerSet = false, migrated = false;
+  // Level in an area: the owner has everything, the viewer sees everything.
+  const lv = a => owner ? 'edit' : viewer ? 'view' : (perms[a] || 'none');
+  const can = a => lv(a) !== 'none';
+  // May manage employees (logins of the shared accounts, names list, sign-ups).
+  const staffMgr = () => lv('staff') === 'edit';
   const PRIVATE = ['phone', 'num', 'owner'];
   // Employee names for the poster account, which may not read the employee list itself.
   let namesSynced = null;
@@ -89,8 +96,7 @@ export function createCloudStore(config) {
   }
   const emit = () => changeCbs.forEach(f => f());
   const fail = e => { console.error(e); if (/permission/i.test((e && e.code) || '')) recheck(); errorCbs.forEach(f => f(errText(e))); };
-  // A login that requires Google, on a phone that is not signed in with that Google account: { email, phone, num }.
-  let needG = null, rechecking = false, gErr = '';
+  let rechecking = false, gErr = '';
   // Back from Google's sign-in page: take the token from the address (and clear it from there).
   function takeGoogleReturn() {
     const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
@@ -103,31 +109,77 @@ export function createCloudStore(config) {
     const tok = h.get('id_token');
     return tok ? { cred: GoogleAuthProvider.credential(tok) } : { error: 'ההתחברות עם Google לא הושלמה. נסו שוב' };
   }
-  // Signs this phone in with the employee's Google account, keeping the same sign-in when possible (Google is
-  // linked to it); a phone already signed in with another Google account, or a Google account already used on
-  // another phone, switches to that account.
+  // Signs this phone in with a Google account. A phone signed in the old way keeps its sign-in (Google is linked
+  // to it), so an employee whose old login was checked with this account moves over without approval.
   async function finishGoogle(cred) {
-    const want = needG.email, before = auth.currentUser;
-    const linkedG = before && before.providerData.some(p => p.providerId === 'google.com');
+    const before = auth.currentUser;
     try {
-      if (!before || linkedG) await signInWithCredential(auth, cred);
-      else await linkWithCredential(before, cred);
+      if (before && before.isAnonymous) await linkWithCredential(before, cred);
+      else await signInWithCredential(auth, cred);
     } catch (e) {
-      if (!/credential-already-in-use|email-already-in-use/.test(e.code || '')) throw e;
+      if (!/credential-already-in-use|email-already-in-use|provider-already-linked/.test(e.code || '')) throw e;
       await signInWithCredential(auth, GoogleAuthProvider.credentialFromError(e) || cred);
     }
-    const u = auth.currentUser;
-    await u.getIdToken(true);
-    if (String(u.email || '').toLowerCase() !== want) return { error: `התחברת עם ${u.email || 'חשבון אחר'}. לעובד הזה רשום ${maskMail(want)}` };
-    if (!before || u.uid !== before.uid) await withTimeout(setDoc(doc(db, 'sessions', u.uid), { phone: needG.phone, num: needG.num, at: Date.now() }));
-    if (!(await linkSession())) return { error: needG ? 'החשבון לא תואם' : 'מספר הטלפון או מספר העובד לא נכונים' };
-    mgr = permAdmin; subscribe(); emit(); return { ok: true };
+    await auth.currentUser.getIdToken(true);
+    return afterGoogle();
   }
-  // Access was refused mid-session: maybe the manager just required Google for this employee.
-  async function recheck() {
-    if (rechecking || !empId) return; rechecking = true;
+  async function afterGoogle() {
+    if (await linkMember()) { subscribe(); emit(); return { ok: true }; }
+    const u = auth.currentUser;
+    if (u && u.email) { await requestJoin(u); return { pending: true }; }
+    return { error: 'ההתחברות עם Google לא הושלמה' };
+  }
+  // The signed-in Google account as an employee: members/{email} says which employee and what they may do.
+  async function linkMember() {
+    const u = auth.currentUser; if (!u || !u.email) return false;
+    const em = u.email.toLowerCase();
     try {
-      if (!(await linkSession()) && needG) { unsubs.forEach(u => u()); unsubs = []; empId = null; S.currentUser = null; mgr = false; emit(); }
+      let m = await withTimeout(getDoc(doc(db, 'members', em)), 12000);
+      if (!m.exists() && await claimLegacy(u, em)) m = await getDoc(doc(db, 'members', em));
+      if (!m.exists()) return false;
+      const d = m.data();
+      if (!d.empId) return false;
+      me = em; empId = d.empId; perms = d.perms || {}; owner = d.owner === true; viewer = false; poster = false;
+      S.currentUser = empId; pend = null; if (unsubPend) { unsubPend(); unsubPend = null; }
+      return true;
+    } catch (e) { console.warn('member', e); return false; }
+  }
+  // Moving over from the old sign-in (phone + number checked with this Google account): approve yourself as
+  // the same employee. Managers keep full rights.
+  async function claimLegacy(u, em) {
+    try {
+      const s = await getDoc(doc(db, 'sessions', u.uid)); if (!s.exists()) return false;
+      const { phone, num } = s.data();
+      const l = await getDoc(doc(db, 'logins', phone)); if (!l.exists()) return false;
+      const L = l.data();
+      if (String(L.num) !== String(num) || String(L.google || '').toLowerCase() !== em || !L.empId) return false;
+      const full = L.admin === true || L.owner === true;
+      await setDoc(doc(db, 'members', em), { empId: L.empId, email: em, perms: full ? ALL_EDIT : BASIC, ...(L.owner === true ? { owner: true } : {}), ts: Date.now() });
+      return true;
+    } catch (e) { console.warn('claim', e); return false; }
+  }
+  // A Google account that is not an employee yet: ask to join, and wait for a manager to approve it.
+  async function requestJoin(u) {
+    const em = u.email.toLowerCase();
+    pend = { email: em, name: u.displayName || '', photo: u.photoURL || '' };
+    try {
+      const had = await getDoc(doc(db, 'signups', em));
+      if (!had.exists()) await setDoc(doc(db, 'signups', em), { email: em, name: pend.name.slice(0, 150), photo: pend.photo.slice(0, 1900), ts: Date.now() });
+    } catch (e) { console.warn('signup', e); }
+    if (unsubPend) unsubPend();
+    unsubPend = onSnapshot(doc(db, 'members', em), async d => {
+      if (!d.exists()) return;
+      if (await linkMember()) { subscribe(); emit(); }
+    }, () => { });
+    emit();
+  }
+  // Access was refused mid-session: maybe the manager removed this account or changed its permissions.
+  async function recheck() {
+    if (rechecking || !empId || !me) return; rechecking = true;
+    try {
+      const was = stable(perms);
+      if (await linkMember()) { if (stable(perms) !== was) { subscribe(); emit(); } }
+      else { unsubs.forEach(u => u()); unsubs = []; empId = null; S.currentUser = null; const u = auth.currentUser; if (u && u.email) await requestJoin(u); emit(); }
     } finally { rechecking = false; }
   }
 
@@ -138,30 +190,15 @@ export function createCloudStore(config) {
     else if (col === 'grades') Object.entries(S.grades).forEach(([k, v]) => m.set(k, { v }));
     else if (MAPS[col]) Object.entries(S[MAPS[col]]).forEach(([k, v]) => m.set(k, clean(v)));
     else if (col === 'catalog') (S.catalog || []).forEach(({ id, chunk, ...rest }) => { const c = chunk || 'c0'; if (!m.has(c)) m.set(c, { items: {} }); m.get(c).items[id] = clean(rest); });
-    else if (col === 'logins') {
-      viewerLogins.forEach(v => m.set(v.id, v.data));
-      S.employees.forEach(e => {
-        if (!e.phone) return;
-        // Only the owner's own phone writes the owner's login record.
-        if (e.owner) { if (owner && e.id === empId) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), admin: true, owner: true, ...gmailOf(e) }); return; }
-        m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), owner: false, ...(e.admin ? { admin: true } : {}), ...gmailOf(e) });
-      });
-    }
     return m;
   }
   function apply(col, snap) {
     if (READONLY[col]) { S[READONLY[col]] = snap.docs.map(d => ({ id: d.id, ...d.data() })); loadedCols.add(col); return; }
     const m = new Map();
     snap.docs.forEach(d => m.set(d.id, stable(d.data())));
-    if (col === 'logins' && owner && myLogin) m.set(myPhone, stable(myLogin));
     synced[col] = m;
     if (ARRAYS.includes(col)) S[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (col === 'employees') {
-      // The owner sees their own details; everyone else sees the owner as a regular employee.
-      S.employees = S.employees.map(e => owner && e.id === empId ? { ...e, phone: myPhone, num: myNum, admin: true, owner: true }
-        : e.owner ? (({ phone, num, owner: _o, ...r }) => ({ ...r, admin: true }))(e) : e);
-      // Old records still holding the owner's details are cleaned by the next manager save.
-      if (mgr && snap.docs.some(d => d.data().owner === true || (owner && d.id === empId && d.data().admin !== true))) setTimeout(save, 0);
       syncNames();
     }
     else if (col === 'logins') {
@@ -178,14 +215,14 @@ export function createCloudStore(config) {
 
   // Managers keep config/names up to date: just id → name, nothing private.
   function syncNames() {
-    if (!mgr || namesSynced === null || !loadedCols.has('employees')) return;
+    if (!staffMgr() || namesSynced === null || !loadedCols.has('employees')) return;
     const want = {}; S.employees.forEach(e => { want[e.id] = e.name; });
     const s = stable(want); if (s === namesSynced) return; namesSynced = s;
     setDoc(doc(db, 'config', 'names'), want).catch(() => { });
   }
   function resetState() {
     unsubs.forEach(u => u()); unsubs = []; fresh = {};
-    ARRAYS.forEach(c => S[c] = []); S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = [];
+    ARRAYS.forEach(c => S[c] = []); S.members = []; S.signups = []; S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = [];
     synced = {}; loadedCols = new Set(); namesSynced = null; S.names = {};
     COLS.forEach(c => synced[c] = new Map());
   }
@@ -193,25 +230,34 @@ export function createCloudStore(config) {
     resetState();
     if (!empId) { emit(); return; }
     const c = n => collection(db, n);
-    if (mgr || poster) unsubs.push(onSnapshot(doc(db, 'config', 'names'), d => { S.names = d.exists() ? d.data() : {}; namesSynced = stable(S.names); syncNames(); emit(); }, () => { }));
+    if (staffMgr() || poster) unsubs.push(onSnapshot(doc(db, 'config', 'names'), d => { S.names = d.exists() ? d.data() : {}; namesSynced = stable(S.names); syncNames(); emit(); }, () => { }));
+    // Each list loads in full only for those whose permissions cover it; otherwise just the employee's own part.
+    const all = n => [n, c(n)], mine = n => [n, query(c(n), where('empId', '==', empId))], pub = n => [n, query(c(n), where('cat', 'in', PUBLIC_CATS))];
+    const any = (...a) => a.some(can);
     const specs = poster ? [['reels', c('reels')], ['reelComments', c('reelComments')], ['empPhotos', c('empPhotos')]]
-      : mgr || viewer
-      ? [...COLS.filter(n => (mgr || n !== 'logins') && n !== MSG_Q).map(n => [n, n === 'logins' ? query(c(n), where('owner', '==', false)) : c(n)]), ['openShifts', query(c('shifts'), where('status', '==', 'open'))],
-        ...(viewer ? [] : [[MSG_Q, query(c(MSG_Q), where('pair', 'array-contains', empId))]])]
-      : [['employees', c('employees')],
-        ['shifts', query(c('shifts'), where('empId', '==', empId))],
+      : viewer
+      ? [...COLS.filter(n => n !== 'logins' && n !== MSG_Q).map(all), ['openShifts', query(c('shifts'), where('status', '==', 'open'))]]
+      : [all('employees'),
+        can('hours') ? all('shifts') : mine('shifts'),
         ['openShifts', query(c('shifts'), where('status', '==', 'open'))],
-        ['inventory', query(c('inventory'), where('cat', 'in', PUBLIC_CATS))],
-        ['drinkUpdates', c('drinkUpdates')],
-        ['deliveries', c('deliveries')],
-        ['tasks', query(c('tasks'), where('empId', '==', empId))],
-        ['unavail', query(c('unavail'), where('empId', '==', empId))],
-        ['empPhotos', c('empPhotos')],
-        ['reels', c('reels')],
-        ['reelComments', c('reelComments')],
-        ['extras', query(c('extras'), where('empId', '==', empId))],
+        any('inv', 'products', 'orders', 'pos') ? all('inventory') : pub('inventory'),
+        all('drinkUpdates'), all('deliveries'),
+        can('tasks') ? all('tasks') : mine('tasks'),
+        can('hours') ? all('unavail') : mine('unavail'),
+        all('empPhotos'), all('reels'), all('reelComments'),
+        can('hours') ? all('extras') : mine('extras'),
         [MSG_Q, query(c(MSG_Q), where('pair', 'array-contains', empId))],
-        ['itemImages', query(c('itemImages'), where('cat', 'in', PUBLIC_CATS))]];
+        any('inv', 'products', 'pos') ? all('itemImages') : pub('itemImages'),
+        ...(any('hours', 'inv', 'staff') ? [all('notifications')] : []),
+        ...(any('inv', 'products') ? [all('itemNotes')] : []),
+        ...(can('tasks') ? [all('grades')] : []),
+        ...(any('orders', 'products') ? [all('suppliers')] : []),
+        ...(any('products', 'pos', 'orders', 'inv') ? [all('prices')] : []),
+        ...(any('products', 'pos') ? [all('catalog')] : []),
+        ...(can('orders') ? [all('orders')] : []),
+        ...(can('pos') ? [all('sales')] : []),
+        ...(staffMgr() ? [['logins', query(c('logins'), where('owner', '==', false))]] : []),
+        ...(can('staff') ? [all('members'), all('signups')] : [])];
     specs.forEach(([name, q]) => {
       unsubs.push(onSnapshot(q, { includeMetadataChanges: true }, snap => {
         noteSync(name, snap);
@@ -221,7 +267,8 @@ export function createCloudStore(config) {
       }, e => fail(e)));
     });
     emit();
-    if (mgr) migrate();
+    if (staffMgr()) migrate();
+    if (can('staff')) getDoc(doc(db, 'config', 'owner')).then(d => { ownerEmp = d.exists() ? d.data().empId : null; emit(); }).catch(() => { });
   }
   // One-time upgrade of older data: mark every login record with owner:false so the list query
   // can skip the owner's record, and flag publicly (without naming anyone) that an owner exists.
@@ -243,7 +290,11 @@ export function createCloudStore(config) {
     const sets = [], dels = [];
     if (viewer) return;
     // The poster account only ever writes its own profile photo here; reels go through uploadReel.
-    const cols = poster ? ['empPhotos'] : mgr ? COLS : COLS.filter(c => !['logins', 'itemNotes', 'itemImages', 'suppliers', 'orders', 'grades', 'inventory', 'prices', 'catalog', 'sales'].includes(c));
+    // Only lists this employee may change (the rest are compared but never written).
+    const ed = a => lv(a) === 'edit';
+    const W = { logins: false, inventory: ed('inv') || ed('products'), itemNotes: ed('inv') || ed('products'), itemImages: ed('inv') || ed('products'),
+      suppliers: ed('orders') || ed('products'), orders: ed('orders'), grades: ed('tasks'), prices: ed('products'), catalog: ed('products'), sales: ed('pos') };
+    const cols = poster ? ['empPhotos'] : COLS.filter(c => W[c] !== false && (W[c] === undefined || W[c]));
     for (const col of cols) {
       // The product list is large: compare it only after it changed, and never before it has loaded.
       if (col === 'catalog' && (!S.catalogDirty || !loadedCols.has('catalog'))) continue;
@@ -254,17 +305,10 @@ export function createCloudStore(config) {
     }
     if (loadedCols.has('catalog')) S.catalogDirty = false;
     if (!sets.length && !dels.length) return;
-    // A manager who edits their own phone or employee number re-links their session right after the new login doc.
-    const me = S.employees.find(e => e.id === empId);
-    const relink = mgr && me && (normPhone(me.phone) !== myPhone || String(me.num) !== myNum);
     const run = async () => {
       // Queue every write at once: Firestore keeps them in order and in its local cache, so they still reach the
       // server if the app is closed mid-way (waiting for each one before sending the next lost the rest).
       await Promise.all(sets.map(([col, id, data]) => setDoc(doc(db, col, id), data)));
-      if (relink) {
-        myPhone = normPhone(me.phone); myNum = String(me.num);
-        await setDoc(doc(db, 'sessions', auth.currentUser.uid), { phone: myPhone, num: myNum, at: Date.now() });
-      }
       await Promise.all(dels.map(([col, id]) => deleteDoc(doc(db, col, id))));
     };
     run().catch(e => { fail(e); subscribe(); });
@@ -287,52 +331,30 @@ export function createCloudStore(config) {
       const { phone, num } = s.data();
       const l = await getDoc(doc(db, 'logins', phone));
       if (!l.exists() || String(l.data().num) !== String(num)) { await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { }); return false; }
-      // The manager set a Google account for this employee: this phone must be signed in with it too.
-      const g = String(l.data().google || '').toLowerCase();
-      if (g && String(u.email || '').toLowerCase() !== g) { needG = { email: g, phone, num: String(num) }; return false; }
-      needG = null;
-      empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId; myLogin = l.data();
-      owner = l.data().owner === true;
-      permAdmin = l.data().admin === true || owner;
-      viewer = l.data().viewer === true; poster = l.data().poster === true; if (viewer || poster) permAdmin = false;
+      // Phone sign-in is left only for the shared accounts; employees sign in with Google.
+      if (l.data().viewer !== true && l.data().poster !== true) return 'employee';
+      empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId;
+      owner = false; perms = {}; me = null;
+      viewer = l.data().viewer === true; poster = l.data().poster === true;
       return true;
     } catch (e) { return false; }
   }
   async function ensureAuth() { if (!auth.currentUser) await withTimeout(signInAnonymously(auth)); return auth.currentUser.uid; }
 
-  // Make an employee the store owner: a permanent manager nobody else can remove.
-  async function setOwner(id) {
-    try {
-      const e = S.employees.find(x => x.id === id); if (!e || !e.phone) return { error: 'העובד לא נמצא' };
-      const b = writeBatch(db);
-      b.set(doc(db, 'config', 'owner'), { empId: id });
-      const pub = clean((({ id: _, ...r }) => r)(e)); PRIVATE.forEach(k => delete pub[k]); pub.admin = true;
-      b.set(doc(db, 'employees', id), pub);
-      b.set(doc(db, 'logins', normPhone(e.phone)), { empId: id, num: String(e.num), admin: true, owner: true, ...gmailOf(e) });
-      b.set(doc(db, 'config', 'public'), { ownerSet: true }, { merge: true });
-      await withTimeout(b.commit());
-      ownerSet = true;
-      if (id === empId) { owner = true; permAdmin = true; mgr = true; myLogin = { empId: id, num: String(e.num), admin: true, owner: true, ...gmailOf(e) }; }
-      subscribe();
-      return { ok: true };
-    } catch (err) { return { error: errText(err) }; }
-  }
   const ready = (async () => {
     await auth.authStateReady();
     await readPublic();
-    if (await linkSession()) {
-      // PIN manager mode never survives an app restart; a permanent manager starts in manager mode.
-      await deleteDoc(doc(db, 'managerSessions', auth.currentUser.uid)).catch(() => { });
-      mgr = permAdmin;
-      subscribe();
-    } else if (needG) {
+    const r = takeGoogleReturn();
+    if (r && r.cred) {
       // Back from Google's sign-in page.
-      const r = takeGoogleReturn();
-      if (r && r.cred) {
-        try { const f = await finishGoogle(r.cred); if (!f.ok) gErr = f.error || ''; }
-        catch (e) { console.warn('google', e); gErr = googleErr(e).error || ''; }
-      } else if (r && r.error) gErr = r.error;
+      try { const f = await finishGoogle(r.cred); if (f.error) gErr = f.error; }
+      catch (e) { console.warn('google', e); gErr = googleErr(e).error || ''; }
+      return;
     }
+    if (r && r.error) gErr = r.error;
+    const u = auth.currentUser;
+    if (u && u.email) { if (await linkMember()) subscribe(); else await requestJoin(u); }
+    else if ((await linkSession()) === true) subscribe();
   })();
 
   return {
@@ -385,9 +407,13 @@ export function createCloudStore(config) {
     },
     needsSetup: () => !setupDone,
     session: () => empId,
-    isManager: () => mgr,
-    isPermAdmin: () => permAdmin,
+    // Level of the signed-in employee in an area of the app: 'none' | 'view' | 'edit'.
+    perm: lv,
+    perms: () => ({ ...perms }),
+    myEmail: () => me,
+    isManager: () => owner || viewer || AREAS.some(a => !['reels', 'chat', 'deliv', 'inv'].includes(a) && can(a)),
     isOwner: () => owner,
+    ownerEmp: () => ownerEmp,
     hasOwner: () => ownerSet,
     isViewer: () => viewer,
     isPoster: () => poster,
@@ -453,9 +479,8 @@ export function createCloudStore(config) {
         b.set(doc(db, 'employees', id), { name, phone: p, num: n, wage: Number(wage) });
         b.set(doc(db, 'logins', p), { empId: id, num: n, owner: false });
         b.set(doc(db, 'sessions', u), { phone: p, num: n, at: Date.now() });
-        b.set(doc(db, 'managerSessions', u), { pin });
         await withTimeout(b.commit());
-        setupDone = true; pinLen = pin.length; permAdmin = false; empId = id; myPhone = p; myNum = n; S.currentUser = id; mgr = true;
+        setupDone = true; pinLen = pin.length; empId = id; myPhone = p; myNum = n; S.currentUser = id;
         subscribe(); return { ok: true };
       } catch (e) { return { error: errText(e) }; }
     },
@@ -469,15 +494,17 @@ export function createCloudStore(config) {
         if (/permission/i.test(e.code || '')) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
         return { error: errText(e) };
       }
-      if (!(await linkSession())) return needG ? { needGoogle: true } : { error: 'מספר הטלפון או מספר העובד לא נכונים' };
-      mgr = permAdmin; subscribe(); return { ok: true };
+      const ok = await linkSession();
+      if (ok === 'employee') { await deleteDoc(doc(db, 'sessions', auth.currentUser.uid)).catch(() => { }); return { error: 'עובדים נכנסים עכשיו עם חשבון Google. לחצו על "כניסה עם Google"' }; }
+      if (!ok) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
+      subscribe(); return { ok: true };
     },
 
-    // ---- second step of the login: the employee's Google account ----
-    needGoogle: () => needG ? maskMail(needG.email) : null,
+    // ---- sign-in with Google ----
+    // A Google account waiting for a manager's approval: { email, name, photo }.
+    pending: () => pend,
     googleError: () => gErr,
-    async googleSignIn() {
-      if (!needG) return { error: 'צריך להתחבר מחדש' };
+    async googleLogin() {
       gErr = '';
       try {
         if (nativeGoogle()) {
@@ -485,21 +512,47 @@ export function createCloudStore(config) {
           if (!r || !r.credential || !r.credential.idToken) return { error: 'ההתחברות עם Google לא הושלמה' };
           return await finishGoogle(GoogleAuthProvider.credential(r.credential.idToken, r.credential.accessToken || null));
         }
+        // In a browser or on iPhone: go to Google's page and come back (see takeGoogleReturn).
         const state = rnd(), nonce = rnd();
         try { localStorage.setItem('dalpak-g', JSON.stringify({ state, t: Date.now() })); } catch (e) { }
-        const q = new URLSearchParams({ client_id: WEB_CLIENT, redirect_uri: RETURN_URL(), response_type: 'id_token', scope: 'openid email profile', nonce, state, prompt: 'select_account', login_hint: needG.email });
+        const q = new URLSearchParams({ client_id: WEB_CLIENT, redirect_uri: RETURN_URL(), response_type: 'id_token', scope: 'openid email profile', nonce, state, prompt: 'select_account' });
         location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + q);
         return { redirect: true };
       } catch (e) { console.warn('google', e); return googleErr(e); }
     },
-    // Back to the login screen (another employee, or a mistake in the details).
-    async cancelGoogle() {
-      needG = null;
-      const u = auth.currentUser;
-      if (u) await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
-      await signOut(auth).catch(() => { });
-      emit();
+    // ---- employees and permissions (for those who may manage staff) ----
+    // Approve a sign-up: link the Google account to an existing employee, or create a new employee for it.
+    async approve(email, { empId: id, newEmp, perms: p }) {
+      try {
+        const em = String(email).toLowerCase(), b = writeBatch(db);
+        let eid = id;
+        if (!eid && newEmp) { eid = newId(); b.set(doc(db, 'employees', eid), clean(newEmp)); }
+        if (!eid) return { error: 'צריך לבחור עובד' };
+        // Another Google account linked to the same employee is replaced.
+        (S.members || []).filter(m => m.empId === eid && m.id !== em).forEach(m => b.delete(doc(db, 'members', m.id)));
+        b.set(doc(db, 'members', em), { empId: eid, email: em, perms: clean(p || BASIC), ...(eid === ownerEmp ? { owner: true } : {}), ts: Date.now() });
+        b.delete(doc(db, 'signups', em));
+        await withTimeout(b.commit());
+        return { ok: true, empId: eid };
+      } catch (e) { return { error: errText(e) }; }
     },
+    async reject(email) {
+      try { await withTimeout(deleteDoc(doc(db, 'signups', String(email).toLowerCase()))); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    async setPerms(email, p) {
+      try {
+        const m = (S.members || []).find(x => x.id === email); if (!m) return { error: 'החשבון לא נמצא' };
+        await withTimeout(setDoc(doc(db, 'members', email), { empId: m.empId, email: m.email || email, perms: clean(p), ...(m.empId === ownerEmp ? { owner: true } : {}), ts: Date.now() }));
+        return { ok: true };
+      } catch (e) { return { error: errText(e) }; }
+    },
+    // Disconnect a Google account from its employee (the employee record and history stay).
+    async unlink(email) {
+      try { await withTimeout(deleteDoc(doc(db, 'members', email))); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    AREAS,
 
     async logout() {
       // Stop notifications for this employee on this phone before the session ends.
@@ -510,40 +563,11 @@ export function createCloudStore(config) {
         await deleteDoc(doc(db, 'managerSessions', u.uid)).catch(() => { });
         await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
       }
-      empId = null; mgr = false; permAdmin = false; owner = false; viewer = false; poster = false; S.currentUser = null; myLogin = null; migrated = false;
+      empId = null; owner = false; viewer = false; poster = false; S.currentUser = null; migrated = false;
+      me = null; perms = {}; pend = null; gErr = ''; if (unsubPend) { unsubPend(); unsubPend = null; }
       await signOut(auth).catch(() => { });
       emit();
     },
 
-    // The first manager to claim it becomes the store owner: a permanent manager nobody else can remove.
-    async claimOwner() { return setOwner(empId); },
-    setOwner,
-    async enterManager(pin) {
-      if (permAdmin) { mgr = true; subscribe(); return true; }
-      try {
-        await withTimeout(setDoc(doc(db, 'managerSessions', auth.currentUser.uid), { pin }));
-        mgr = true; subscribe(); return true;
-      } catch (e) {
-        if (!/permission/i.test(e.code || '')) fail(e);
-        return false;
-      }
-    },
-    async exitManager() {
-      mgr = false; subscribe();
-      await deleteDoc(doc(db, 'managerSessions', auth.currentUser.uid)).catch(() => { });
-    },
-    async changePin(old, next) {
-      try {
-        const u = auth.currentUser.uid, b = writeBatch(db);
-        b.set(doc(db, 'config', 'admin'), { pin: next, old });
-        b.set(doc(db, 'managerSessions', u), { pin: next });
-        b.set(doc(db, 'config', 'public'), { setupDone: true, pinLen: next.length });
-        await withTimeout(b.commit());
-        pinLen = next.length; return { ok: true };
-      } catch (e) {
-        if (/permission/i.test(e.code || '')) return { error: 'הסיסמה הנוכחית שגויה' };
-        return { error: errText(e) };
-      }
-    },
   };
 }
