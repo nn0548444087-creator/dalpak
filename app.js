@@ -255,7 +255,7 @@ function render() {
   if (!invAll && (invTab === 'snacks' || invTab === 'all')) invTab = 'drinks';
   const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
-  renderNav(); tick(); watchReels(); cleanReels(); syncShown = ''; updateSync();
+  renderNav(); tick(); watchReels(); cleanReels(); watchMore(); syncShown = ''; updateSync();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
   if (view === 'dm') { fitCompose(); markRead(); scrollDmEnd(); }
   if (view !== 'pos' && scanStop && !layerOpen()) { scanStop(); scanStop = null; }
@@ -381,16 +381,31 @@ const isLow = i => i.min > 0 && i.qty <= i.min;
 const note = id => (S.notes && S.notes[id]) || null;
 function sortItems(a) { const s = [...a]; if (DS.invSort === 'qty') s.sort((x, y) => x.qty - y.qty); else if (DS.invSort === 'low') s.sort((x, y) => (x.qty - x.min) - (y.qty - y.min)); else s.sort((x, y) => x.name.localeCompare(y.name, 'he')); return s; }
 let invQ = '', invShown = 80;
-function invAllList() { const q = normName(invQ); return allProducts().filter(p => !q || normName(p.name).includes(q) || p.barcode.includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'he')); }
+// Search by name, barcode or the till's item code. An exact item code comes first, then codes that start with it.
+const prodHit = (p, q) => !q || normName(p.name).includes(q) || p.barcode.includes(q) || (p.code && p.code.toLowerCase().startsWith(q));
+const codeRank = (p, q) => !q || !p.code ? 2 : p.code.toLowerCase() === q ? 0 : p.code.toLowerCase().startsWith(q) ? 1 : 2;
+function invAllList() { const q = normName(invQ); return allProducts().filter(p => prodHit(p, q)).sort((a, b) => (codeRank(a, q) - codeRank(b, q)) || a.name.localeCompare(b.name, 'he')); }
+// Long lists grow by themselves while scrolling: a marker at the end loads the next part when it comes near.
+const moreMark = (kind, left) => `<div class="more-sent" data-more="${kind}"><span class="spin-sm" aria-hidden="true"></span>טוען עוד ${left.toLocaleString('he-IL')} מוצרים…</div>`;
+let moreObs = null;
+function watchMore() {
+  if (!('IntersectionObserver' in window)) return;
+  if (!moreObs) moreObs = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return; moreObs.unobserve(e.target);
+    if (e.target.dataset.more === 'prod') { prodShown += 60; refreshProds(); }
+    else { invShown += 120; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); watchMore(); }
+  }), { rootMargin: '900px 0px' });
+  document.querySelectorAll('.more-sent').forEach(el => moreObs.observe(el));
+}
 function invAllHtml() {
   const list = invAllList();
-  return list.slice(0, invShown).map(p => { const s = sellOf(p); return `<div class="row tap" data-action="prod-open" data-k="${p.key}">${p.barcode ? '' : '<span class="nobc-dot" aria-label="אין ברקוד"></span>'}<div class="row-main"><div class="row-title">${esc(p.name)}</div><div class="row-sub"><span>${esc(p.dept)}</span>${s ? `<span>${money(s.v)}</span>` : ''}${p.barcode ? '' : '<span class="nobc-t">אין ברקוד</span>'}</div></div><div class="qty">${p.qty != null ? p.qty : '—'}<small>${esc(p.unit)}</small></div></div>`; }).join('')
-    + (list.length > invShown ? `<button class="btn block" data-action="inv-more">עוד (${(list.length - invShown).toLocaleString('he-IL')} נוספים)</button>` : '') || '<div class="row muted">לא נמצאו מוצרים.</div>';
+  return list.slice(0, invShown).map(p => { const s = sellOf(p); return `<div class="row tap" data-action="prod-open" data-k="${p.key}">${p.barcode ? '' : '<span class="nobc-dot" aria-label="אין ברקוד"></span>'}<div class="row-main"><div class="row-title">${esc(p.name)}</div><div class="row-sub">${p.code ? `<span class="num">קוד ${esc(p.code)}</span>` : ''}<span>${esc(p.dept)}</span>${s ? `<span>${money(s.v)}</span>` : ''}${p.barcode ? '' : '<span class="nobc-t">אין ברקוד</span>'}</div></div><div class="qty">${p.qty != null ? p.qty : '—'}<small>${esc(p.unit)}</small></div></div>`; }).join('')
+    + (list.length > invShown ? moreMark('inv', list.length - invShown) : '') || '<div class="row muted">לא נמצאו מוצרים.</div>';
 }
 function vInv() {
   const segs = [...Object.entries(CATS), ...(invAll ? [['all', 'כל המוצרים']] : [])].filter(([k]) => invAll || k !== 'snacks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}</button>`).join('');
   if (invTab === 'all' && invAll) return `<h2 class="vt">מלאי</h2><div class="seg-wrap">${segs}</div>
-  <div class="field"><input type="search" placeholder="חיפוש לפי שם או ברקוד" value="${esc(invQ)}" data-inv-q aria-label="חיפוש מוצר"></div>
+  <div class="field"><input type="search" placeholder="חיפוש לפי שם, ברקוד או קוד פריט" value="${esc(invQ)}" data-inv-q aria-label="חיפוש מוצר"></div>
   <p class="muted" style="margin:0 0 8px">כל המוצרים בחנות, כולל אלה שיובאו מהקופה. <span class="nobc-t">●</span> = אין ברקוד. לחיצה על מוצר פותחת ברקוד, מחירים וכמות.</p>
   <div class="list" id="inv-all">${invAllHtml()}</div>`;
   const ro = !manager && invTab !== 'drinks';
@@ -944,7 +959,7 @@ function posAdd(p) {
   if (ex) ex.qty++; else { const s = sellOf(p); pos.lines.unshift({ key: p.key, name: p.name, bc: p.barcode || '', price: s ? s.v : 0, qty: 1 }); }
   posKeep();
 }
-const posFind = code => { code = String(code || '').trim(); return code ? allProducts().find(p => p.barcode === code) || null : null; };
+const posFind = code => { code = String(code || '').trim(); return code ? allProducts().find(p => p.barcode === code) || allProducts().find(p => p.code === code) || null : null; };
 const posSearch = q => { const n = normName(q); return n ? allProducts().filter(p => normName(p.name).includes(n) || p.barcode.startsWith(n)).slice(0, 8) : []; };
 function pwCalc() {
   const f = document.querySelector('[data-form=pos-weigh]'), out = document.getElementById('pw-total'); if (!f || !out) return;
@@ -1099,8 +1114,8 @@ const catLabel = i => i.cat === 'drinks' ? (i.sub && i.sub !== 'שתייה' ? `�
 const hasNum = v => v != null && v !== '' && !isNaN(+v);
 // One flat list of products, whichever list they come from.
 function allProducts() {
-  const out = S.inventory.map(i => { const pr = priceOf(i.id); return { key: 'i:' + i.id, kind: 'inv', id: i.id, name: i.name, dept: catLabel(i), barcode: pr.barcode || '', cost: hasNum(pr.cost) ? +pr.cost : null, price: hasNum(pr.price) ? +pr.price : null, img: img(i.id), qty: i.qty, unit: 'יח׳' }; });
-  (S.catalog || []).forEach(c => out.push({ key: 'c:' + c.id, kind: 'cat', id: c.id, name: c.name, dept: c.dept || 'כללי', barcode: c.bc || '', cost: hasNum(c.cost) ? +c.cost : null, price: hasNum(c.price) ? +c.price : null, img: '', qty: hasNum(c.qty) ? +c.qty : null, unit: c.unit || 'יח׳' }));
+  const out = S.inventory.map(i => { const pr = priceOf(i.id); return { key: 'i:' + i.id, kind: 'inv', id: i.id, name: i.name, dept: catLabel(i), barcode: pr.barcode || '', cost: hasNum(pr.cost) ? +pr.cost : null, price: hasNum(pr.price) ? +pr.price : null, img: img(i.id), qty: i.qty, unit: 'יח׳', code: String(pr.code || '') }; });
+  (S.catalog || []).forEach(c => out.push({ key: 'c:' + c.id, kind: 'cat', id: c.id, name: c.name, dept: c.dept || 'כללי', barcode: c.bc || '', cost: hasNum(c.cost) ? +c.cost : null, price: hasNum(c.price) ? +c.price : null, img: '', qty: hasNum(c.qty) ? +c.qty : null, unit: c.unit || 'יח׳', code: String(c.code || '') }));
   return out;
 }
 // Supplier price incl. VAT: what was typed for the product, otherwise the matching supplier's price list.
@@ -1111,7 +1126,7 @@ function prodCard(p) {
   const c = costOf(p), s = sellOf(p);
   return `<div class="prod tap ${p.barcode ? '' : 'nobc-card'}" data-action="prod-open" data-k="${p.key}">
     <div class="prod-top">${p.img ? `<img class="prod-img" src="${p.img}" alt="">` : `<span class="prod-img ph">${ic('box')}</span>`}
-      <div class="prod-main"><div class="prod-name">${esc(p.name)}</div><div class="prod-tags"><span class="pill">${esc(p.dept)}</span>${p.barcode ? '' : noBcTag}</div></div></div>
+      <div class="prod-main"><div class="prod-name">${esc(p.name)}</div><div class="prod-tags">${p.code ? `<span class="pill num">קוד ${esc(p.code)}</span>` : ''}<span class="pill">${esc(p.dept)}</span>${p.barcode ? '' : noBcTag}</div></div></div>
     <div class="prod-bc">${p.barcode ? barcodeSvg(p.barcode, { h: 52 }) : '<span class="nobc-t">● אין ברקוד · לחצו להוספה</span>'}</div>
     <div class="prod-prices"><span class="prod-cost">${c ? `ספק: ${money(c.v)}${c.from ? ` · ${esc(c.from)}` : ''}` : 'אין מחיר ספק'}</span><b class="prod-sell">${s ? money(s.v) : '—'}</b></div>
     ${s && s.suggested ? '<small class="prod-sug">מחיר מוצע (×1.5 ממחיר הספק)</small>' : ''}
@@ -1119,23 +1134,24 @@ function prodCard(p) {
 }
 function prodList() {
   const q = normName(prodQ);
-  return allProducts().filter(p => (!prodDept || p.dept === prodDept) && (!prodNoBc || !p.barcode) && (!q || normName(p.name).includes(q) || p.barcode.includes(q)))
-    .sort((a, b) => (!!a.barcode - !!b.barcode) || a.name.localeCompare(b.name, 'he'));
+  return allProducts().filter(p => (!prodDept || p.dept === prodDept) && (!prodNoBc || !p.barcode) && prodHit(p, q))
+    .sort((a, b) => (codeRank(a, q) - codeRank(b, q)) || (!!a.barcode - !!b.barcode) || a.name.localeCompare(b.name, 'he'));
 }
 function prodsHtml() {
   const list = prodList();
-  return list.slice(0, prodShown).map(prodCard).join('') + (list.length > prodShown ? `<button class="btn block prods-more" data-action="prod-more">עוד מוצרים (${list.length - prodShown} נוספים)</button>` : '') || '<div class="list"><div class="row muted">לא נמצאו מוצרים.</div></div>';
+  return list.slice(0, prodShown).map(prodCard).join('') + (list.length > prodShown ? moreMark('prod', list.length - prodShown) : '') || '<div class="list"><div class="row muted">לא נמצאו מוצרים.</div></div>';
 }
 function refreshProds() {
   const box = document.getElementById('prods'); if (box) box.innerHTML = prodsHtml();
   const n = document.getElementById('prods-n'); if (n) n.textContent = prodList().length.toLocaleString('he-IL');
+  watchMore();
 }
 function vProducts() {
   if (!manager) return back() + `<h2 class="vt">מוצרים</h2>` + locked('מוצרים, ברקודים ומחירים');
   const all = allProducts(), depts = [...new Set(all.map(p => p.dept))].sort((a, b) => a.localeCompare(b, 'he')), noBc = all.filter(p => !p.barcode).length;
   return back() + `<h2 class="vt">מוצרים · ${all.length.toLocaleString('he-IL')}</h2>
   ${viewer ? '' : `<div class="actions" style="margin-bottom:10px"><button class="btn primary sm" data-action="prod-new">${ic('plus', 'sm')}מוצר חדש</button><label class="btn sm">${ic('down', 'sm')}ייבוא מקובץ מהקופה (CSV)<input type="file" accept=".csv,text/csv" data-import-csv hidden></label></div>`}
-  <div class="field"><input id="prod-q" type="search" placeholder="חיפוש לפי שם או ברקוד" value="${esc(prodQ)}" data-prod-q aria-label="חיפוש מוצר"></div>
+  <div class="field"><input id="prod-q" type="search" placeholder="חיפוש לפי שם, ברקוד או קוד פריט" value="${esc(prodQ)}" data-prod-q aria-label="חיפוש מוצר"></div>
   <div class="two"><div class="field"><select id="prod-d" data-prod-d aria-label="מחלקה"><option value="">כל המחלקות</option>${depts.map(d => `<option ${d === prodDept ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></div>
   <button class="btn ${prodNoBc ? 'nobc-on' : ''}" data-action="prod-nobc">● ללא ברקוד (${noBc.toLocaleString('he-IL')})</button></div>
   <p class="muted" style="margin:0 0 8px"><span id="prods-n">${prodList().length.toLocaleString('he-IL')}</span> מוצרים מוצגים. מוצרים בלי ברקוד מסומנים באדום ומופיעים ראשונים.</p>
@@ -1943,7 +1959,7 @@ const ACT = {
   'sale-del-yes': d => needMgr(() => { S.sales = (S.sales || []).filter(s => s.id !== d.id); save(); closeSheet(); render(); toast('החשבון בוטל'); }),
   'prod-nobc': () => { prodNoBc = !prodNoBc; prodShown = 60; render(); },
   'prod-more': () => { prodShown += 120; refreshProds(); },
-  'inv-more': () => { invShown += 200; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); },
+  'inv-more': () => { invShown += 200; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); watchMore(); },
   'prod-new': () => needMgr(() => prodSheet(null)),
   'prod-open': d => { const p = findProd(d.k); if (p) prodSheet(p); },
   'prod-del': d => needMgr(() => { const p = findProd(d.k); if (!p) return; sheet(`<h3>למחוק את ${esc(p.name)}?</h3><p class="muted" style="margin-bottom:16px">המוצר יימחק מרשימת המוצרים.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="prod-del-yes" data-k="${p.key}">מחיקה</button></div>`); }),
@@ -2373,7 +2389,7 @@ document.addEventListener('input', e => {
   if (e.target.matches('[data-pos-till]')) { pos.till = e.target.value; posKeep(); }
   if (e.target.matches('[data-pp-time]') && pp && /^\d\d:\d\d$/.test(e.target.value)) { pp[e.target.dataset.ppTime] = e.target.value; clearTimeout(ppTimer); ppTimer = setTimeout(savePP, 600); }
   if (e.target.matches('[data-pw]')) pwCalc();
-  if (e.target.matches('[data-inv-q]')) { invQ = e.target.value; invShown = 80; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); }
+  if (e.target.matches('[data-inv-q]')) { invQ = e.target.value; invShown = 80; const b = document.getElementById('inv-all'); if (b) b.innerHTML = invAllHtml(); watchMore(); }
 });
 document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
 document.addEventListener('change', e => { if (e.target.matches('input[data-up]')) prepUpload(e.target); });
