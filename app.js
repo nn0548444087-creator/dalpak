@@ -258,6 +258,7 @@ function vGoogle() {
     <img class="mark" src="./logo.png" alt="שאבעס מרקט">
     <h2>אימות עם חשבון Google</h2>
     <p class="lead">מנהל החנות ביקש שהכניסה שלך תאומת גם עם חשבון Google. התחברו עם החשבון <b class="ltr">${esc(store.needGoogle())}</b>.</p>
+    ${store.googleError && store.googleError() ? `<p class="g-err">${esc(store.googleError())}</p>` : ''}
     <button class="btn primary block" data-action="g-in" ${busy ? 'disabled' : ''}>${ic('lock', 'sm')}${busy ? 'מתחבר…' : 'התחברות עם Google'}</button>
     <button class="btn block g-back" data-action="g-cancel" ${busy ? 'disabled' : ''}>חזרה למסך הכניסה</button>
     <p class="muted g-note">צריך לעשות את זה רק בכניסה לאפליקציה, לא בכל פתיחה.</p>
@@ -1792,6 +1793,7 @@ const ACT = {
   'g-in': async () => {
     if (busy) return; busy = true; render();
     const r = await store.googleSignIn();
+    if (r.redirect) return;
     busy = false;
     if (!r.ok) { render(); if (r.error) toast(r.error); return; }
     view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name));
