@@ -1,7 +1,7 @@
 import './style.css';
 import { createStore } from './store.js';
 import { distM, geoOnce, geoStart, geoStop, geoWatching, geoBackground, geoSettings } from './geo.js';
-import { H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary, barcodeBits, barcodeSvg } from './util.js';
+import { AREAS, H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary, barcodeBits, barcodeSvg } from './util.js';
 
 const ROOT = document.documentElement; ROOT.lang = 'he'; ROOT.dir = 'rtl';
 const LS_DISPLAY = 'dalpak-display';
@@ -102,8 +102,38 @@ const local = () => store.mode === 'local';
 const ePhoto = id => (S.empPhotos && S.empPhotos[id] && S.empPhotos[id].data) || '';
 const avatar = (e, cls = '') => ePhoto(e.id) ? `<span class="av ${cls} ph"><img src="${ePhoto(e.id)}" alt=""></span>` : `<span class="av ${cls}">${esc((e.name || '?')[0])}</span>`;
 const onShiftNow = () => (local() ? S.shifts : (S.openShifts || [])).filter(s => s.status === 'open');
-const hasOwner = () => store.hasOwner ? store.hasOwner() : S.employees.some(e => e.owner);
-const canSetFlags = () => !!(store.isOwner?.() || !hasOwner());
+/* ---------- permissions: each employee has a level in each area: none, view or edit ---------- */
+const lvl = a => viewer ? 'view' : store && store.perm ? store.perm(a) : 'none';
+const canV = a => lvl(a) !== 'none', canE = a => !viewer && lvl(a) === 'edit';
+// The area each screen belongs to. Clock, inventory, deliveries and reels are open to everyone; there the area
+// decides only the extra, manager parts.
+const AREA_OF = { pos: 'pos', products: 'products', orders: 'orders', suppliers: 'orders', supplier: 'orders', hours: 'hours', tasks: 'tasks', staff: 'staff', admin: 'admin', report: 'admin', geo: 'admin', avail: 'hours', clock: 'hours', inv: 'inv', deliv: 'deliv', reels: 'admin' };
+// Screens that need a permission to open; with "view" they open read-only.
+const RO_VIEWS = ['pos', 'products', 'orders', 'suppliers', 'supplier', 'hours', 'tasks', 'staff', 'admin', 'report', 'geo'];
+let ro = false, invAll = false;
+const PERM_INFO = {
+  pos: ['קופה', 'צפייה: רואה חשבונות · עריכה: מוכר בקופה'],
+  products: ['מוצרים, ברקודים ומחירים', ''],
+  inv: ['מלאי', 'אין: רק שתייה וסלטים · צפייה: כל המלאי · עריכה: משנה כמויות ומאשר עדכונים'],
+  deliv: ['אספקה', 'כולם רואים ומסמנים שהגיע · עריכה: מוסיף ומוחק אספקות'],
+  orders: ['ספקים והזמנות', ''],
+  hours: ['שעות, משמרות ושכר של כולם', 'עריכה: מאשר שעות, סוגר משמרות ומאשר משלוחים'],
+  tasks: ['משימות וציונים לעובדים', ''],
+  staff: ['עובדים והרשאות', 'עריכה: מאשר עובדים חדשים וקובע הרשאות'],
+  admin: ['ניהול חנות והגדרות', 'מיקום החנות, דוחות, ניהול רילסים'],
+  reels: ['רילסים', 'צפייה: רק צופה · עריכה: גם מעלה'],
+  chat: ['הודעות', '']
+};
+// Levels each area offers (some areas are open to everyone at the basic level).
+const PERM_LEVELS = a => a === 'chat' || a === 'deliv' ? ['none', 'edit'] : a === 'reels' ? ['view', 'edit'] : ['none', 'view', 'edit'];
+const LEVEL_TXT = { none: 'אין', view: 'צפייה', edit: 'עריכה' };
+const PRESETS = {
+  basic: ['עובד', { reels: 'edit', chat: 'edit' }],
+  shift: ['אחראי משמרת', { reels: 'edit', chat: 'edit', pos: 'edit', inv: 'edit', deliv: 'edit', products: 'view', hours: 'view', tasks: 'edit' }],
+  full: ['מנהל מלא', Object.fromEntries(AREAS.map(a => [a, 'edit']))]
+};
+const memOf = id => (S.members || []).find(m => m.empId === id);
+const canSetFlags = () => !!store.isOwner?.() || canE('staff');
 const VAT = 0.18;
 // Deliveries and bonuses are added on top of the hourly pay.
 const EXTRA = { delivery: 'משלוח', bonus: 'בונוס' };
@@ -129,7 +159,7 @@ function downloadCsv(name, rows) {
 const waLink = (phone, text) => `https://wa.me/${phone ? '972' + normPhone(phone).replace(/^0/, '') : ''}?text=${encodeURIComponent(text)}`;
 
 function checkMonthly() {
-  if (monthChecked || !manager || viewer || !store.loaded('employees', 'shifts', 'notifications')) return;
+  if (monthChecked || !canE('hours') || !store.loaded('employees', 'shifts', 'notifications')) return;
   monthChecked = true;
   const k = prevMonthKey();
   if (!hasSummary(S, k) && S.shifts.some(s => s.status === 'approved' && s.end && monthKey(s.start) === k)) {
@@ -143,7 +173,8 @@ function alerts() {
   const drinks = S.drinkUpdates.filter(u => u.status === 'pending');
   const pins = S.notifications.filter(n => n.kind === 'pin' && !n.seen);
   const ext = (S.extras || []).filter(x => x.status === 'pending');
-  return { long, reqs, drinks, pins, ext, count: manager ? long.length + reqs.length + drinks.length + pins.length + ext.length : 0 };
+  const hv = canV('hours'), iv = canV('inv'), joins = canV('staff') ? (S.signups || []) : [];
+  return { long, reqs, drinks, pins, ext, joins, count: (hv ? long.length + reqs.length + pins.length + ext.length : 0) + (iv ? drinks.length : 0) + joins.length };
 }
 
 /* ---------- shell ---------- */
@@ -190,7 +221,14 @@ window.addEventListener('offline', () => setTimeout(updateSync, 300));
 function render() {
   renderPending = false;
   if (!store) return;
-  S = store.S; viewer = !!store.isViewer?.(); poster = !!store.isPoster?.(); manager = !poster && (store.isManager() || viewer);
+  S = store.S; viewer = !!store.isViewer?.(); poster = !!store.isPoster?.();
+  // "manager" = may see the manager parts of the current screen; "ro" = only to look at them.
+  const A = AREA_OF[view];
+  manager = !poster && (viewer || (view === 'alerts' ? canV('hours') || canV('inv') || canV('staff')
+    : view === 'inv' || view === 'deliv' || view === 'reels' ? canE(A) : A ? canV(A) : !!store.isManager()));
+  ro = !viewer && !poster && RO_VIEWS.includes(view) && lvl(A) === 'view';
+  invAll = !poster && canV('inv');
+  if ((view === 'chat' || view === 'dm') && !viewer && !poster && lvl('chat') === 'none') view = 'clock';
   document.body.classList.toggle('is-viewer', viewer); document.body.classList.toggle('is-poster', poster);
   if (poster && session() && view !== 'display') view = 'reels';
   const brand = `<div class="brand"><img class="mark" src="./logo.png" alt=""><div><b>שאבעס מרקט</b><small>ניהול חנות${local() ? ' · גרסת דמו' : ''}</small></div></div>`;
@@ -198,22 +236,23 @@ function render() {
   if (booting) { hdr.innerHTML = brand; main.innerHTML = `<div class="view"><div class="lock"><p class="muted">טוען נתונים…</p></div></div>`; renderNav(); return; }
   if (!session()) {
     hdr.innerHTML = brand + `<div class="top-actions"><button class="chip" data-action="nav" data-view="display">${ic('eye', 'sm')}תצוגה</button></div>`;
-    main.innerHTML = `<div class="view">${view === 'display' ? vDisplay() : store.needsSetup() ? vSetup() : store.needGoogle && store.needGoogle() ? vGoogle() : vLogin()}</div>`;
+    main.innerHTML = `<div class="view">${view === 'display' ? vDisplay() : store.pending && store.pending() ? vPending() : vLogin()}</div>`;
     renderNav(); return;
   }
   checkMonthly();
   const me = cur();
-  const chatBtn = viewer ? '' : `<button class="hbell ${view === 'chat' || view === 'dm' ? 'on' : ''}" id="hchat" data-action="nav" data-view="chat" aria-label="הודעות">${ic('send')}<span class="badge" id="hcbadge" hidden></span></button>`;
+  const chatBtn = viewer || lvl('chat') === 'none' ? '' : `<button class="hbell ${view === 'chat' || view === 'dm' ? 'on' : ''}" id="hchat" data-action="nav" data-view="chat" aria-label="הודעות">${ic('send')}<span class="badge" id="hcbadge" hidden></span></button>`;
   const bell = chatBtn + `<button class="hbell ${view === 'alerts' ? 'on' : ''}" id="hbell" data-action="nav" data-view="alerts" aria-label="התראות">${ic('bell')}<span class="badge" id="hbadge" hidden></span></button>`;
   if ((viewer || poster) && (view === 'chat' || view === 'dm' || view === 'notif')) view = poster ? 'reels' : 'clock';
   if (view === 'dm' && !chatWith) view = 'chat';
   hdr.innerHTML = (poster ? brand : brand.replace(/<\/div>$/, bell + '</div>')) + `
     <div class="top-actions">
       <button class="chip sync-chip" id="sync-chip" data-action="sync-info" hidden>${ic('alert', 'sm')}<span class="st"></span></button>
-      ${poster ? '' : viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : manager ? `<button class="chip mgr" data-action="lock" aria-label="מצב מנהל פעיל. לחיצה נועלת">${ic('unlock', 'sm')}<span class="cl">נעל</span></button>` : `<button class="chip" data-action="pin" aria-label="מנהל">${ic('lock', 'sm')}<span class="cl">מנהל</span></button>`}
+      ${viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : ro ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה</span></span>` : ''}
       <button class="chip" data-action="account" aria-label="${esc(me.name)}">${avatar(me)}<span class="cl">${esc(first(me.name))}</span></button>
     </div>`;
-  if (!manager) { if (MGR_VIEWS.includes(view)) view = 'clock'; if (invTab === 'snacks' || invTab === 'all') invTab = 'drinks'; }
+  if (!manager && MGR_VIEWS.includes(view)) view = 'clock';
+  if (!invAll && (invTab === 'snacks' || invTab === 'all')) invTab = 'drinks';
   const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels(); syncShown = ''; updateSync();
@@ -236,32 +275,38 @@ function softRender() {
 }
 document.addEventListener('focusout', () => setTimeout(() => { if (renderPending && !document.querySelector('.sheet')) { const a = document.activeElement; if (!a || !/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) render(); } }, 50));
 
-const locked = (t, s) => `<div class="lock"><div class="lk">${ic('lock')}</div><h4>${t}</h4><p class="muted">${s || 'האזור הזה פתוח למנהל המערכת בלבד.'}</p><button class="btn brass" data-action="pin">הזנת סיסמת מנהל</button></div>`;
+const locked = (t, s) => `<div class="lock"><div class="lk">${ic('lock')}</div><h4>${t}</h4><p class="muted">${s || 'אין לך הרשאה לאזור הזה. אפשר לבקש מהמנהל.'}</p></div>`;
 const back = (to, label) => `<button class="link-btn" data-action="back" data-view="${to || (session() ? 'more' : 'login')}">${ic('chev', 'sm')}<span>${label || (session() ? 'חזרה לתפריט' : 'חזרה להתחברות')}</span></button>`;
 
 /* ---------- login & first-time setup ---------- */
+// Employees sign in with Google; the viewer and poster accounts still use a phone number + number.
+let sharedLogin = false;
 function vLogin() {
+  const err = store.googleError && store.googleError();
+  const phoneForm = `<form class="form" data-form="login">
+      <div class="field"><label for="lg-p">מספר טלפון</label><input id="lg-p" class="phone-in" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="050-000-0000" required></div>
+      <div class="field"><label for="lg-n">מספר עובד</label><input id="lg-n" class="phone-in" name="num" inputmode="numeric" autocomplete="off" placeholder="101" required></div>
+      <button class="btn primary block" ${busy ? 'disabled' : ''}>${busy ? 'מתחבר…' : 'כניסה'}</button></form>`;
   return `<div class="login">
     <img class="mark" src="./logo.png" alt="שאבעס מרקט">
     <h2>ברוכים הבאים לשאבעס מרקט</h2>
-    <p class="lead">מתחברים עם מספר הטלפון ומספר העובד שמנהל החנות רשם עבורכם.</p>
-    <form class="form" data-form="login">
-      <div class="field"><label for="lg-p">מספר טלפון</label><input id="lg-p" class="phone-in" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="050-000-0000" required></div>
-      <div class="field"><label for="lg-n">מספר עובד</label><input id="lg-n" class="phone-in" name="num" inputmode="numeric" autocomplete="off" placeholder="101" required></div>
-      <button class="btn primary block" ${busy ? 'disabled' : ''}>${busy ? 'מתחבר…' : 'כניסה'}</button></form>
+    ${local() ? `<p class="lead">בגרסת ההדגמה מתחברים עם מספר הטלפון ומספר העובד.</p>${phoneForm}` : `
+    <p class="lead">נכנסים עם חשבון ה-Google שלכם. בפעם הראשונה המנהל צריך לאשר אתכם.</p>
+    ${err ? `<p class="g-err">${esc(err)}</p>` : ''}
+    <button class="btn primary block g-login" data-action="g-login" ${busy ? 'disabled' : ''}>${ic('user', 'sm')}${busy ? 'מתחבר…' : 'כניסה עם Google'}</button>
+    ${sharedLogin ? `<h3 class="sec">משתמש בקרה או חדשות מרקט</h3>${phoneForm}` : `<button class="link-btn shared-link" data-action="shared-login">כניסה למשתמש בקרה או לחדשות מרקט</button>`}`}
     ${local() ? `<div class="demo-box"><b>עובדי הדמו · לחיצה ממלאת את הפרטים</b><div class="demo-phones">${S.employees.map(e => `<button data-action="fill-login" data-p="${esc(e.phone)}" data-n="${esc(e.num)}">${esc(first(e.name))} · <span class="ltr">${fmtPhone(e.phone)}</span> · ${esc(e.num)}</button>`).join('')}</div></div>` : ''}
   </div>`;
 }
-// Second step of the login, for an employee the manager set a Google account for.
-function vGoogle() {
+// Signed in with Google, waiting for a manager to approve the account.
+function vPending() {
+  const p = store.pending();
   return `<div class="login">
     <img class="mark" src="./logo.png" alt="שאבעס מרקט">
-    <h2>אימות עם חשבון Google</h2>
-    <p class="lead">מנהל החנות ביקש שהכניסה שלך תאומת גם עם חשבון Google. התחברו עם החשבון <b class="ltr">${esc(store.needGoogle())}</b>.</p>
-    ${store.googleError && store.googleError() ? `<p class="g-err">${esc(store.googleError())}</p>` : ''}
-    <button class="btn primary block" data-action="g-in" ${busy ? 'disabled' : ''}>${ic('lock', 'sm')}${busy ? 'מתחבר…' : 'התחברות עם Google'}</button>
-    <button class="btn block g-back" data-action="g-cancel" ${busy ? 'disabled' : ''}>חזרה למסך הכניסה</button>
-    <p class="muted g-note">צריך לעשות את זה רק בכניסה לאפליקציה, לא בכל פתיחה.</p>
+    <h2>ממתין לאישור מנהל</h2>
+    <p class="lead">נכנסת עם <b class="ltr">${esc(p.email)}</b>. שלחנו למנהל בקשה לאשר אותך. ברגע שיאשר, האפליקציה תיפתח כאן לבד.</p>
+    <div class="wait-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+    <button class="btn block" data-action="logout">כניסה עם חשבון אחר</button>
   </div>`;
 }
 function vSetup() {
@@ -343,8 +388,8 @@ function invAllHtml() {
     + (list.length > invShown ? `<button class="btn block" data-action="inv-more">עוד (${(list.length - invShown).toLocaleString('he-IL')} נוספים)</button>` : '') || '<div class="row muted">לא נמצאו מוצרים.</div>';
 }
 function vInv() {
-  const segs = [...Object.entries(CATS), ...(manager ? [['all', 'כל המוצרים']] : [])].filter(([k]) => manager || k !== 'snacks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}</button>`).join('');
-  if (invTab === 'all' && manager) return `<h2 class="vt">מלאי</h2><div class="seg-wrap">${segs}</div>
+  const segs = [...Object.entries(CATS), ...(invAll ? [['all', 'כל המוצרים']] : [])].filter(([k]) => invAll || k !== 'snacks').map(([k, l]) => `<button class="seg ${invTab === k ? 'on' : ''}" data-action="inv-tab" data-tab="${k}">${l}</button>`).join('');
+  if (invTab === 'all' && invAll) return `<h2 class="vt">מלאי</h2><div class="seg-wrap">${segs}</div>
   <div class="field"><input type="search" placeholder="חיפוש לפי שם או ברקוד" value="${esc(invQ)}" data-inv-q aria-label="חיפוש מוצר"></div>
   <p class="muted" style="margin:0 0 8px">כל המוצרים בחנות, כולל אלה שיובאו מהקופה. <span class="nobc-t">●</span> = אין ברקוד. לחיצה על מוצר פותחת ברקוד, מחירים וכמות.</p>
   <div class="list" id="inv-all">${invAllHtml()}</div>`;
@@ -363,7 +408,7 @@ function vInv() {
     };
     body = `<div class="list">${invTab === 'drinks' ? SUBS.map(s => { const g = sortItems(items.filter(i => i.sub === s)); return `<div class="group-h">${s} · ${g.length} פריטים</div>` + g.map(row).join(''); }).join('') : sortItems(items).map(row).join('') || '<div class="row muted">אין פריטים עדיין.</div>'}</div>`;
   }
-  const low = S.inventory.filter(i => (manager || i.cat === 'drinks') && isLow(i)).length;
+  const low = S.inventory.filter(i => (invAll || i.cat === 'drinks') && isLow(i)).length;
   return `<h2 class="vt">מלאי</h2>
   <div class="seg-wrap">${segs}</div>
   ${invTab === 'drinks' ? `<p class="lead">${manager ? 'כמנהל, עדכון שלך נכנס לתוקף מיד.' : 'כל עובד יכול לעדכן כמות שתייה. העדכון נכנס לתוקף אחרי אישור מנהל.'}</p>` : ro ? '<p class="lead">לצפייה בלבד. עדכון הכמויות במחלקה הזו נעשה על ידי מנהל.</p>' : ''}
@@ -443,12 +488,12 @@ function vAlerts() {
 }
 
 function vMore() {
-  const it = (v, i, l, lockd) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${lockd && !manager ? ic('lock', 'sm') : ''}${ic('chev', 'sm chev')}</button>`;
+  const it = (v, i, l) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${ro && false ? '' : ''}${ic('chev', 'sm chev')}</button>`;
+  const mgmt = [['pos', 'scan', 'קופה'], ['products', 'tag', 'מוצרים, ברקודים ומחירים'], ['orders', 'cart', 'הזמנות מספקים'], ['hours', 'chart', 'שעות עובדים ושכר'], ['tasks', 'task', 'משימות וציונים'], ['staff', 'users', 'עובדים והרשאות'], ['geo', 'pin', 'מיקום החנות וסגירת משמרת'], ['admin', 'cog', 'ניהול חנות']].filter(([v]) => canV(AREA_OF[v]));
   return `<h2 class="vt">תפריט</h2>
   <button class="sync-line" id="sync-line" data-action="sync-info"><i class="pp-dot"></i><span></span></button>
-  ${manager ? `<div class="list">${it('pos', 'scan', 'קופה', 1)}${it('products', 'tag', 'מוצרים, ברקודים ומחירים', 1)}${it('orders', 'cart', 'הזמנות מספקים', 1)}${it('hours', 'chart', 'שעות עובדים ושכר', 1)}${it('tasks', 'task', 'משימות וציונים', 1)}${it('geo', 'pin', 'מיקום החנות וסגירת משמרת', 1)}${it('admin', 'cog', 'ניהול חנות', 1)}</div>` : ''}
-  <div class="list">${it('avail', 'cal', manager ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד', 0)}${it('display', 'eye', 'הגדרות תצוגה', 0)}
-  ${viewer ? '' : manager ? `<button class="menu-item" data-action="lock">${ic('lock')}<span class="grow">יציאה ממצב מנהל</span></button>` : `<button class="menu-item" data-action="pin">${ic('unlock')}<span class="grow">כניסה למצב ניהול</span></button>`}
+  ${mgmt.length ? `<div class="list">${mgmt.map(([v, i, l]) => it(v, i, l)).join('')}</div>` : ''}
+  <div class="list">${it('avail', 'cal', canV('hours') ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד')}${it('display', 'eye', 'הגדרות תצוגה')}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
   <p class="lead">${local() ? 'גרסת דמו: הנתונים נשמרים בטלפון הזה בלבד.' : 'הנתונים נשמרים בענן ומשותפים לכל הטלפונים של העובדים.'}</p>`;
 }
@@ -535,21 +580,15 @@ const empFields = (e, p) => isPriv(e) ? `
   <div class="field"><label for="${p}-n">שם מלא</label><input id="${p}-n" name="name" required value="${esc(e.name || '')}"></div>
   <div class="two"><div class="field"><label for="${p}-u">מספר עובד</label><input id="${p}-u" name="num" inputmode="numeric" required value="${esc(e.num || nextNum())}"></div>
   <div class="field"><label for="${p}-w">שכר לשעה (₪)</label><input id="${p}-w" name="wage" type="number" min="0" step="0.5" value="${e.wage ?? 50}" required></div></div>
-  <div class="field"><label for="${p}-p">טלפון נייד</label><input id="${p}-p" class="ltr" style="text-align:right" name="phone" type="tel" inputmode="tel" placeholder="050-000-0000" required value="${esc(e.phone ? fmtPhone(e.phone) : '')}"><small>העובד מתחבר עם מספר הטלפון ומספר העובד.</small></div>
-  <div class="field"><label for="${p}-g">חשבון Google לאימות (לא חובה)</label><input id="${p}-g" class="ltr" style="text-align:right" name="google" type="email" inputmode="email" autocomplete="off" placeholder="name@gmail.com" value="${esc(e.google || '')}"><small>אם ממלאים, העובד יצטרך להתחבר גם עם חשבון ה-Google הזה. ריק = רק טלפון ומספר עובד.</small></div>
-  ${e.owner ? `<p class="hint">${ic('crown', 'sm')} בעל הבית: גישה מלאה לכל הנתונים. אי אפשר להסיר את ההרשאה.</p>`
-    : !canSetFlags() ? (e.admin ? '<p class="hint">מנהל קבוע. רק בעל הבית יכול לשנות את ההרשאה.</p>' : '')
-    : e.id && e.id === session() && e.admin
-    ? `<p class="hint">יש לך הרשאת ניהול קבועה. מנהל אחר יכול להסיר אותה.</p>`
-    : `<label class="check-row"><input type="checkbox" name="admin" ${e.admin ? 'checked' : ''}><span class="grow"><b>הרשאת ניהול קבועה</b><small>העובד נכנס תמיד במצב מנהל, בלי להקיש סיסמה. נכנס לתוקף בפתיחה הבאה של האפליקציה.</small></span></label>`}`;
+  <div class="field"><label for="${p}-p">טלפון נייד (לא חובה)</label><input id="${p}-p" class="ltr" style="text-align:right" name="phone" type="tel" inputmode="tel" placeholder="050-000-0000" value="${esc(e.phone ? fmtPhone(e.phone) : '')}"><small>ליצירת קשר בלבד. הכניסה לאפליקציה היא עם חשבון Google.</small></div>
+  ${e.owner ? `<p class="hint">${ic('crown', 'sm')} בעל הבית: גישה מלאה לכל הנתונים.</p>` : ''}`;
 function validateEmp(f, id) {
   if (f.phone === undefined) return !f.name.trim() ? 'צריך למלא שם' : !(parseFloat(f.wage) >= 0) ? 'הזן שכר תקין' : null;
   const ph = normPhone(f.phone), num = String(f.num).trim();
   if (!f.name.trim()) return 'צריך למלא שם';
-  if (f.google && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(f.google).trim())) return 'כתובת ה-Google לא תקינה';
   if (!/^\d{1,6}$/.test(num)) return 'מספר עובד צריך להיות עד 6 ספרות';
-  if (!/^05\d{8}$/.test(ph)) return 'מספר הטלפון צריך להיות נייד ישראלי בן 10 ספרות';
-  if (S.employees.some(e => e.id !== id && normPhone(e.phone) === ph)) return 'מספר הטלפון כבר רשום לעובד אחר';
+  if (ph && !/^05\d{8}$/.test(ph)) return 'מספר הטלפון צריך להיות נייד ישראלי בן 10 ספרות';
+  if (ph && S.employees.some(e => e.id !== id && normPhone(e.phone) === ph)) return 'מספר הטלפון כבר רשום לעובד אחר';
   if (S.employees.some(e => e.id !== id && String(e.num) === num)) return 'מספר העובד כבר תפוס';
   if (!(parseFloat(f.wage) >= 0)) return 'הזן שכר תקין';
   return null;
@@ -570,28 +609,55 @@ const pinForm = () => `<form class="form" data-form="pin-change" style="margin-t
     <div class="field"><label for="pc-c">אימות סיסמה</label><input id="pc-c" name="confirm" type="password" inputmode="numeric" autocomplete="new-password" required></div></div>
     <button class="btn brass block">שמירת סיסמה חדשה</button></form>`;
 function vAdmin() {
-  if (!manager) return back() + `<h2 class="vt">ניהול חנות</h2>` + locked('ניהול חנות', 'הוספת פריטים, עובדים ואספקה, שינוי שכר וסיסמת מנהל דורשים סיסמת מנהל.');
+  if (!manager) return back() + `<h2 class="vt">ניהול חנות</h2>` + locked('ניהול חנות');
   const row = (act, i, l, sub, extra = '') => `<button class="menu-item" data-action="${act}" ${extra}>${ic(i)}<span class="grow">${l}${sub ? `<small class="mi-sub">${sub}</small>` : ''}</span>${ic('chev', 'sm chev')}</button>`;
   return back() + `<h2 class="vt">ניהול חנות</h2>
   <div class="list">
-    ${row('nav', 'user', 'עובדים', `${S.employees.length} עובדים · הוספה, עריכה ושכר`, 'data-view="staff"')}
+    ${canV('staff') ? row('nav', 'user', 'עובדים והרשאות', `${S.employees.length} עובדים · הצטרפות, הרשאות ושכר`, 'data-view="staff"') : ''}
     ${row('nav', 'users', 'ספקים ומחירים', `${S.suppliers.length} ספקים · מוצרים, מחירים, מע״מ והזמנות`, 'data-view="suppliers"')}
     ${row('item-new', 'box', 'הוספת פריט למלאי', 'שתייה, חטיפים וסלטים')}
     ${row('item-bulk', 'note', 'הוספת פריטים מרשימה', 'מדביקים רשימה, כל שורה פריט')}
     ${row('new-deliv', 'truck', 'אספקה חדשה', 'פריטים שאמורים להגיע')}
-    ${row('pin-sheet', 'lock', 'שינוי סיסמת מנהל', 'חלה על כל הטלפונים')}
   </div>
   ${local() ? `<h3 class="sec">כלים לגרסת הדמו</h3>
   <div class="actions"><button class="btn" data-action="regen">הפקת סיכום ${monthName(prevMonthKey())} מחדש</button><button class="btn danger" data-action="reset">איפוס נתוני הדמו</button></div>` : ''}`;
 }
+// Permissions editor: a level for each area, plus quick presets.
+function permEditor(p) {
+  const txt = (a, l) => a === 'chat' && l === 'edit' ? 'פעיל' : a === 'deliv' && l === 'none' ? 'רגיל' : a === 'deliv' && l === 'edit' ? 'ניהול' : a === 'reels' && l === 'edit' ? 'העלאה' : LEVEL_TXT[l];
+  return `<div class="perm-presets"><span class="muted">מוכן מראש:</span>${Object.entries(PRESETS).map(([k, [l]]) => `<button type="button" class="btn sm" data-action="perm-preset" data-p="${k}">${l}</button>`).join('')}</div>
+  <div class="perm-list">${AREAS.map(a => {
+    const [name, sub] = PERM_INFO[a], L = PERM_LEVELS(a), cur = p[a] && L.includes(p[a]) ? p[a] : L[0];
+    return `<div class="perm-row"><div class="perm-name"><b>${name}</b>${sub ? `<small>${sub}</small>` : ''}</div><div class="perm-seg" role="radiogroup" aria-label="${esc(name)}">${L.map(l => `<label class="${l}"><input type="radio" name="pm-${a}" value="${l}" ${cur === l ? 'checked' : ''}><span>${txt(a, l)}</span></label>`).join('')}</div></div>`;
+  }).join('')}</div>`;
+}
+const readPerms = f => { const p = {}; AREAS.forEach(a => { const v = f['pm-' + a]; if (v && v !== 'none') p[a] = v; }); return p; };
+const permSummary = p => {
+  const on = AREAS.filter(a => !['reels', 'chat'].includes(a) && p && p[a] && p[a] !== 'none');
+  return on.length ? `${on.length} הרשאות ניהול` : 'עובד';
+};
+const isOwnerEmp = e => !!(e && (e.owner || (memOf(e.id) || {}).owner || e.id === (store.ownerEmp && store.ownerEmp())));
+// The Google account and permissions part of the employee sheet.
+function empAcct(e) {
+  const m = memOf(e.id), own = isOwnerEmp(e);
+  if (!m) return `<h3 class="sec">חשבון והרשאות</h3><p class="muted">${esc(first(e.name))} עדיין לא מחובר/ת לחשבון Google. כשייכנס/תיכנס לאפליקציה עם Google, תופיע אצלך בקשת הצטרפות ותוכל/י לשייך אותה לעובד הזה.</p>`;
+  return `<h3 class="sec">חשבון והרשאות</h3>
+  <div class="list"><div class="row"><div class="row-main"><div class="row-title ltr">${esc(m.email || m.id)}</div><div class="row-sub">מחובר/ת עם חשבון Google</div></div>${own || !canE('staff') ? '' : `<button class="btn sm danger" data-action="mem-unlink" data-id="${esc(m.id)}">ניתוק</button>`}</div></div>
+  ${own ? `<p class="hint">${ic('crown', 'sm')} בעל הבית: כל ההרשאות, תמיד.</p>` : `<form class="form perm-form" data-form="perms" data-email="${esc(m.id)}">${permEditor(m.perms || {})}<button class="btn primary block">שמירת הרשאות</button></form>`}`;
+}
 function vStaff() {
-  if (!manager) return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים</h2>` + locked('עובדים');
-  return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים · ${S.employees.length}</h2>
-  ${!hasOwner() ? `<div class="card"><b>${ic('crown', 'sm')} בעל הבית</b><p class="muted" style="margin:6px 0 10px">בעל הבית הוא מנהל קבוע שאי אפשר להסיר, והוא היחיד שקובע מי מנהל קבוע. עדיין לא נקבע.</p><div class="field" style="margin-bottom:10px"><label for="ow-e">מי בעל הבית?</label><select id="ow-e">${S.employees.map(e => `<option value="${e.id}" ${e.id === session() ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select></div><button class="btn brass" data-action="owner-claim">קביעה כבעל הבית</button></div>` : ''}
-  <div class="list">${S.employees.map(e => `<div class="row tap" data-action="emp-edit" data-id="${e.id}">${avatar(e, 'lg')}<div class="row-main"><div class="row-title">${esc(e.name)}</div>
-    <div class="row-sub num">${e.num ? `<span>מס׳ ${esc(e.num)}</span>` : ''}${e.phone ? `<span class="ltr">${fmtPhone(e.phone)}</span>` : ''}<span>${money(e.wage)} לשעה</span>${e.owner ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : e.admin ? '<span class="pill acc">מנהל קבוע</span>' : ''}</div></div>
-    <span class="btn sm">עריכה</span></div>`).join('')}</div>
-  <button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>
+  if (!manager) return back('admin', 'חזרה לניהול חנות') + `<h2 class="vt">עובדים</h2>` + locked('עובדים והרשאות');
+  const joins = (S.signups || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return back() + `<h2 class="vt">עובדים והרשאות · ${S.employees.length}</h2>
+  ${joins.length ? `<h3 class="sec">בקשות הצטרפות · ${joins.length}</h3>
+  <div class="list">${joins.map(j => `<div class="row"><span class="av lg">${j.photo ? `<img src="${esc(j.photo)}" alt="" referrerpolicy="no-referrer">` : esc((j.name || j.email || '?')[0])}</span><div class="row-main"><div class="row-title">${esc(j.name || 'בלי שם')}</div>
+    <div class="row-sub"><span class="ltr">${esc(j.email)}</span>${j.ts ? `<span>${fmtD(j.ts)} ${fmtT(j.ts)}</span>` : ''}</div></div>
+    ${canE('staff') ? `<button class="btn sm primary" data-action="su-open" data-id="${esc(j.id)}">אישור</button><button class="btn sm" data-action="su-reject" data-id="${esc(j.id)}">דחייה</button>` : ''}</div>`).join('')}</div>` : ''}
+  <h3 class="sec">עובדים</h3>
+  <div class="list">${S.employees.map(e => { const m = memOf(e.id), own = isOwnerEmp(e); return `<div class="row tap" data-action="emp-edit" data-id="${e.id}">${avatar(e, 'lg')}<div class="row-main"><div class="row-title">${esc(e.name)}</div>
+    <div class="row-sub num">${m ? `<span class="ltr">${esc(m.email || m.id)}</span>` : '<span class="pill">לא מחובר ל-Google</span>'}<span>${money(e.wage)} לשעה</span>${own ? `<span class="pill pend">${ic('crown', 'sm')}בעל הבית</span>` : m ? `<span class="pill acc">${permSummary(m.perms)}</span>` : ''}</div></div>
+    <span class="btn sm">${canE('staff') ? 'עריכה' : 'פרטים'}</span></div>`; }).join('')}</div>
+  ${canE('staff') ? `<button class="btn primary" data-action="emp-new">${ic('plus', 'sm')}הוספת עובד</button>` : ''}
   ${viewer ? '' : `<div class="card" style="margin-top:14px"><b>${ic('play', 'sm')} חדשות מרקט (העלאת רילסים בלבד)</b>
     <p class="muted" style="margin:6px 0 10px">חשבון שיכול רק להעלות רילסים ופוסטים ולמחוק את שלו. לא רואה שום דבר אחר באפליקציה.${S.posterLogin ? ` פעיל: טלפון <span class="ltr">${esc(S.posterLogin.phone)}</span> · מספר עובד ${esc(S.posterLogin.num)}` : ' כרגע כבוי.'}</p>
     <div class="actions"><button class="btn" data-action="poster-set">${S.posterLogin ? 'שינוי פרטים' : 'הפעלה'}</button>${S.posterLogin ? '<button class="btn danger" data-action="poster-off">כיבוי</button>' : ''}</div></div>`}
@@ -813,7 +879,7 @@ function vNotif() {
   </div>
   <p class="muted" style="font-size:.85rem;margin-top:12px">התראות שלא נשלחו בזמני שקט לא נשלחות אחר כך. מה שחשוב תמיד מחכה באפליקציה.</p>`;
 }
-const isMgrUser = () => !!(manager || (store.isPermAdmin && store.isPermAdmin()));
+const isMgrUser = () => !!(store.isOwner?.() || canV('hours') || canV('inv') || canV('staff'));
 
 /* ---------- private messages between employees ---------- */
 let chatWith = null, chatDraft = '';
@@ -1279,7 +1345,7 @@ function reelCard(r) {
 function vReels() {
   const list = liveReels();
   // Full-screen feed like Instagram: the feed itself scrolls, one post per screen.
-  return `${viewer ? '' : `<button class="reel-fab" data-action="reel-new" aria-label="ריל או פוסט חדש">${ic('plus')}</button>`}
+  return `${viewer || (!poster && !canE('reels')) ? '' : `<button class="reel-fab" data-action="reel-new" aria-label="ריל או פוסט חדש">${ic('plus')}</button>`}
   <div class="reels-feed" id="reels-feed">${list.map(reelCard).join('') || '<div class="reels-empty"><b>עדיין אין רילס</b><span>היו הראשונים להעלות!</span></div>'}</div>`;
 }
 // Only the reels in view load their media, and only the one on screen plays.
@@ -1709,7 +1775,8 @@ function closeSheet() {
   if (renderPending) render();
 }
 function toast(t) { let el = document.querySelector('.toast'); if (!el) { el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.textContent = t; el.hidden = false; requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show'))); clearTimeout(toastT); toastT = setTimeout(() => { el.classList.remove('show'); toastT = setTimeout(() => { el.hidden = true; }, 280); }, 3000); }
-function openPin(next) { pinBuf = ''; sheet('<div class="pin" id="pin"></div>'); pinNext = next || null; drawPin(); }
+// No more manager PIN: what an employee may do comes from the permissions the manager gave them.
+function openPin() { toast('אין לך הרשאה לפעולה הזו. אפשר לבקש מהמנהל'); }
 function drawPin(err) {
   const p = document.getElementById('pin'); if (!p) return; const L = store.pinLength();
   p.innerHTML = `<h3>סיסמת מנהל</h3><p class="muted">הזן קוד בן ${L} ספרות</p>
@@ -1736,7 +1803,7 @@ async function pinKey(k) {
     }
   }
 }
-const needMgr = fn => store.isManager() || viewer ? fn() : store.isPermAdmin?.() ? store.enterManager().then(ok => { render(); if (ok) fn(); }) : openPin(fn);
+const needMgr = fn => viewer || (manager && !ro) ? fn() : openPin();
 
 /* ---------- actions ---------- */
 const byId = (arr, id) => arr.find(x => x.id === id);
@@ -1771,7 +1838,7 @@ const ACT = {
     const before = t.value.slice(0, pos).replace(/@([^\s@]*)$/, '@' + e.name + ' '); t.value = before + t.value.slice(pos);
     mentionTags.set(e.id, e.name); box.hidden = true; t.focus(); t.selectionStart = t.selectionEnd = before.length;
   },
-  'cm-del': d => { S.reelComments = S.reelComments.filter(c => c.id !== d.id && !(manager && c.parent === d.id)); save(); refreshComments(); patchReels(); },
+  'cm-del': d => { S.reelComments = S.reelComments.filter(c => c.id !== d.id && !(canE('admin') && c.parent === d.id)); save(); refreshComments(); patchReels(); },
   'reel-del': d => sheet(`<h3>למחוק את הפוסט?</h3><p class="muted" style="margin-bottom:16px">הפוסט והתגובות שלו יימחקו מהאפליקציה לכולם.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="reel-del-yes" data-id="${d.id}">מחיקה</button></div>`),
   'reel-del-yes': async d => { const r = byId(S.reels, d.id); closeSheet(); if (r) { await store.deleteReel(r); MEDIA.delete(r.id); } render(); toast('הפוסט נמחק'); },
   'reel-save': async d => { const r = byId(S.reels, d.id); if (!r) return; toast('מכין את הקובץ…'); const ids = await (async () => { const was = r.backedUp; r.backedUp = false; const all = S.reels; S.reels = [r]; try { return await backupReels(); } finally { S.reels = all; r.backedUp = was; } })(); toast(ids.length ? 'הקבצים ירדו למכשיר' : 'ההורדה נכשלה'); },
@@ -1790,17 +1857,16 @@ const ACT = {
   'pp-tog': d => {
     if (!pp) return; pp[d.k] = !pp[d.k]; haptic(6); savePP(); render();
   },
-  'g-in': async () => {
+  'g-login': async () => {
     if (busy) return; busy = true; render();
-    const r = await store.googleSignIn();
+    const r = await store.googleLogin();
     if (r.redirect) return;
     busy = false;
-    if (!r.ok) { render(); if (r.error) toast(r.error); return; }
-    view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name));
-    initPush(isNativeApp());
+    if (r.ok) { view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name)); initPush(isNativeApp()); return; }
+    render(); if (r.error) toast(r.error);
   },
+  'shared-login': () => { sharedLogin = true; render(); },
   'sync-info': () => { const t = syncNow(); if (t) toast(t.line); },
-  'g-cancel': async () => { if (busy) return; await store.cancelGoogle(); render(); },
   'geo-tog': () => needMgr(() => { geoCfg.on = !geoCfg.on; geoSave(); haptic(6); render(); toast(geoCfg.on ? 'סגירת משמרת לפי מיקום הופעלה' : 'סגירת משמרת לפי מיקום כובתה'); }),
   'geo-set': d => needMgr(() => { geoCfg[d.k] = +d.v; geoSave(); haptic(6); render(); }),
   'geo-here': () => needMgr(async () => {
@@ -1890,8 +1956,6 @@ const ACT = {
     <div class="field"><label for="bk-c">מחלקה</label><select id="bk-c" name="cat">${catOpts('drinks', SUBS[0])}</select></div>
     <div class="field"><label for="bk-t">רשימת פריטים · כל שורה פריט</label><textarea id="bk-t" name="list" rows="10" required placeholder="קולה פחית&#10;ספרייט פחית"></textarea><small>שורות ריקות ופריטים שכבר קיימים במחלקה מדולגים. הכמות מתחילה ב-0.</small></div>
     <button class="btn primary block">הוספה למלאי</button></form>`)),
-  'owner-claim': () => needMgr(() => { const id = (document.getElementById('ow-e') || {}).value || session(), e = emp(id);
-    sheet(`<h3>${ic('crown', 'sm')} לקבוע את ${esc(e.name)} כבעל הבית?</h3><p class="muted" style="margin:8px 0 16px">${esc(e.name)} יהיה מנהל קבוע שאי אפשר להסיר, היחיד שיכול לתת או להסיר הרשאת ניהול קבועה, והיחיד שיכול לערוך משמרות שנרשמו. אחרי הקביעה רק בעל הבית יכול לשנות אותה.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn brass" data-action="owner-yes" data-id="${e.id}">כן, לקבוע</button></div>`); }),
   'owner-yes': async d => { const r = await (store.setOwner ? store.setOwner(d.id || session()) : store.claimOwner()); closeSheet(); render(); toast(r.error || `${emp(d.id || session()).name} נקבע/ה כבעל הבית`); },
   'emp-shifts': d => { const e = emp(d.id), now = Date.now(), ws = weekStart(now), mk = monthKey(now), own = !!store.isOwner?.();
     const list = S.shifts.filter(s => s.empId === e.id && s.status !== 'rejected' && (hoursRange === 'week' ? s.start >= ws : monthKey(s.start) === mk)).sort((a, b) => b.start - a.start);
@@ -1947,9 +2011,9 @@ const ACT = {
   'emp-new': () => needMgr(() => sheet(`<h3>עובד חדש</h3><form class="form" data-form="emp" style="margin-top:12px">${empFields({}, 'em')}<button class="btn primary block">הוספת עובד</button></form>`)),
   'pin-sheet': () => needMgr(() => sheet(`<h3>שינוי סיסמת מנהל</h3>${pinForm()}`)),
   'pin-seen': d => { const n = byId(S.notifications, d.id); if (n) { n.seen = true; save(); } render(); },
-  pin: async () => { if (store.isPermAdmin?.() && await store.enterManager()) { toast('מצב מנהל פעיל'); render(); } else openPin(); },
+  pin: () => openPin(),
   key: d => pinKey(d.k),
-  lock: async () => { await store.exitManager(); toast('יצאת ממצב מנהל'); render(); },
+  lock: () => { },
   close: closeSheet,
   'fill-login': d => { const p = document.getElementById('lg-p'), n = document.getElementById('lg-n'); if (p) p.value = fmtPhone(d.p); if (n) n.value = d.n; },
   account: () => {
@@ -1970,7 +2034,7 @@ const ACT = {
     <div class="field"><label for="rq-e">תאריך יציאה</label><input id="rq-e" name="endDate" type="date" max="${dateKey(Date.now())}" value="${dateKey(Date.now())}" required><small>אם המשמרת נגמרה אחרי חצות, בוחרים כאן את היום שאחרי.</small></div>
     <div class="field"><label for="rq-n">הסבר קצר</label><textarea id="rq-n" name="note" placeholder="למשל: הטלפון נגמר לי בסוללה"></textarea></div>
     <button class="btn primary block">שליחה לאישור</button></form>`),
-  'inv-tab': d => { if (d.tab === 'snacks' && !store.isManager() && !viewer) { openPin(() => { invTab = d.tab; render(); }); return; } invTab = d.tab; render(); },
+  'inv-tab': d => { if (d.tab === 'snacks' && !invAll) return openPin(); invTab = d.tab; render(); },
   'inv-update': d => {
     const i = byId(S.inventory, d.id); const p = S.drinkUpdates.find(u => u.itemId === i.id && u.status === 'pending');
     const n = note(i.id);
@@ -2023,11 +2087,37 @@ const ACT = {
   'all-unrate': () => sheet(`<h3>למחוק את כל הכוכבים?</h3><p class="muted" style="margin-bottom:16px">כל הדירוגים של כל המשימות ושל כל העובדים יימחקו. המשימות עצמן נשארות.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="all-unrate-yes">מחיקת כל הכוכבים</button></div>`),
   'all-unrate-yes': () => { S.tasks.forEach(t => { delete t.rating; }); S.grades = {}; save(); closeSheet(); render(); toast('כל הכוכבים נמחקו'); },
   'emp-edit': d => needMgr(() => {
-    const e = byId(S.employees, d.id); sheet(`<div class="emp-head">${avatar(e, 'xl')}<div><h3>עריכת עובד</h3><label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת תמונה' : 'הוספת תמונה'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div><form class="form" data-form="emp-edit" data-id="${e.id}" style="margin-top:12px">${empFields(e, 'ee')}<button class="btn primary block">שמירה</button></form>
-    ${e.owner || isPriv(e) ? '' : e.id !== session() ? `<button class="btn danger block" style="margin-top:10px" data-action="emp-del" data-id="${e.id}">הסרת העובד</button>` : '<p class="hint" style="margin-top:10px">אי אפשר להסיר את המשתמש שמחובר כרגע.</p>'}`);
+    const e = byId(S.employees, d.id), acct = empAcct(e); sheet(`<div class="emp-head">${avatar(e, 'xl')}<div><h3>עריכת עובד</h3><label class="link-btn">${ic('camera', 'sm')}${ePhoto(e.id) ? 'החלפת תמונה' : 'הוספת תמונה'}<input type="file" accept="image/*" data-emp-photo="${e.id}" hidden></label></div></div><form class="form" data-form="emp-edit" data-id="${e.id}" style="margin-top:12px">${empFields(e, 'ee')}<button class="btn primary block">שמירה</button></form>
+    ${acct}
+    ${isOwnerEmp(e) || isPriv(e) ? '' : e.id !== session() ? `<button class="btn danger block" style="margin-top:10px" data-action="emp-del" data-id="${e.id}">הסרת העובד</button>` : '<p class="hint" style="margin-top:10px">אי אפשר להסיר את המשתמש שמחובר כרגע.</p>'}`);
   }),
   'emp-del': d => { const e = byId(S.employees, d.id); sheet(`<h3>להסיר את ${esc(e.name)}?</h3><p class="muted" style="margin-bottom:16px">העובד לא יוכל להתחבר יותר. המשמרות שכבר נרשמו יישארו בסיכומי השכר.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="emp-del-yes" data-id="${e.id}">הסרה</button></div>`); },
-  'emp-del-yes': d => needMgr(() => { const e = byId(S.employees, d.id); S.employees = S.employees.filter(x => x.id !== d.id); save(); closeSheet(); render(); toast(`${e.name} הוסר/ה מרשימת העובדים`); }),
+  'emp-del-yes': d => needMgr(() => { const e = byId(S.employees, d.id), m = memOf(d.id); if (m) store.unlink(m.id); S.employees = S.employees.filter(x => x.id !== d.id); save(); closeSheet(); render(); toast(`${e.name} הוסר/ה מרשימת העובדים`); }),
+  // ---- sign-ups and permissions ----
+  'perm-preset': (d, el) => {
+    const f = el.closest('form'), P = (PRESETS[d.p] || [])[1]; if (!f || !P) return;
+    AREAS.forEach(a => { const v = P[a] || PERM_LEVELS(a)[0], r = f.querySelector(`input[name="pm-${a}"][value="${v}"]`) || f.querySelector(`input[name="pm-${a}"]`); if (r) r.checked = true; });
+    haptic(6);
+  },
+  'su-open': d => needMgr(() => {
+    const j = (S.signups || []).find(x => x.id === d.id); if (!j) return;
+    sheet(`<h3>אישור הצטרפות</h3>
+    <div class="row" style="margin:8px 0 4px"><span class="av lg">${j.photo ? `<img src="${esc(j.photo)}" alt="" referrerpolicy="no-referrer">` : esc((j.name || j.email || '?')[0])}</span><div class="row-main"><div class="row-title">${esc(j.name || 'בלי שם')}</div><div class="row-sub"><span class="ltr">${esc(j.email)}</span></div></div></div>
+    <form class="form" data-form="su-approve" data-email="${esc(j.id)}" style="margin-top:10px">
+      <div class="field"><label for="su-emp">מי זה/זו?</label><select id="su-emp" name="emp" data-su-emp>
+        <option value="__new">עובד/ת חדש/ה</option>
+        ${S.employees.map(e => `<option value="${e.id}">${esc(e.name)}${memOf(e.id) ? ' (כבר מחובר/ת לחשבון אחר)' : ''}</option>`).join('')}</select>
+        <small>עובד/ת שכבר קיים/ת: השעות וההיסטוריה נשארות, והחשבון הזה יתחבר אליהם.</small></div>
+      <div class="su-new"><div class="field-row"><div class="field"><label for="su-n">שם</label><input id="su-n" name="name" value="${esc(j.name || '')}" maxlength="60"></div>
+        <div class="field"><label for="su-w">שכר לשעה (₪)</label><input id="su-w" name="wage" type="number" min="0" step="0.5" value="50" inputmode="decimal"></div></div></div>
+      <h3 class="sec">הרשאות</h3>
+      ${permEditor(PRESETS.basic[1])}
+      <button class="btn primary block">אישור</button></form>`);
+  }),
+  'su-reject': d => needMgr(() => sheet(`<h3>לדחות את הבקשה?</h3><p class="muted" style="margin-bottom:16px">${esc(d.id)} לא יוכל/תוכל להיכנס לאפליקציה. אם ינסה/תנסה שוב, תגיע בקשה חדשה.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn danger" data-action="su-reject-yes" data-id="${esc(d.id)}">דחייה</button></div>`)),
+  'su-reject-yes': async d => { const r = await store.reject(d.id); closeSheet(); render(); toast(r.error || 'הבקשה נדחתה'); },
+  'mem-unlink': d => needMgr(() => sheet(`<h3>לנתק את החשבון?</h3><p class="muted" style="margin-bottom:16px"><span class="ltr">${esc(d.id)}</span> לא יוכל/תוכל להיכנס יותר עד שיאושר/תאושר מחדש. העובד/ת וההיסטוריה נשארים.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn danger" data-action="mem-unlink-yes" data-id="${esc(d.id)}">ניתוק</button></div>`)),
+  'mem-unlink-yes': async d => { const r = await store.unlink(d.id); closeSheet(); render(); toast(r.error || 'החשבון נותק'); },
   regen: () => { buildSummary(S, prevMonthKey()); save(); view = 'alerts'; render(); toast('הסיכום החודשי הופק'); },
   reset: () => sheet(`<h3>לאפס את נתוני הדמו?</h3><p class="muted" style="margin-bottom:16px">כל השינויים יימחקו, כולל עובדים וסיסמת המנהל, והנתונים יחזרו לדוגמה ההתחלתית.</p><div class="actions"><button class="btn" data-action="close">ביטול</button><button class="btn primary" data-action="reset-yes">איפוס</button></div>`),
   'reset-yes': async () => { await store.resetDemo(); closeSheet(); view = 'clock'; invTab = 'drinks'; render(); toast('נתוני הדמו אופסו'); },
@@ -2086,7 +2176,6 @@ const FORMS = {
     const r = await store.login(p, n);
     busy = false;
     if (r.error) { render(); document.getElementById('lg-p').value = fmtPhone(p); document.getElementById('lg-n').value = n; return toast(r.error); }
-    if (r.needGoogle) return render();
     view = DS.home || 'clock'; monthChecked = false; render(); toast('שלום ' + first(cur().name));
     initPush(isNativeApp());
   },
@@ -2175,6 +2264,23 @@ const FORMS = {
     S.messages.push({ id: uid(), pair: [session(), chatWith], from: session(), to: chatWith, text, ts: Date.now(), read: false });
     chatDraft = ''; haptic(6); save(); render(); const t = document.getElementById('dm-t'); if (t) t.focus();
   },
+  perms: async (f, el) => {
+    if (!canE('staff')) return openPin();
+    const r = await store.setPerms(el.dataset.email, readPerms(f));
+    if (r.error) return toast(r.error);
+    closeSheet(); render(); toast('ההרשאות נשמרו. הן נכנסות לתוקף אצל העובד מיד');
+  },
+  'su-approve': async (f, el) => {
+    if (!canE('staff')) return openPin();
+    const isNew = f.emp === '__new';
+    if (isNew && !String(f.name || '').trim()) return toast('צריך למלא שם');
+    const num = String(Math.max(100, ...S.employees.map(e => parseInt(e.num) || 0)) + 1);
+    busy = true;
+    const r = await store.approve(el.dataset.email, isNew ? { newEmp: { name: String(f.name).trim(), wage: parseFloat(f.wage) || 0, num }, perms: readPerms(f) } : { empId: f.emp, perms: readPerms(f) });
+    busy = false;
+    if (r.error) return toast(r.error);
+    closeSheet(); render(); toast('אושר. האפליקציה תיפתח אצל העובד מיד');
+  },
   'geo-ll': f => {
     const m = String(f.ll || '').match(/(-?\d{1,2}\.\d+)\s*[,،\s]\s*(-?\d{1,3}\.\d+)/);
     if (!m || Math.abs(+m[1]) > 90 || Math.abs(+m[2]) > 180) return toast('לא מצאתי מיקום. מדביקים שני מספרים, למשל 31.7683, 35.2137');
@@ -2231,20 +2337,16 @@ const FORMS = {
   },
   emp: f => {
     if (!manager) return openPin(); const err = validateEmp(f, null); if (err) return toast(err);
-    const g = String(f.google || '').trim().toLowerCase();
-    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage), ...(f.admin && canSetFlags() ? { admin: true } : {}), ...(g ? { google: g } : {}) });
-    save(); closeSheet(); render(); toast(`${f.name.trim()} נוסף/ה. התחברות: ${fmtPhone(f.phone)} + מספר עובד ${String(f.num).trim()}`);
+    S.employees.push({ id: uid(), num: String(f.num).trim(), name: f.name.trim(), ...(f.phone ? { phone: normPhone(f.phone) } : {}), wage: parseFloat(f.wage) });
+    save(); closeSheet(); render(); toast(`${f.name.trim()} נוסף/ה. כשייכנס/תיכנס עם Google, תשייך/י את החשבון ממסך העובדים`);
   },
   'emp-edit': (f, el) => {
     if (!manager) return openPin(); const e = byId(S.employees, el.dataset.id), err = validateEmp(f, e.id); if (err) return toast(err);
     if (f.phone === undefined) { Object.assign(e, { name: f.name.trim(), wage: parseFloat(f.wage) }); save(); closeSheet(); render(); return toast('פרטי העובד נשמרו'); }
-    const keepAdmin = (e.id === session() && e.admin) || e.owner || (!canSetFlags() && e.admin);
-    Object.assign(e, { name: f.name.trim(), num: String(f.num).trim(), phone: normPhone(f.phone), wage: parseFloat(f.wage) });
-    if (keepAdmin || (f.admin && canSetFlags())) e.admin = true; else delete e.admin;
-    const g = String(f.google || '').trim().toLowerCase(), gNew = g && g !== (e.google || '');
-    if (g) e.google = g; else delete e.google;
-    save(); closeSheet(); render();
-    toast(gNew ? (e.id === session() ? 'נשמר. עכשיו תתבקש/י להתחבר עם Google' : `נשמר. בפעם הבאה ${first(e.name)} יתבקש/תתבקש להתחבר עם Google`) : 'פרטי העובד נשמרו');
+    Object.assign(e, { name: f.name.trim(), num: String(f.num).trim(), wage: parseFloat(f.wage) });
+    if (f.phone) e.phone = normPhone(f.phone); else delete e.phone;
+    delete e.google;
+    save(); closeSheet(); render(); toast('פרטי העובד נשמרו');
   },
   'pin-change': async f => {
     if (!manager) return openPin();
@@ -2257,9 +2359,9 @@ const FORMS = {
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
 const VIEW_OK = ['sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
-document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if (viewer && !VIEW_OK.includes(b.dataset.action)) return toast('משתמש בקרה · צפייה בלבד'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
+document.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b) return; const a = ACT[b.dataset.action]; if (!a) return; e.preventDefault(); if ((viewer || ro) && !VIEW_OK.includes(b.dataset.action)) return toast(viewer ? 'משתמש בקרה · צפייה בלבד' : 'יש לך הרשאת צפייה בלבד באזור הזה'); if (poster && (!POSTER_OK.includes(b.dataset.action) || (b.dataset.action === 'nav' && !['reels', 'display'].includes(b.dataset.view)))) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); a(b.dataset, b); });
 document.addEventListener('click', e => { if (viewer && e.target.closest('a.btn, input[type=file], label.btn')) { e.preventDefault(); toast('משתמש בקרה · צפייה בלבד'); } }, true);
-document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if (viewer && f.dataset.form !== 'login') return toast('משתמש בקרה · צפייה בלבד'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
+document.addEventListener('submit', e => { const f = e.target.closest('form[data-form]'); if (!f) return; e.preventDefault(); if (busy) return; if ((viewer || ro) && f.dataset.form !== 'login') return toast(viewer ? 'משתמש בקרה · צפייה בלבד' : 'יש לך הרשאת צפייה בלבד באזור הזה'); if (poster && !['login', 'reel'].includes(f.dataset.form)) return toast('המשתמש הזה מיועד להעלאת רילסים בלבד'); FORMS[f.dataset.form]?.(Object.fromEntries(new FormData(f)), f); });
 document.addEventListener('input', e => { const r = e.target.closest('[data-ds-range]'); if (!r) return; DS[r.dataset.dsRange] = +r.value; applyDisplay(); const l = document.getElementById('scale-val'); if (l) l.textContent = r.value + '%'; });
 document.addEventListener('change', e => { if (e.target.closest('[data-ds-range]')) saveDS(); if (e.target.closest('[data-calc]')) drawCalc(); });
 document.addEventListener('change', e => { if (e.target.matches('[data-segpick]')) { e.target.closest('.seg-wrap').querySelectorAll('label.seg').forEach(l => l.classList.toggle('on', l.querySelector('input').checked)); slideSegs(e.target.closest('.sheet') || document.getElementById('main')); } });
@@ -2275,10 +2377,11 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('input', e => { if (e.target.closest('[data-calc]')) drawCalc(); if (e.target.matches('[data-mention]')) mentionInput(e.target); });
 document.addEventListener('change', e => { if (e.target.matches('input[data-up]')) prepUpload(e.target); });
+document.addEventListener('change', e => { if (e.target.matches('[data-su-emp]')) { const n = e.target.closest('form').querySelector('.su-new'); if (n) n.hidden = e.target.value !== '__new'; } });
 document.addEventListener('change', e => { if (e.target.matches('[data-prod-d]')) { prodDept = e.target.value; prodShown = 60; refreshProds(); } });
 document.addEventListener('change', async e => {
   const inp = e.target.closest('input[data-import-csv]'); if (!inp || !inp.files || !inp.files[0]) return;
-  if (!store.isManager()) return openPin();
+  if (!canE('products')) return openPin();
   if (!store.loaded('catalog')) return toast('רשימת המוצרים עדיין נטענת. נסו שוב בעוד רגע');
   try {
     const r = importCsv(await inp.files[0].text()); inp.value = '';
@@ -2307,7 +2410,7 @@ function shrinkImage(file, max = 360) {
 }
 document.addEventListener('change', async e => {
   const inp = e.target.closest('input[data-img-for]'); if (!inp || !inp.files || !inp.files[0]) return;
-  if (!store.isManager()) return openPin();
+  if (!canE('inv') && !canE('products')) return openPin();
   const id = inp.dataset.imgFor, i = byId(S.inventory, id); if (!i) return;
   try {
     const data = await shrinkImage(inp.files[0]);
@@ -2316,7 +2419,7 @@ document.addEventListener('change', async e => {
 });
 document.addEventListener('change', async e => {
   const inp = e.target.closest('input[data-emp-photo]'); if (!inp || !inp.files || !inp.files[0]) return;
-  const id = inp.dataset.empPhoto; if (id !== session() && (poster || !store.isManager())) return openPin();
+  const id = inp.dataset.empPhoto; if (id !== session() && (poster || !canE('staff'))) return openPin();
   try { const data = await shrinkImage(inp.files[0], 240); S.empPhotos[id] = { data }; save(); closeSheet(); render(); toast('התמונה נשמרה'); }
   catch (err) { toast('לא הצלחתי לקרוא את התמונה. נסו תמונה אחרת'); }
 });
