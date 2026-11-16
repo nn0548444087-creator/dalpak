@@ -1,5 +1,7 @@
 // Pure helpers shared by the app and both data stores.
 export const H = 36e5, DAY = 864e5;
+// Areas of the app; each employee has a level in each: none, view or edit.
+export const AREAS = ['pos', 'products', 'inv', 'deliv', 'orders', 'hours', 'tasks', 'staff', 'admin', 'reels', 'chat'];
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 export const pad = n => String(n).padStart(2, '0');
 export const sum = a => a.reduce((x, y) => x + y, 0);
