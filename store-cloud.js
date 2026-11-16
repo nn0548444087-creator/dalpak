@@ -4,7 +4,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   initializeAuth, indexedDBLocalPersistence, signInAnonymously, signOut,
-  GoogleAuthProvider, linkWithPopup, linkWithCredential, signInWithPopup, signInWithCredential, browserPopupRedirectResolver
+  GoogleAuthProvider, linkWithCredential, signInWithCredential
 } from 'firebase/auth';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import {
@@ -28,6 +28,11 @@ const PUBLIC_CATS = ['drinks', 'salads'];
 // (Google does not allow signing in from inside an app's web view).
 const NativeAuth = registerPlugin('FirebaseAuthentication');
 const nativeGoogle = () => Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication');
+// The project's web sign-in client (public id, not a secret). In a browser or on iPhone the app goes to Google's own
+// sign-in page and comes back with a Google token in the address: no pop-up window, so it works in an app on the home screen.
+const WEB_CLIENT = '531855451338-6cmn5v1tttc1fcasq01fa864801elvl6.apps.googleusercontent.com';
+const RETURN_URL = () => location.origin + location.pathname.replace(/index\.html$/, '');
+const rnd = () => [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
 const maskMail = m => String(m || '').replace(/^(.{2})[^@]*(@.*)$/, '$1•••$2');
 const gmailOf = e => (e && e.google ? { google: String(e.google).trim().toLowerCase() } : {});
 const googleErr = e => {
@@ -85,7 +90,39 @@ export function createCloudStore(config) {
   const emit = () => changeCbs.forEach(f => f());
   const fail = e => { console.error(e); if (/permission/i.test((e && e.code) || '')) recheck(); errorCbs.forEach(f => f(errText(e))); };
   // A login that requires Google, on a phone that is not signed in with that Google account: { email, phone, num }.
-  let needG = null, rechecking = false;
+  let needG = null, rechecking = false, gErr = '';
+  // Back from Google's sign-in page: take the token from the address (and clear it from there).
+  function takeGoogleReturn() {
+    const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    if (!h.has('state')) return null;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('dalpak-g') || 'null'); localStorage.removeItem('dalpak-g'); } catch (e) { }
+    try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) { }
+    if (!saved || saved.state !== h.get('state') || Date.now() - saved.t > 15 * 60000) return { error: 'ההתחברות עם Google לא הושלמה. נסו שוב' };
+    if (h.get('error')) return h.get('error') === 'access_denied' ? { cancel: true } : { error: 'Google החזיר שגיאה: ' + h.get('error') };
+    const tok = h.get('id_token');
+    return tok ? { cred: GoogleAuthProvider.credential(tok) } : { error: 'ההתחברות עם Google לא הושלמה. נסו שוב' };
+  }
+  // Signs this phone in with the employee's Google account, keeping the same sign-in when possible (Google is
+  // linked to it); a phone already signed in with another Google account, or a Google account already used on
+  // another phone, switches to that account.
+  async function finishGoogle(cred) {
+    const want = needG.email, before = auth.currentUser;
+    const linkedG = before && before.providerData.some(p => p.providerId === 'google.com');
+    try {
+      if (!before || linkedG) await signInWithCredential(auth, cred);
+      else await linkWithCredential(before, cred);
+    } catch (e) {
+      if (!/credential-already-in-use|email-already-in-use/.test(e.code || '')) throw e;
+      await signInWithCredential(auth, GoogleAuthProvider.credentialFromError(e) || cred);
+    }
+    const u = auth.currentUser;
+    await u.getIdToken(true);
+    if (String(u.email || '').toLowerCase() !== want) return { error: `התחברת עם ${u.email || 'חשבון אחר'}. לעובד הזה רשום ${maskMail(want)}` };
+    if (!before || u.uid !== before.uid) await withTimeout(setDoc(doc(db, 'sessions', u.uid), { phone: needG.phone, num: needG.num, at: Date.now() }));
+    if (!(await linkSession())) return { error: needG ? 'החשבון לא תואם' : 'מספר הטלפון או מספר העובד לא נכונים' };
+    mgr = permAdmin; subscribe(); emit(); return { ok: true };
+  }
   // Access was refused mid-session: maybe the manager just required Google for this employee.
   async function recheck() {
     if (rechecking || !empId) return; rechecking = true;
@@ -288,6 +325,13 @@ export function createCloudStore(config) {
       await deleteDoc(doc(db, 'managerSessions', auth.currentUser.uid)).catch(() => { });
       mgr = permAdmin;
       subscribe();
+    } else if (needG) {
+      // Back from Google's sign-in page.
+      const r = takeGoogleReturn();
+      if (r && r.cred) {
+        try { const f = await finishGoogle(r.cred); if (!f.ok) gErr = f.error || ''; }
+        catch (e) { console.warn('google', e); gErr = googleErr(e).error || ''; }
+      } else if (r && r.error) gErr = r.error;
     }
   })();
 
@@ -431,36 +475,21 @@ export function createCloudStore(config) {
 
     // ---- second step of the login: the employee's Google account ----
     needGoogle: () => needG ? maskMail(needG.email) : null,
+    googleError: () => gErr,
     async googleSignIn() {
       if (!needG) return { error: 'צריך להתחבר מחדש' };
-      const want = needG.email, before = auth.currentUser;
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account', login_hint: want });
+      gErr = '';
       try {
-        let cred = null;
         if (nativeGoogle()) {
           const r = await NativeAuth.signInWithGoogle({ skipNativeAuth: true });
           if (!r || !r.credential || !r.credential.idToken) return { error: 'ההתחברות עם Google לא הושלמה' };
-          cred = GoogleAuthProvider.credential(r.credential.idToken, r.credential.accessToken || null);
+          return await finishGoogle(GoogleAuthProvider.credential(r.credential.idToken, r.credential.accessToken || null));
         }
-        // Keep the same sign-in when possible (link Google to it); a phone already signed in with another
-        // Google account, or a Google account already used on another phone, switches to that account.
-        const linkedG = before && before.providerData.some(p => p.providerId === 'google.com');
-        try {
-          if (!before || linkedG) await (cred ? signInWithCredential(auth, cred) : signInWithPopup(auth, provider, browserPopupRedirectResolver));
-          else await (cred ? linkWithCredential(before, cred) : linkWithPopup(before, provider, browserPopupRedirectResolver));
-        } catch (e) {
-          if (!/credential-already-in-use|email-already-in-use/.test(e.code || '')) throw e;
-          const c = GoogleAuthProvider.credentialFromError(e) || cred;
-          if (!c) throw e;
-          await signInWithCredential(auth, c);
-        }
-        const u = auth.currentUser;
-        await u.getIdToken(true);
-        if (String(u.email || '').toLowerCase() !== want) return { error: `התחברת עם ${u.email || 'חשבון אחר'}. לעובד הזה רשום ${maskMail(want)}` };
-        if (!before || u.uid !== before.uid) await withTimeout(setDoc(doc(db, 'sessions', u.uid), { phone: needG.phone, num: needG.num, at: Date.now() }));
-        if (!(await linkSession())) return { error: needG ? 'החשבון לא תואם' : 'מספר הטלפון או מספר העובד לא נכונים' };
-        mgr = permAdmin; subscribe(); emit(); return { ok: true };
+        const state = rnd(), nonce = rnd();
+        try { localStorage.setItem('dalpak-g', JSON.stringify({ state, t: Date.now() })); } catch (e) { }
+        const q = new URLSearchParams({ client_id: WEB_CLIENT, redirect_uri: RETURN_URL(), response_type: 'id_token', scope: 'openid email profile', nonce, state, prompt: 'select_account', login_hint: needG.email });
+        location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + q);
+        return { redirect: true };
       } catch (e) { console.warn('google', e); return googleErr(e); }
     },
     // Back to the login screen (another employee, or a mistake in the details).
