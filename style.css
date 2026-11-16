@@ -632,3 +632,7 @@ body.kb-open .dm-list{padding-bottom:70px}
 .geo-info{margin-top:16px;gap:8px;font-size:.9rem}
 .geo-info span{color:var(--muted)}
 .geo-info span b{color:var(--ink)}
+
+/* login: second step with a Google account */
+.login .g-back{margin-top:10px}
+.login .g-note{font-size:.84rem;margin-top:14px;text-align:center}
