@@ -10,7 +10,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 initializeApp();
 const db = getFirestore();
 const SITE = 'https://nn0548444087-creator.github.io/dalpak/';
-const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo', 'signups'];
+const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo', 'signups', 'bgGames'];
 
 const first = n => String(n || '').trim().split(/\s+/)[0] || '';
 const cut = (t, n = 120) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -221,6 +221,24 @@ async function onSignup(before, after) {
   await send(await managers(true), 'בקשת הצטרפות חדשה', `${who} נכנס/ה לאפליקציה ומחכה לאישור שלך`, { view: 'staff' }, 'alerts');
 }
 
+// Backgammon between employees: the invitation, and whose turn it is.
+async function onBg(before, after) {
+  if (!after) return;
+  const name = async id => first(await empName(id)) || 'עובד';
+  if (!before && after.status === 'invite') return send([after.b], 'הזמנה לשש בש 🎲', `${await name(after.a)} מזמין/ה אותך למשחק`, { view: 'bg' }, 'msg');
+  if (!before) return;
+  if (before.status === 'invite' && after.status === 'play') return send([after.a], 'שש בש 🎲', `${await name(after.b)} אישר/ה את המשחק`, { view: 'bg' }, 'msg');
+  if (after.status === 'done' && before.status !== 'done') {
+    const loser = after.winner === after.a ? after.b : after.a;
+    if (after.resign) return send([after.winner], 'שש בש 🏆', `${await name(after.resign)} פרש/ה. ניצחת!`, { view: 'bg' }, 'msg');
+    return send([loser], 'שש בש', `${await name(after.winner)} ניצח/ה במשחק`, { view: 'bg' }, 'msg');
+  }
+  if (after.status === 'play' && before.turn !== after.turn) {
+    const to = after.turn === 'w' ? after.a : after.b, from = after.turn === 'w' ? after.b : after.a;
+    return send([to], 'שש בש 🎲', `התור שלך מול ${await name(from)}`, { view: 'bg' }, 'msg');
+  }
+}
+
 // A test notification the employee asked for from the settings screen (always sent, then the request is removed).
 async function onTest(before, after, id) {
   if (before || !after || !after.emp) return;
@@ -233,6 +251,6 @@ exports.notify = onDocumentWritten({ document: '{col}/{id}', region: 'me-west1',
   if (!WATCHED.includes(col)) return;
   const before = event.data.before.exists ? event.data.before.data() : null;
   const after = event.data.after.exists ? event.data.after.data() : null;
-  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo, signups: onSignup }[col];
+  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo, signups: onSignup, bgGames: onBg }[col];
   try { await run(before, after, event.params.id); } catch (e) { console.error(col, event.params.id, e); }
 });
