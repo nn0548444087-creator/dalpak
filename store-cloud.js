@@ -4,7 +4,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   initializeAuth, indexedDBLocalPersistence, signInAnonymously, signOut,
-  GoogleAuthProvider, linkWithPopup, linkWithCredential, signInWithPopup, signInWithCredential
+  GoogleAuthProvider, linkWithPopup, linkWithCredential, signInWithPopup, signInWithCredential, browserPopupRedirectResolver
 } from 'firebase/auth';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import {
@@ -447,8 +447,8 @@ export function createCloudStore(config) {
         // Google account, or a Google account already used on another phone, switches to that account.
         const linkedG = before && before.providerData.some(p => p.providerId === 'google.com');
         try {
-          if (!before || linkedG) await (cred ? signInWithCredential(auth, cred) : signInWithPopup(auth, provider));
-          else await (cred ? linkWithCredential(before, cred) : linkWithPopup(before, provider));
+          if (!before || linkedG) await (cred ? signInWithCredential(auth, cred) : signInWithPopup(auth, provider, browserPopupRedirectResolver));
+          else await (cred ? linkWithCredential(before, cred) : linkWithPopup(before, provider, browserPopupRedirectResolver));
         } catch (e) {
           if (!/credential-already-in-use|email-already-in-use/.test(e.code || '')) throw e;
           const c = GoogleAuthProvider.credentialFromError(e) || cred;
