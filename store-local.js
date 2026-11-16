@@ -70,6 +70,7 @@ export function createLocalStore() {
     S.notes = S.notes || {}; S.images = S.images || {}; S.empPhotos = S.empPhotos || {}; S.prices = S.prices || {}; S.catalog = S.catalog || []; S.messages = S.messages || []; S.sales = S.sales || [];
     S.suppliers = S.suppliers || []; S.orders = S.orders || []; S.unavail = S.unavail || [];
     S.reels = (S.reels || []).filter(r => r.type === 'photos' || PARTS.has(r.id)); S.reelComments = S.reelComments || []; S.extras = S.extras || [];
+    S.gallery = (S.gallery || []).filter(p => PARTS.has('g:' + p.id)); S.scores = S.scores || []; S.bgGames = S.bgGames || [];
     try { session = localStorage.getItem(LS_SESSION); } catch (e) { session = null; }
     if (session && session !== 'viewer' && !S.employees.some(e => e.id === session)) session = null;
     S.currentUser = session; persist();
@@ -119,6 +120,14 @@ export function createLocalStore() {
     async loadParts(id) { const r = S.reels.find(x => x.id === id); return PARTS.get(id) || (r && r.inline) || []; },
     async deleteReel(r) { PARTS.delete(r.id); S.reels = S.reels.filter(x => x.id !== r.id); S.reelComments = S.reelComments.filter(c => c.reel !== r.id); persist(); },
     isOwner: () => !!(myMem() || {}).owner,
+    // Leisure (demo): full photos stay in memory only, like the demo videos.
+    async uploadPhoto({ full, thumb, caption }) { const id = uid(); PARTS.set('g:' + id, full); S.gallery.push({ id, by: session, ts: Date.now(), thumb, caption: caption || '' }); persist(); listeners.forEach(f => f()); return { ok: true, id }; },
+    async loadPhoto(id) { return PARTS.get('g:' + id) || null; },
+    async deletePhoto(p) { PARTS.delete('g:' + p.id); S.gallery = S.gallery.filter(x => x.id !== p.id); persist(); return { ok: true }; },
+    async saveScore(game, data) { const id = game + '_' + session, cur = S.scores.find(x => x.id === id); if (cur) Object.assign(cur, data, { ts: Date.now() }); else S.scores.push({ id, game, emp: session, ...data, ts: Date.now() }); persist(); return { ok: true }; },
+    async bgCreate(opp) { const id = uid(), pts = Array(24).fill(0); pts[23] = 2; pts[12] = 5; pts[7] = 3; pts[5] = 5; pts[0] = -2; pts[11] = -5; pts[16] = -3; pts[18] = -5; S.bgGames.push({ id, a: session, b: opp, players: [session, opp], status: 'invite', pts, barW: 0, barB: 0, offW: 0, offB: 0, turn: 'w', dice: null, last: null, ts: Date.now() }); persist(); return { ok: true, id }; },
+    async bgUpdate(id, patch) { const g = S.bgGames.find(x => x.id === id); if (!g) return { error: 'המשחק לא נמצא' }; Object.assign(g, patch); persist(); return { ok: true }; },
+    async bgDelete(id) { S.bgGames = S.bgGames.filter(x => x.id !== id); persist(); return { ok: true }; },
     // The demo keeps everything on this phone, so it is always up to date.
     onSync() { },
     syncInfo: () => ({ state: 'live', last: Date.now(), pending: false }),
