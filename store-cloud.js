@@ -2,7 +2,11 @@
 // The app keeps working on plain arrays in S and calls save(); save() compares S with what
 // the server last sent and writes only the documents that changed.
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, indexedDBLocalPersistence, signInAnonymously, signOut } from 'firebase/auth';
+import {
+  initializeAuth, indexedDBLocalPersistence, signInAnonymously, signOut,
+  GoogleAuthProvider, linkWithPopup, linkWithCredential, signInWithPopup, signInWithCredential
+} from 'firebase/auth';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import {
   initializeFirestore, persistentLocalCache, doc, getDoc, setDoc, deleteDoc,
   collection, query, where, onSnapshot, writeBatch, getDocs
@@ -20,6 +24,22 @@ const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries'
 // Shown to everyone, never written from this list (each phone writes only its own shifts).
 const READONLY = { openShifts: 'openShifts' };
 const PUBLIC_CATS = ['drinks', 'salads'];
+// Google sign-in inside the Android app goes through the phone's own Google account picker
+// (Google does not allow signing in from inside an app's web view).
+const NativeAuth = registerPlugin('FirebaseAuthentication');
+const nativeGoogle = () => Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('FirebaseAuthentication');
+const maskMail = m => String(m || '').replace(/^(.{2})[^@]*(@.*)$/, '$1•••$2');
+const gmailOf = e => (e && e.google ? { google: String(e.google).trim().toLowerCase() } : {});
+const googleErr = e => {
+  const c = String((e && (e.code || e.message)) || '');
+  if (/popup-closed|cancelled-popup|cancel|12501|16:/i.test(c)) return { cancel: true };
+  if (/popup-blocked/.test(c)) return { error: 'הדפדפן חסם את חלון ההתחברות. אפשרו חלונות קופצים לאתר ונסו שוב' };
+  if (/operation-not-supported|web-storage-unsupported/.test(c)) return { error: 'אי אפשר להתחבר עם Google מכאן. באייפון: פתחו את האתר בספארי עצמו ונסו שוב' };
+  if (/network/i.test(c)) return { error: 'אין חיבור לאינטרנט. נסו שוב' };
+  if (/unauthorized-domain/.test(c)) return { error: 'האתר עוד לא מאושר להתחברות עם Google' };
+  if (/developer|10:|DEVELOPER_ERROR|no credential/i.test(c)) return { error: 'ההתחברות עם Google עוד לא מוכנה בגרסה הזו של האפליקציה. התקינו את הגרסה החדשה' };
+  return { error: 'ההתחברות עם Google נכשלה: ' + c };
+};
 
 const stable = v => {
   if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
@@ -53,7 +73,16 @@ export function createCloudStore(config) {
   let namesSynced = null;
   const changeCbs = [], errorCbs = [];
   const emit = () => changeCbs.forEach(f => f());
-  const fail = e => { console.error(e); errorCbs.forEach(f => f(errText(e))); };
+  const fail = e => { console.error(e); if (/permission/i.test((e && e.code) || '')) recheck(); errorCbs.forEach(f => f(errText(e))); };
+  // A login that requires Google, on a phone that is not signed in with that Google account: { email, phone, num }.
+  let needG = null, rechecking = false;
+  // Access was refused mid-session: maybe the manager just required Google for this employee.
+  async function recheck() {
+    if (rechecking || !empId) return; rechecking = true;
+    try {
+      if (!(await linkSession()) && needG) { unsubs.forEach(u => u()); unsubs = []; empId = null; S.currentUser = null; mgr = false; emit(); }
+    } finally { rechecking = false; }
+  }
 
   // ---- mapping between S and Firestore documents ----
   function desired(col) {
@@ -67,8 +96,8 @@ export function createCloudStore(config) {
       S.employees.forEach(e => {
         if (!e.phone) return;
         // Only the owner's own phone writes the owner's login record.
-        if (e.owner) { if (owner && e.id === empId) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), admin: true, owner: true }); return; }
-        m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), owner: false, ...(e.admin ? { admin: true } : {}) });
+        if (e.owner) { if (owner && e.id === empId) m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), admin: true, owner: true, ...gmailOf(e) }); return; }
+        m.set(normPhone(e.phone), { empId: e.id, num: String(e.num), owner: false, ...(e.admin ? { admin: true } : {}), ...gmailOf(e) });
       });
     }
     return m;
@@ -206,6 +235,10 @@ export function createCloudStore(config) {
       const { phone, num } = s.data();
       const l = await getDoc(doc(db, 'logins', phone));
       if (!l.exists() || String(l.data().num) !== String(num)) { await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { }); return false; }
+      // The manager set a Google account for this employee: this phone must be signed in with it too.
+      const g = String(l.data().google || '').toLowerCase();
+      if (g && String(u.email || '').toLowerCase() !== g) { needG = { email: g, phone, num: String(num) }; return false; }
+      needG = null;
       empId = l.data().empId; myPhone = phone; myNum = String(num); S.currentUser = empId; myLogin = l.data();
       owner = l.data().owner === true;
       permAdmin = l.data().admin === true || owner;
@@ -223,11 +256,11 @@ export function createCloudStore(config) {
       b.set(doc(db, 'config', 'owner'), { empId: id });
       const pub = clean((({ id: _, ...r }) => r)(e)); PRIVATE.forEach(k => delete pub[k]); pub.admin = true;
       b.set(doc(db, 'employees', id), pub);
-      b.set(doc(db, 'logins', normPhone(e.phone)), { empId: id, num: String(e.num), admin: true, owner: true });
+      b.set(doc(db, 'logins', normPhone(e.phone)), { empId: id, num: String(e.num), admin: true, owner: true, ...gmailOf(e) });
       b.set(doc(db, 'config', 'public'), { ownerSet: true }, { merge: true });
       await withTimeout(b.commit());
       ownerSet = true;
-      if (id === empId) { owner = true; permAdmin = true; mgr = true; myLogin = { empId: id, num: String(e.num), admin: true, owner: true }; }
+      if (id === empId) { owner = true; permAdmin = true; mgr = true; myLogin = { empId: id, num: String(e.num), admin: true, owner: true, ...gmailOf(e) }; }
       subscribe();
       return { ok: true };
     } catch (err) { return { error: errText(err) }; }
@@ -370,8 +403,51 @@ export function createCloudStore(config) {
         if (/permission/i.test(e.code || '')) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
         return { error: errText(e) };
       }
-      if (!(await linkSession())) return { error: 'מספר הטלפון או מספר העובד לא נכונים' };
+      if (!(await linkSession())) return needG ? { needGoogle: true } : { error: 'מספר הטלפון או מספר העובד לא נכונים' };
       mgr = permAdmin; subscribe(); return { ok: true };
+    },
+
+    // ---- second step of the login: the employee's Google account ----
+    needGoogle: () => needG ? maskMail(needG.email) : null,
+    async googleSignIn() {
+      if (!needG) return { error: 'צריך להתחבר מחדש' };
+      const want = needG.email, before = auth.currentUser;
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account', login_hint: want });
+      try {
+        let cred = null;
+        if (nativeGoogle()) {
+          const r = await NativeAuth.signInWithGoogle({ skipNativeAuth: true });
+          if (!r || !r.credential || !r.credential.idToken) return { error: 'ההתחברות עם Google לא הושלמה' };
+          cred = GoogleAuthProvider.credential(r.credential.idToken, r.credential.accessToken || null);
+        }
+        // Keep the same sign-in when possible (link Google to it); a phone already signed in with another
+        // Google account, or a Google account already used on another phone, switches to that account.
+        const linkedG = before && before.providerData.some(p => p.providerId === 'google.com');
+        try {
+          if (!before || linkedG) await (cred ? signInWithCredential(auth, cred) : signInWithPopup(auth, provider));
+          else await (cred ? linkWithCredential(before, cred) : linkWithPopup(before, provider));
+        } catch (e) {
+          if (!/credential-already-in-use|email-already-in-use/.test(e.code || '')) throw e;
+          const c = GoogleAuthProvider.credentialFromError(e) || cred;
+          if (!c) throw e;
+          await signInWithCredential(auth, c);
+        }
+        const u = auth.currentUser;
+        await u.getIdToken(true);
+        if (String(u.email || '').toLowerCase() !== want) return { error: `התחברת עם ${u.email || 'חשבון אחר'}. לעובד הזה רשום ${maskMail(want)}` };
+        if (!before || u.uid !== before.uid) await withTimeout(setDoc(doc(db, 'sessions', u.uid), { phone: needG.phone, num: needG.num, at: Date.now() }));
+        if (!(await linkSession())) return { error: needG ? 'החשבון לא תואם' : 'מספר הטלפון או מספר העובד לא נכונים' };
+        mgr = permAdmin; subscribe(); emit(); return { ok: true };
+      } catch (e) { console.warn('google', e); return googleErr(e); }
+    },
+    // Back to the login screen (another employee, or a mistake in the details).
+    async cancelGoogle() {
+      needG = null;
+      const u = auth.currentUser;
+      if (u) await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
+      await signOut(auth).catch(() => { });
+      emit();
     },
 
     async logout() {
