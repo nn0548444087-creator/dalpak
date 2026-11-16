@@ -12,7 +12,12 @@
           "package_name": "com.dalpak.store"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "531855451338-6cmn5v1tttc1fcasq01fa864801elvl6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyA0l8koTaHHXqd0X-uh-PjS2XaAg-8yflA"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "531855451338-6cmn5v1tttc1fcasq01fa864801elvl6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
