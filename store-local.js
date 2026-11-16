@@ -1,6 +1,6 @@
 // Demo store: keeps everything in this device's localStorage, starting from sample data.
 // Used when firebase-config.js is not filled in.
-import { H, DAY, uid, sod, dateKey, prevMonthKey, normPhone, rng, buildSummary } from './util.js';
+import { H, DAY, uid, sod, dateKey, prevMonthKey, normPhone, rng, buildSummary, AREAS } from './util.js';
 
 const LS = 'dalpak-demo-v3', LS_SESSION = 'dalpak-session';
 
@@ -75,8 +75,13 @@ export function createLocalStore() {
     S.currentUser = session; persist();
   };
   load();
-  mgr = store_perm();
-  function store_perm() { const e = S.employees.find(x => x.id === session) || {}; return !!(e.admin || e.owner); }
+  // Demo permissions: נועה (e1) is the owner with everything; the others are regular employees.
+  const ALL = Object.fromEntries(AREAS.map(a => [a, 'edit'])), BASIC = { reels: 'edit', chat: 'edit' };
+  if (!S.members) S.members = S.employees.map(e => ({ id: e.id + '@demo.local', email: e.id + '@demo.local', empId: e.id, perms: e.id === 'e1' ? ALL : BASIC, ...(e.id === 'e1' ? { owner: true } : {}) }));
+  if (!S.signups) S.signups = [{ id: 'roi@demo.local', email: 'roi@demo.local', name: 'רועי (הדגמה)', ts: Date.now() }];
+  const myMem = () => S.members.find(m => m.empId === session);
+  const lv = a => session === 'viewer' ? 'view' : (m => !m ? 'none' : m.owner ? 'edit' : (m.perms[a] || 'none'))(myMem());
+  mgr = false;
   S.openShifts = S.shifts.filter(s => s.status === 'open');
   const store = {
     mode: 'local',
@@ -88,9 +93,24 @@ export function createLocalStore() {
     async setPushPrefs(p) { try { localStorage.setItem('push-prefs-' + session, JSON.stringify(p)); } catch (e) { } },
     async testPush() { },
     session: () => session,
-    isManager: () => mgr,
-    hasOwner: () => S.employees.some(e => e.owner),
-    isPermAdmin: () => { const e = S.employees.find(x => x.id === session) || {}; return !!(e.admin || e.owner); },
+    isManager: () => session === 'viewer' || AREAS.some(a => !['reels', 'chat', 'deliv', 'inv'].includes(a) && lv(a) !== 'none'),
+    perm: lv,
+    perms: () => ({ ...((myMem() || {}).perms || {}) }),
+    myEmail: () => (myMem() || {}).email || null,
+    ownerEmp: () => 'e1',
+    AREAS,
+    pending: () => null,
+    async googleLogin() { return { error: 'בגרסת הדמו נכנסים עם טלפון ומספר עובד' }; },
+    async approve(email, { empId: id, newEmp, perms: p }) {
+      let eid = id; if (!eid && newEmp) { eid = uid(); S.employees.push({ id: eid, num: String(Math.max(100, ...S.employees.map(e => parseInt(e.num) || 0)) + 1), ...newEmp }); }
+      if (!eid) return { error: 'צריך לבחור עובד' };
+      S.members = S.members.filter(m => m.empId !== eid && m.id !== email);
+      S.members.push({ id: email, email, empId: eid, perms: p || BASIC, ...(eid === 'e1' ? { owner: true } : {}) });
+      S.signups = S.signups.filter(x => x.id !== email); persist(); listeners.forEach(f => f()); return { ok: true, empId: eid };
+    },
+    async reject(email) { S.signups = S.signups.filter(x => x.id !== email); persist(); return { ok: true }; },
+    async setPerms(email, p) { const m = S.members.find(x => x.id === email); if (!m) return { error: 'החשבון לא נמצא' }; m.perms = p; persist(); return { ok: true }; },
+    async unlink(email) { S.members = S.members.filter(x => x.id !== email); persist(); return { ok: true }; },
     isViewer: () => session === 'viewer',
     isPoster: () => session === 'news',
     async setPoster(phone, num) { S.posterLogin = phone ? { phone, num: String(num) } : null; persist(); return { ok: true }; },
@@ -98,17 +118,11 @@ export function createLocalStore() {
     async uploadReel(meta, parts, onProg) { const id = uid(); PARTS.set(id, parts); S.reels.push({ id, ...meta, by: session, ts: Date.now(), ready: true, parts: parts.length, ...(meta.type === 'photos' ? { inline: parts } : {}) }); onProg && onProg(1); persist(); return { ok: true, id }; },
     async loadParts(id) { const r = S.reels.find(x => x.id === id); return PARTS.get(id) || (r && r.inline) || []; },
     async deleteReel(r) { PARTS.delete(r.id); S.reels = S.reels.filter(x => x.id !== r.id); S.reelComments = S.reelComments.filter(c => c.reel !== r.id); persist(); },
-    isOwner: () => !!(S.employees.find(e => e.id === session) || {}).owner,
-    async setOwner(id) { const e = S.employees.find(x => x.id === id); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; if (id === session) mgr = true; persist(); return { ok: true }; },
-    async claimOwner() { const e = S.employees.find(x => x.id === session); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; mgr = true; persist(); return { ok: true }; },
+    isOwner: () => !!(myMem() || {}).owner,
     // The demo keeps everything on this phone, so it is always up to date.
     onSync() { },
     syncInfo: () => ({ state: 'live', last: Date.now(), pending: false }),
-    // Google sign-in is checked only in the real (cloud) app.
-    needGoogle: () => null,
     googleError: () => '',
-    async googleSignIn() { return { ok: true }; },
-    async cancelGoogle() { },
     // Closing a shift by location (demo: kept on this phone).
     async getGeoCfg() { return S.geoCfg || null; },
     async setGeoCfg(c) { S.geoCfg = { on: !!c.on, lat: c.lat ?? null, lng: c.lng ?? null, acc: c.acc ?? null, radius: +c.radius || 150, grace: +c.grace || 75 }; persist(); },
