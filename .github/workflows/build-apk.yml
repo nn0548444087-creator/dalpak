@@ -110,7 +110,10 @@ jobs:
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE }}
         run: |
-          if [ -n "$KS" ]; then mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore && echo "fixed key in place"
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > android/app/dalpak.keystore
+            printf '\nandroid {\n    signingConfigs {\n        debug {\n            storeFile file("dalpak.keystore")\n            storePassword "android"\n            keyAlias "androiddebugkey"\n            keyPassword "android"\n        }\n    }\n}\n' >> android/app/build.gradle
+            keytool -list -v -keystore android/app/dalpak.keystore -storepass android | grep -m1 'SHA1:'
           else echo "::warning::The ANDROID_KEYSTORE secret is missing, so Google sign-in will not work in this APK"; fi
       - name: Build the APK
         working-directory: android
