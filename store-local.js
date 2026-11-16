@@ -101,6 +101,9 @@ export function createLocalStore() {
     isOwner: () => !!(S.employees.find(e => e.id === session) || {}).owner,
     async setOwner(id) { const e = S.employees.find(x => x.id === id); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; if (id === session) mgr = true; persist(); return { ok: true }; },
     async claimOwner() { const e = S.employees.find(x => x.id === session); if (!e) return { error: 'העובד לא נמצא' }; e.owner = true; e.admin = true; mgr = true; persist(); return { ok: true }; },
+    // The demo keeps everything on this phone, so it is always up to date.
+    onSync() { },
+    syncInfo: () => ({ state: 'live', last: Date.now(), pending: false }),
     // Google sign-in is checked only in the real (cloud) app.
     needGoogle: () => null,
     async googleSignIn() { return { ok: true }; },
