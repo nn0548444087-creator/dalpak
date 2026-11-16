@@ -106,6 +106,7 @@ export function createLocalStore() {
     syncInfo: () => ({ state: 'live', last: Date.now(), pending: false }),
     // Google sign-in is checked only in the real (cloud) app.
     needGoogle: () => null,
+    googleError: () => '',
     async googleSignIn() { return { ok: true }; },
     async cancelGoogle() { },
     // Closing a shift by location (demo: kept on this phone).
