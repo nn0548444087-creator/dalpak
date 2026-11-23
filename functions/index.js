@@ -10,7 +10,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 initializeApp();
 const db = getFirestore();
 const SITE = 'https://nn0548444087-creator.github.io/dalpak/';
-const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo', 'signups', 'bgGames'];
+const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo', 'signups', 'bgGames', 'coinEvents', 'duels'];
 
 const first = n => String(n || '').trim().split(/\s+/)[0] || '';
 const cut = (t, n = 120) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -221,11 +221,74 @@ async function onSignup(before, after) {
   await send(await managers(true), 'בקשת הצטרפות חדשה', `${who} נכנס/ה לאפליקציה ומחכה לאישור שלך`, { view: 'staff' }, 'alerts');
 }
 
+/* ---------- coins: one shared purse per employee for all the games ----------
+   Everyone starts with 200. Only this server changes a purse. The moment one employee holds 55% of all the coins,
+   the purse "breaks" and everyone goes back to 200. wallets/{emp} = { coins, bet, earn: { day, n } }. */
+const COIN_START = 200, COIN_BREAK = 0.55, STAKES = [10, 20, 30, 40, 50], EARN_CAP = 150;
+const SUDOKU_COINS = { easy: 5, medium: 10, hard: 18, expert: 30, daily: 15 };
+const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+// plan(t, bal, w) reads what it needs and returns { deltas: { empId: change }, set: { empId: extra wallet fields }, after } or null.
+async function coinTx(plan) {
+  let broke = null;
+  await db.runTransaction(async t => {
+    broke = null;
+    const [emps, ws] = await Promise.all([t.get(db.collection('employees')), t.get(db.collection('wallets'))]);
+    const bal = {}, w = {}; emps.docs.forEach(d => { if (d.id !== 'news') { bal[d.id] = COIN_START; w[d.id] = {}; } });
+    let info = {}; ws.docs.forEach(d => { if (d.id === '_info') info = d.data(); else if (d.id in bal) { w[d.id] = d.data(); if (typeof d.data().coins === 'number') bal[d.id] = d.data().coins; } });
+    const p = await plan(t, bal, w); if (!p) return;
+    const changed = new Set(Object.keys(p.set || {}).filter(id => id in bal));
+    Object.entries(p.deltas || {}).forEach(([id, d]) => { if (!(id in bal) || !d) return; bal[id] = Math.max(0, Math.round(bal[id] + d)); changed.add(id); });
+    const ids = Object.keys(bal), total = ids.reduce((s, id) => s + bal[id], 0), top = ids.slice().sort((a, b) => bal[b] - bal[a])[0];
+    if (ids.length > 1 && total > 0 && bal[top] >= total * COIN_BREAK) {
+      broke = top;
+      ws.docs.forEach(d => { if (d.id !== '_info') t.delete(d.ref); });
+      t.set(db.collection('wallets').doc('_info'), { resetAt: Date.now(), by: top, top: bal[top], n: (info.n || 0) + 1 });
+    } else changed.forEach(id => t.set(db.collection('wallets').doc(id), { ...w[id], ...((p.set || {})[id] || {}), coins: bal[id], ts: Date.now() }));
+    if (p.after) p.after(t);
+  });
+  if (broke) {
+    const emps = await db.collection('employees').get(), who = first(await empName(broke)) || 'מישהו';
+    await send(emps.docs.map(d => d.id), 'הקופה נשברה! 🪙', `${who} הגיע/ה ל-55% מכל המטבעות. כולם חוזרים ל-200`, { view: 'fun' }, 'msg');
+  }
+}
+// What the app reports: a Snake score, a solved Sudoku, a bet against the computer and a win against it.
+// Coins earned by playing alone are capped per day; a win pays only the bet that is open on the server.
+async function onCoin(before, after, id) {
+  if (before || !after || !after.emp) return;
+  const ref = db.collection('coinEvents').doc(id);
+  await coinTx(async (t, bal, w) => {
+    const cur = await t.get(ref); if (!cur.exists) return null;
+    const e = cur.data(), me = e.emp, my = w[me] || {}; if (!(me in bal)) return { after: tt => tt.delete(ref) };
+    let d = 0, set = {};
+    if (e.kind === 'bet') { const st = STAKES.includes(e.stake) ? Math.min(e.stake, bal[me]) : 0; d = -st; set = { bet: st }; }
+    else if (e.kind === 'win') { d = 2 * (my.bet || 0); set = { bet: 0 }; }
+    else if (e.kind === 'lose') set = { bet: 0 };
+    else {
+      const raw = e.kind === 'snake' ? Math.min(30, Math.floor((+e.score || 0) / 5))
+        : e.kind === 'sudoku' ? Math.max(0, (SUDOKU_COINS[e.level] || 0) - 3 * (+e.hints || 0) - 2 * (+e.errors || 0)) : 0;
+      const earn = my.earn && my.earn.day === today() ? my.earn.n : 0; d = Math.max(0, Math.min(raw, EARN_CAP - earn));
+      set = { earn: { day: today(), n: earn + d } };
+    }
+    return { deltas: { [me]: d }, set: { [me]: set }, after: tt => tt.delete(ref) };
+  });
+}
+// A finished game between two employees that was played for coins: the loser pays the winner (as much as they have).
+async function settleGame(col, id) {
+  const ref = db.collection(col).doc(id);
+  await coinTx(async (t, bal) => {
+    const cur = await t.get(ref); if (!cur.exists) return null;
+    const g = cur.data(); if (g.status !== 'done' || g.settled || !STAKES.includes(g.stake) || ![g.a, g.b].includes(g.winner)) return null;
+    const loser = g.winner === g.a ? g.b : g.a, amt = Math.min(g.stake, bal[loser] || 0);
+    return { deltas: { [g.winner]: amt, [loser]: -amt }, after: tt => tt.update(ref, { settled: true, paid: amt }) };
+  });
+}
+
 // Backgammon between employees: the invitation, and whose turn it is.
-async function onBg(before, after) {
+async function onBg(before, after, id) {
   if (!after) return;
+  if (before && after.status === 'done' && before.status !== 'done' && after.stake && !after.settled) await settleGame('bgGames', id).catch(e => console.error('settle', id, e));
   const name = async id => first(await empName(id)) || 'עובד';
-  if (!before && after.status === 'invite') return send([after.b], 'הזמנה לשש בש 🎲', `${await name(after.a)} מזמין/ה אותך למשחק`, { view: 'bg' }, 'msg');
+  if (!before && after.status === 'invite') return send([after.b], 'הזמנה לשש בש 🎲', `${await name(after.a)} מזמין/ה אותך למשחק${after.stake ? ` על ${after.stake} מטבעות` : ''}`, { view: 'bg' }, 'msg');
   if (!before) return;
   if (before.status === 'invite' && after.status === 'play') return send([after.a], 'שש בש 🎲', `${await name(after.b)} אישר/ה את המשחק`, { view: 'bg' }, 'msg');
   if (after.status === 'done' && before.status !== 'done') {
@@ -236,6 +299,27 @@ async function onBg(before, after) {
   if (after.status === 'play' && before.turn !== after.turn) {
     const to = after.turn === 'w' ? after.a : after.b, from = after.turn === 'w' ? after.b : after.a;
     return send([to], 'שש בש 🎲', `התור שלך מול ${await name(from)}`, { view: 'bg' }, 'msg');
+  }
+}
+
+// Chess and checkers between employees: the same messages as backgammon.
+const DUEL_NAME = { chess: 'שחמט ♟️', dama: 'דמקה ⛀' };
+async function onDuel(before, after, id) {
+  if (!after) return;
+  if (before && after.status === 'done' && before.status !== 'done' && after.stake && !after.settled) await settleGame('duels', id).catch(e => console.error('settle', id, e));
+  const name = async id => first(await empName(id)) || 'עובד', g = DUEL_NAME[after.game] || 'משחק';
+  if (!before && after.status === 'invite') return send([after.b], `הזמנה ל${g}`, `${await name(after.a)} מזמין/ה אותך למשחק${after.stake ? ` על ${after.stake} מטבעות` : ''}`, { view: 'duel' }, 'msg');
+  if (!before) return;
+  if (before.status === 'invite' && after.status === 'play') return send([after.a], g, `${await name(after.b)} אישר/ה את המשחק`, { view: 'duel' }, 'msg');
+  if (after.status === 'done' && before.status !== 'done') {
+    if (!after.winner) return send(after.players, g, 'המשחק נגמר בתיקו', { view: 'duel' }, 'msg');
+    const loser = after.winner === after.a ? after.b : after.a;
+    if (after.resign) return send([after.winner], `${g} 🏆`, `${await name(after.resign)} פרש/ה. ניצחת!`, { view: 'duel' }, 'msg');
+    return send([loser], g, `${await name(after.winner)} ניצח/ה במשחק`, { view: 'duel' }, 'msg');
+  }
+  if (after.status === 'play' && before.turn !== after.turn) {
+    const to = after.turn === 'a' ? after.a : after.b, from = after.turn === 'a' ? after.b : after.a;
+    return send([to], g, `התור שלך מול ${await name(from)}`, { view: 'duel' }, 'msg');
   }
 }
 
@@ -251,6 +335,6 @@ exports.notify = onDocumentWritten({ document: '{col}/{id}', region: 'me-west1',
   if (!WATCHED.includes(col)) return;
   const before = event.data.before.exists ? event.data.before.data() : null;
   const after = event.data.after.exists ? event.data.after.data() : null;
-  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo, signups: onSignup, bgGames: onBg }[col];
+  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo, signups: onSignup, bgGames: onBg, coinEvents: onCoin, duels: onDuel }[col];
   try { await run(before, after, event.params.id); } catch (e) { console.error(col, event.params.id, e); }
 });
