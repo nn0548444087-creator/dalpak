@@ -251,7 +251,7 @@ async function coinTx(plan) {
     await send(emps.docs.map(d => d.id), 'הקופה נשברה! 🪙', `${who} הגיע/ה ל-55% מכל המטבעות. כולם חוזרים ל-200`, { view: 'fun' }, 'msg');
   }
 }
-// What the app reports: a Snake score, a solved Sudoku, a bet against the computer and a win against it.
+// What the app reports: a Snake score, a solved Sudoku, a bet against the computer and how that game ended.
 // Coins earned by playing alone are capped per day; a win pays only the bet that is open on the server.
 async function onCoin(before, after, id) {
   if (before || !after || !after.emp) return;
@@ -263,6 +263,7 @@ async function onCoin(before, after, id) {
     if (e.kind === 'bet') { const st = STAKES.includes(e.stake) ? Math.min(e.stake, bal[me]) : 0; d = -st; set = { bet: st }; }
     else if (e.kind === 'win') { d = 2 * (my.bet || 0); set = { bet: 0 }; }
     else if (e.kind === 'lose') set = { bet: 0 };
+    else if (e.kind === 'draw') { d = my.bet || 0; set = { bet: 0 }; }
     else {
       const raw = e.kind === 'snake' ? Math.min(30, Math.floor((+e.score || 0) / 5))
         : e.kind === 'sudoku' ? Math.max(0, (SUDOKU_COINS[e.level] || 0) - 3 * (+e.hints || 0) - 2 * (+e.errors || 0)) : 0;
