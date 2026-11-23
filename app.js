@@ -1,6 +1,6 @@
 import './style.css';
 import { createStore } from './store.js';
-import { BG_START, other, bgKey, turnInfo, applyMove, bgBest, bgWinner, pips, roll, createSnake } from './games.js';
+import { BG_START, other, bgKey, turnInfo, applyMove, bgBest, bgHint, bgWinner, pips, roll, createSnake, SNAKE_SKINS, SNAKE_SPEEDS, SNAKE_MODES, SUDOKU_LEVELS, SD_PEERS, makeSudoku, sudokuReward } from './games.js';
 import { shareFiles, download } from './share.js';
 import { distM, geoOnce, geoStart, geoStop, geoWatching, geoBackground, geoSettings } from './geo.js';
 import { AREAS, H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary, barcodeBits, barcodeSvg } from './util.js';
@@ -260,9 +260,9 @@ function render() {
   if (FUN_VIEWS.includes(view) && !funOk()) view = 'clock';
   if (view !== 'snake' && snakeG) { snakeG.destroy(); snakeG = null; }
   if (!invAll && (invTab === 'snacks' || invTab === 'all')) invTab = 'drinks';
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels, fun: vFun, gallery: vGallery, snake: vSnake, bg: vBg };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels, fun: vFun, gallery: vGallery, snake: vSnake, bg: vBg, sudoku: vSudoku };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
-  renderNav(); tick(); watchReels(); cleanReels(); watchMore(); if (view === 'snake') mountSnake(); syncShown = ''; updateSync();
+  renderNav(); tick(); watchReels(); cleanReels(); watchMore(); if (view === 'snake') mountSnake(); sdClock(); syncShown = ''; updateSync();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
   if (view === 'dm') { fitCompose(); markRead(); scrollDmEnd(); }
   if (view !== 'pos' && scanStop && !layerOpen()) { scanStop(); scanStop = null; }
@@ -278,6 +278,7 @@ function softRender() {
   if (view === 'dm' && !document.querySelector('.sheet')) { patchDm(); renderNav(); return; }
   // Games keep running: only the score table or the board is updated.
   if (view === 'snake') { updSnakeBoard(); renderNav(); return; }
+  if (view === 'sudoku' && !document.querySelector('.sheet')) { sdDraw(); renderNav(); return; }
   if (view === 'bg' && !document.querySelector('.sheet')) return patchBg();
   if (typing || document.querySelector('.sheet')) { renderPending = true; renderNav(); return; }
   if (view === 'reels') return patchReels();
@@ -2387,15 +2388,17 @@ const FORMS = {
 };
 const VIEW_OK = ['reel-share', 'sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 /* ---------- leisure: the shop's photo gallery, Snake and backgammon ---------- */
-const FUN_VIEWS = ['fun', 'gallery', 'snake', 'bg'];
+const FUN_VIEWS = ['fun', 'gallery', 'snake', 'bg', 'sudoku'];
 const funOk = () => !viewer && !poster;
 const scoreOf = (game, id = session()) => (S.scores || []).find(s => s.game === game && s.emp === id) || null;
 const dataToBlob = d => { const [h, b] = String(d).split(','), bin = atob(b), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Blob([u8], { type: (h.match(/data:([^;]+)/) || [])[1] || 'image/jpeg' }); };
 const shareDone = r => { if (r === 'saved') toast('הקובץ ירד למכשיר'); };
 const backFun = () => back('fun', 'חזרה לפנאי');
 function vFun() {
-  const g = galList(), sn = scoreOf('snake'), top = snakeRows()[0], wait = bgWaiting();
+  const g = galList(), sn = scoreOf('snake'), top = snakeRows('classic')[0], wait = bgWaiting(), have = coinsOf(), total = coinTotal() || 1;
+  const sdDone = sdStat(scoreOf('sudoku'), 'daily');
   return `<h2 class="vt">פנאי</h2>
+  <button class="coin-card" data-action="coins-open"><span class="cc-ic" aria-hidden="true">🪙</span><div class="cc-txt"><b>${coin(have)}</b><small>הקופה המשותפת לכל המשחקים · ${Math.round(have / total * 100)}% מכל המטבעות</small></div><span class="cc-go">${ic('chev', 'sm')}</span></button>
   <div class="fun-cards">
     <button class="fun-card" data-action="nav" data-view="gallery">
       <div class="fc-thumbs">${g.slice(0, 4).map(p => `<img src="${p.thumb}" alt="">`).join('') || `<span class="fc-ph">${ic('image')}</span>`}</div>
@@ -2403,11 +2406,15 @@ function vFun() {
     </button>
     <button class="fun-card" data-action="nav" data-view="snake">
       <span class="fc-ic" aria-hidden="true">🐍</span>
-      <div class="fc-txt"><b>סנייק</b><small>${sn ? `השיא שלך: ${sn.best || 0}` : 'עוד לא שיחקת'}${top ? ` · מוביל/ה: ${esc(first(emp(top.emp).name))} (${top.best})` : ''}</small></div>
+      <div class="fc-txt"><b>סנייק</b><small>6 מצבי משחק · ${sn && sn.plays ? `השיא שלך: ${sn.best || 0}` : 'עוד לא שיחקת'}${top ? ` · מוביל/ה: ${esc(first(emp(top.emp).name))} (${top.best})` : ''}</small></div>
+    </button>
+    <button class="fun-card" data-action="nav" data-view="sudoku">
+      <span class="fc-ic" aria-hidden="true">🔢</span>
+      <div class="fc-txt"><b>סודוקו</b><small>4 רמות וחידה יומית · ${sdDone ? `פתרת את היומית ב-${fmtClock(sdDone.best)}` : 'החידה היומית מחכה'}</small></div>
     </button>
     <button class="fun-card" data-action="nav" data-view="bg">
       <span class="fc-ic" aria-hidden="true">🎲</span>
-      <div class="fc-txt"><b>שש בש</b><small>נגד המחשב או נגד עובד אחר</small></div>
+      <div class="fc-txt"><b>שש בש</b><small>נגד המחשב או נגד עובד אחר · אפשר על מטבעות</small></div>
       ${wait ? `<span class="pill bad">${wait} מחכים לך</span>` : ''}
     </button>
   </div>`;
@@ -2462,19 +2469,43 @@ async function galPick(inp) {
 }
 document.addEventListener('change', e => { if (e.target.matches('input[data-gal-file]')) galPick(e.target); });
 
-/* Snake: one shared score table for everyone */
+/* Coins: one purse per employee for all the games (kept by the server). Everyone starts with 200;
+   when one employee holds 55% of all the coins, everyone goes back to 200. */
+const COIN_START = 200, STAKES = [10, 20, 30, 40, 50];
+const coinPlayers = () => S.employees.filter(e => e.id !== 'news' && e.name);
+const coinsOf = (id = session()) => { const w = (S.wallets || []).find(x => x.id === id); return w && typeof w.coins === 'number' ? w.coins : COIN_START; };
+const coinTotal = () => coinPlayers().reduce((t, e) => t + coinsOf(e.id), 0);
+const coinInfo = () => (S.wallets || []).find(x => x.id === '_info') || null;
+const coin = n => `<span class="coin num">🪙 ${Number(n || 0).toLocaleString('he-IL')}</span>`;
+const todayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+function coinsSheet() {
+  const total = coinTotal() || 1, rows = coinPlayers().map(e => ({ e, c: coinsOf(e.id) })).sort((a, b) => b.c - a.c), info = coinInfo();
+  sheet(`<h3>הקופה המשותפת 🪙</h3>
+    <p class="muted coin-rules">כל אחד מתחיל עם 200 מטבעות. מרוויחים בסנייק ובסודוקו, ומהמרים בשש בש על 10 עד 50 מטבעות. ברגע שמישהו מחזיק 55% מכל המטבעות, הקופה נשברת וכולם חוזרים ל-200.</p>
+    ${info && info.resetAt ? `<p class="muted coin-rules">הקופה נשברה ${ago(info.resetAt)}${emp(info.by).name ? ` על ידי ${esc(first(emp(info.by).name))}` : ''}.</p>` : ''}
+    <div class="list">${rows.map((r, i) => { const pc = Math.round(r.c / total * 100); return `<div class="row ${r.e.id === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(r.e, 'md')}<div class="row-main"><div class="row-title">${esc(r.e.name)}</div><div class="coin-bar" aria-hidden="true"><i style="width:${Math.min(100, pc / .55)}%" class="${pc >= 45 ? 'hot' : ''}"></i></div><div class="row-sub"><span>${pc}% מהקופה</span></div></div>${coin(r.c)}</div>`; }).join('')}</div>`);
+}
+
+/* Snake: six modes, each with its own table; speed and colour are kept on this phone. */
 let snakeG = null;
-const snakeRows = () => (S.scores || []).filter(s => s.game === 'snake' && (s.plays || 0) > 0 && emp(s.emp).name).sort((a, b) => (b.best || 0) - (a.best || 0) || (a.ts || 0) - (b.ts || 0));
 const MEDAL = ['🥇', '🥈', '🥉'];
+const SNAKE_CFG = 'dalpak-snake-cfg';
+let snakeCfg = (() => { try { return { skin: 'green', speed: 'normal', mode: 'classic', ...JSON.parse(localStorage.getItem(SNAKE_CFG) || '{}') }; } catch (e) { return { skin: 'green', speed: 'normal', mode: 'classic' }; } })();
+const saveSnakeCfg = () => { try { localStorage.setItem(SNAKE_CFG, JSON.stringify(snakeCfg)); } catch (e) { } };
+const snakeMode = () => SNAKE_MODES[snakeCfg.mode] ? snakeCfg.mode : 'classic';
+// The classic table keeps its old fields (best, plays, total); the other modes are under modes, the daily one under daily.
+const snakeStat = (s, mode) => !s ? null : mode === 'classic' ? (s.plays ? { best: s.best || 0, plays: s.plays, total: s.total || 0 } : null) : mode === 'daily' ? (s.daily && s.daily.day === todayKey() ? s.daily : null) : (s.modes && s.modes[mode]) || null;
+const snakeRows = (mode = snakeMode()) => (S.scores || []).filter(s => s.game === 'snake' && emp(s.emp).name).map(s => ({ emp: s.emp, ts: s.ts, ...(snakeStat(s, mode) || {}) })).filter(s => s.plays > 0).sort((a, b) => (b.best || 0) - (a.best || 0) || (a.ts || 0) - (b.ts || 0));
 function snakeBoardHtml() {
-  const rows = snakeRows();
-  return rows.map((s, i) => `<div class="row ${s.emp === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(emp(s.emp), 'md')}<div class="row-main"><div class="row-title">${esc(emp(s.emp).name)}</div><div class="row-sub"><span>${s.plays} משחקים</span><span>ממוצע ${Math.round((s.total || 0) / Math.max(1, s.plays))}</span></div></div><b class="num big-score">${s.best || 0}</b></div>`).join('')
-    || '<div class="row muted">עוד אף אחד לא שיחק. תהיו הראשונים!</div>';
+  return snakeRows().map((s, i) => `<div class="row ${s.emp === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(emp(s.emp), 'md')}<div class="row-main"><div class="row-title">${esc(emp(s.emp).name)}</div><div class="row-sub"><span>${s.plays} משחקים</span><span>ממוצע ${Math.round((s.total || 0) / Math.max(1, s.plays))}</span></div></div><b class="num big-score">${s.best || 0}</b></div>`).join('')
+    || `<div class="row muted">${snakeMode() === 'daily' ? 'עוד אף אחד לא שיחק היום. תהיו הראשונים!' : 'עוד אף אחד לא שיחק. תהיו הראשונים!'}</div>`;
 }
 function vSnake() {
-  const my = scoreOf('snake');
-  return backFun() + `<h2 class="vt">סנייק</h2>
-  <div class="snake-top"><span>ניקוד <b id="sn-score" class="num">0</b></span><span>השיא שלי <b id="sn-best" class="num">${my ? my.best || 0 : 0}</b></span></div>
+  const mode = snakeMode(), my = snakeStat(scoreOf('snake'), mode), M = SNAKE_MODES[mode];
+  return backFun() + `<div class="game-head"><h2 class="vt">סנייק</h2><button class="coin-chip" data-action="coins-open">${coin(coinsOf())}</button></div>
+  <div class="modes" role="tablist">${Object.entries(SNAKE_MODES).map(([k, m]) => `<button class="mode ${k === mode ? 'on' : ''}" role="tab" aria-selected="${k === mode}" data-action="snake-mode" data-v="${k}"><span aria-hidden="true">${m.icon}</span>${m.name}</button>`).join('')}</div>
+  <p class="muted snake-help">${M.desc}</p>
+  <div class="snake-top"><span>ניקוד <b id="sn-score" class="num">0</b></span><span id="sn-coins" class="muted">${coin(0)}</span><span>${mode === 'daily' ? 'השיא שלי היום' : 'השיא שלי'} <b id="sn-best" class="num">${my ? my.best || 0 : 0}</b></span></div>
   <div class="snake-wrap"><canvas id="snake" aria-label="לוח המשחק. החליקו או השתמשו בחיצים"></canvas></div>
   <div class="snake-pad" dir="ltr">
     <button data-action="snake-dir" data-d="u" aria-label="למעלה">▲</button>
@@ -2483,59 +2514,85 @@ function vSnake() {
     <button data-action="snake-dir" data-d="r" aria-label="ימינה">▶</button>
     <button data-action="snake-dir" data-d="d" aria-label="למטה">▼</button>
   </div>
-  <p class="muted snake-help">החליקו על הלוח או לחצו על החיצים. כל פרי = נקודה, והנחש מאיץ.</p>
-  <h3 class="sec">טבלת הניקוד של כולם</h3><div class="list" id="snake-board">${snakeBoardHtml()}</div>`;
+  <div class="snake-opts">
+    <div class="so-row"><span>מהירות</span><div class="seg-mini">${mode === 'daily' ? '<span class="muted">קבועה באתגר היומי</span>' : Object.entries(SNAKE_SPEEDS).map(([k, s]) => `<button class="${snakeCfg.speed === k ? 'on' : ''}" data-action="snake-speed" data-v="${k}">${s.name}</button>`).join('')}</div></div>
+    <div class="so-row"><span>צבע הנחש</span><div class="skins">${Object.entries(SNAKE_SKINS).map(([k, s]) => `<button class="skin ${snakeCfg.skin === k ? 'on' : ''} ${k}" style="${s.a ? `--a:${s.a};--b:${s.b}` : ''}" data-action="snake-skin" data-v="${k}" aria-label="${s.name}"></button>`).join('')}</div></div>
+  </div>
+  <p class="muted snake-help">כל פרי = נקודה. כל 5 פירות מופיע עיגול אדום ל-5 שניות: 7 נקודות בשנייה הראשונה, ופחות אחת בכל שנייה. כל 5 נקודות = מטבע (עד 30 במשחק).</p>
+  <h3 class="sec">טבלת הניקוד · ${M.name}${mode === 'daily' ? ' · היום' : ''}</h3><div class="list" id="snake-board">${snakeBoardHtml()}</div>`;
 }
 function mountSnake() {
   if (snakeG) { snakeG.destroy(); snakeG = null; }
   const cv = document.getElementById('snake'); if (!cv) return;
-  const size = Math.min(cv.parentElement.clientWidth || 340, 440), dpr = Math.min(3, window.devicePixelRatio || 1);
+  const size = Math.min(cv.parentElement.clientWidth || 340, 460), dpr = Math.min(3, window.devicePixelRatio || 1);
   cv.style.width = cv.style.height = size + 'px'; cv.width = cv.height = Math.round(size * dpr);
-  const cs = getComputedStyle(ROOT), v = n => cs.getPropertyValue(n).trim();
+  const cs = getComputedStyle(ROOT), v = n => cs.getPropertyValue(n).trim(), dark = matchMedia('(prefers-color-scheme: dark)').matches && ROOT.dataset.theme !== 'light' || ROOT.dataset.theme === 'dark';
+  const mode = snakeMode();
   snakeG = createSnake(cv, {
-    colors: { bg: v('--surface') || '#fff', grid: v('--sunk') || '#eee', head: v('--accent') || '#25528D', body: v('--ok') || '#2B7550', food: '#E5484D', eye: '#fff', veil: 'rgba(0,0,0,.5)', text: '#fff', font: v('--f-body') || 'sans-serif' },
-    onScore: s => { const e = document.getElementById('sn-score'); if (e) e.textContent = s; haptic(6); },
-    onOver: s => snakeOver(s)
+    colors: { bg: dark ? '#16301F' : '#BFE3A5', grid: dark ? '#1B3825' : '#B2DA96', food: '#E5484D', wall: dark ? '#5B6577' : '#6B5B4B', veil: 'rgba(8,14,24,.55)', font: v('--f-body') || 'sans-serif' },
+    skin: snakeCfg.skin, speed: snakeCfg.speed, mode, seed: mode === 'daily' ? +todayKey().replace(/\D/g, '') : undefined,
+    onScore: (s, gain, kind) => {
+      const e = document.getElementById('sn-score'); if (e) e.textContent = s;
+      const c = document.getElementById('sn-coins'); if (c) c.innerHTML = coin(Math.min(30, Math.floor(s / 5)));
+      haptic(kind === 'bonus' ? [15, 30, 15] : kind === 'power' ? 12 : 6);
+      if (kind === 'bonus') toast(`עיגול אדום! +${gain}`);
+    },
+    onOver: (s, info) => snakeOver(s, info)
   });
   let sx = 0, sy = 0, moved = false;
   cv.addEventListener('touchstart', e => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; moved = false; }, { passive: true });
   cv.addEventListener('touchmove', e => {
     e.preventDefault(); const t = e.touches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 20 || !snakeG) return;
-    if (!snakeG.running()) snakeG.start();
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 18 || !snakeG || snakeG.isOver()) return;
     snakeG.turn(Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)]); sx = t.clientX; sy = t.clientY; moved = true;
   }, { passive: false });
-  cv.addEventListener('click', () => { if (!moved && snakeG) { if (snakeG.isOver()) { const e = document.getElementById('sn-score'); if (e) e.textContent = 0; } snakeG.toggle(); } moved = false; });
+  cv.addEventListener('click', () => { if (!moved && snakeG) snakeTap(); moved = false; });
 }
-async function snakeOver(s) {
-  const my = scoreOf('snake') || {}, best = Math.max(my.best || 0, s);
+function snakeTap() {
+  if (snakeG.isOver()) { const e = document.getElementById('sn-score'); if (e) e.textContent = 0; const c = document.getElementById('sn-coins'); if (c) c.innerHTML = coin(0); }
+  snakeG.toggle();
+}
+async function snakeOver(s, info = {}) {
+  const mode = info.mode || snakeMode(), cur = scoreOf('snake'), my = snakeStat(cur, mode) || {}, best = Math.max(my.best || 0, s), coins = Math.min(30, Math.floor(s / 5));
   haptic([30, 40, 30]);
-  if (s > 0 && s > (my.best || 0)) toast(my.plays ? `שיא אישי חדש: ${s}! 🎉` : `ניקוד ראשון: ${s}`);
-  const r = await store.saveScore('snake', { best, plays: (my.plays || 0) + 1, total: (my.total || 0) + s });
+  if (s > 0 && s > (my.best || 0)) toast(my.plays ? `שיא אישי חדש: ${s}! 🎉${coins ? ` +${coins} 🪙` : ''}` : `ניקוד ראשון: ${s}${coins ? ` · +${coins} 🪙` : ''}`);
+  else if (coins) toast(`הרווחת ${coins} מטבעות 🪙`);
+  const st = { best, plays: (my.plays || 0) + 1, total: (my.total || 0) + s };
+  const r = await store.saveScore('snake', mode === 'classic' ? st : mode === 'daily' ? { daily: { day: todayKey(), ...st } } : { modes: { [mode]: st } });
   if (r && r.error) toast(r.error);
+  if (coins) store.coinEvent('snake', { score: s });
   const b = document.getElementById('sn-best'); if (b) b.textContent = best;
   updSnakeBoard();
 }
-function updSnakeBoard() { const b = document.getElementById('snake-board'); if (b) b.innerHTML = snakeBoardHtml(); }
+function updSnakeBoard() { const b = document.getElementById('snake-board'); if (b) b.innerHTML = snakeBoardHtml(); document.querySelectorAll('.coin-chip').forEach(c => { c.innerHTML = coin(coinsOf()); }); }
 const SNAKE_DIRS = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 document.addEventListener('keydown', e => {
-  if (view !== 'snake' || !snakeG || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '')) return;
-  if (SNAKE_DIRS[e.key]) { e.preventDefault(); if (!snakeG.running()) snakeG.start(); snakeG.turn(SNAKE_DIRS[e.key]); }
-  else if (e.key === ' ') { e.preventDefault(); snakeG.toggle(); }
+  if (view !== 'snake' || !snakeG || document.querySelector('.sheet') || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '')) return;
+  if (SNAKE_DIRS[e.key]) { e.preventDefault(); snakeG.turn(SNAKE_DIRS[e.key]); }
+  else if (e.key === ' ') { e.preventDefault(); snakeTap(); }
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden && snakeG) snakeG.pause(); });
+const SNAKE_ACT = {
+  'coins-open': () => coinsSheet(),
+  'snake-dir': d => { if (snakeG) snakeG.turn(SNAKE_DIRS[d.d]); },
+  'snake-go': () => { if (snakeG) snakeTap(); },
+  'snake-mode': d => { if (snakeG && snakeG.running()) snakeG.pause(); snakeCfg.mode = d.v; saveSnakeCfg(); render(); },
+  'snake-speed': d => { if (snakeG && snakeG.running()) return toast('אפשר לשנות מהירות בין משחקים'); snakeCfg.speed = d.v; saveSnakeCfg(); render(); },
+  'snake-skin': d => { snakeCfg.skin = d.v; saveSnakeCfg(); if (snakeG) snakeG.setSkin(d.v); document.querySelectorAll('.skin').forEach(b => b.classList.toggle('on', b.dataset.v === d.v)); }
+};
 
-/* backgammon: against the computer (kept on this phone) or against another employee (kept on the server) */
+/* backgammon: against the computer (kept on this phone) or against another employee (kept on the server).
+   Games can be played for coins: 10 to 50. Against the computer the bet is taken at the start and a win pays double;
+   between employees the loser pays the winner when the game ends. */
 const BG_AI = 'dalpak-bg-ai', BG_REC = 'dalpak-bg-recorded';
 let bg = null, bgBusy = false;
-const DIE = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 const bgBoardOf = g => ({ pts: (g.pts || []).slice(), bar: { w: g.barW || 0, b: g.barB || 0 }, off: { w: g.offW || 0, b: g.offB || 0 } });
 const bgFields = b => ({ pts: b.pts, barW: b.bar.w, barB: b.bar.b, offW: b.off.w, offB: b.off.b });
 const myGames = () => (S.bgGames || []).filter(g => (g.players || []).includes(session()));
 const bgMine = g => g.a === session() ? 'w' : 'b';
 const bgOppOf = g => g.a === session() ? g.b : g.a;
-const bgWaiting = () => myGames().filter(g => (g.status === 'invite' && g.b === session()) || (g.status === 'play' && g.turn === bgMine(g))).length;
-function bgSaveAi() { if (!bg || bg.mode !== 'ai') return; try { localStorage.setItem(BG_AI, JSON.stringify({ board: bg.board, me: bg.me, turn: bg.turn, t: bg.t, over: bg.over, last: bg.last })); } catch (e) { } }
+const bgWaiting = () => myGames().filter(g => (g.status === 'invite' && g.b === session()) || (g.status === 'play' && g.turn === bgMine(g))).length + duelWaiting();
+function bgSaveAi() { if (!bg || bg.mode !== 'ai') return; try { localStorage.setItem(BG_AI, JSON.stringify({ board: bg.board, me: bg.me, turn: bg.turn, t: bg.t, over: bg.over, last: bg.last, stake: bg.stake || 0 })); } catch (e) { } }
 function bgLoadAi() { try { return JSON.parse(localStorage.getItem(BG_AI) || 'null'); } catch (e) { return null; } }
 const bgRecorded = () => { try { return new Set(JSON.parse(localStorage.getItem(BG_REC) || '[]')); } catch (e) { return new Set(); } };
 // Each player counts their own wins and losses once (online games: once per finished game).
@@ -2544,50 +2601,80 @@ async function bgRecord(won, ai, gameId) {
   const c = scoreOf('bg') || {}, k = ai ? ['aiWins', 'aiLosses'] : ['wins', 'losses'];
   await store.saveScore('bg', { [won ? k[0] : k[1]]: (c[won ? k[0] : k[1]] || 0) + 1 });
 }
+// Board geometry (shared by the drawing and the animations).
+const BGD = { W: 376, H: 300, L: 6, PW: 26, BAR: 22, R: 12, TH: 118 };
+const bgPx = p => { const { L, PW, BAR } = BGD; return p < 6 ? L + 6 * PW + BAR + (5 - p) * PW : p < 12 ? L + (11 - p) * PW : p < 18 ? L + (p - 12) * PW : L + 6 * PW + BAR + (p - 18) * PW; };
+// Where the top checker of a place is drawn (k = which checker from the edge, 0-based).
+function bgXY(me, where, col, k) {
+  const { W, H, L, PW, BAR, R } = BGD;
+  if (where === 'bar') { const bx = L + 6 * PW + BAR / 2; return col === me ? [bx, H / 2 + 16 + k * 2 * (R - 2)] : [bx, H / 2 - 16 - k * 2 * (R - 2)]; }
+  if (where === 'off') { const tx = L + 12 * PW + BAR + 7, tw = W - tx - 9; return col === me ? [tx + tw / 2, H - 10 - (k + 1) * 8 + 3] : [tx + tw / 2, 10 + k * 8 + 3]; }
+  const p = me === 'w' ? where : 23 - where, x = bgPx(p) + PW / 2, bot = p < 12, kk = Math.min(k, 4);
+  return [x, bot ? H - 6 - R - kk * 2 * R : 6 + R + kk * 2 * R];
+}
+const bgCount = (b, where, col) => where === 'bar' ? b.bar[col] : where === 'off' ? b.off[col] : Math.abs(b.pts[where]);
+// One move, animated: the checker slides from where it was; a hit checker flies to the bar.
+function bgMoveAnim(before, after, col, m, me = bg.me) {
+  const from = bgXY(me, m.from, col, Math.max(0, bgCount(before, m.from, col) - 1)), to = bgXY(me, m.to, col, Math.max(0, bgCount(after, m.to, col) - 1));
+  const a = [{ where: m.to, col, dx: from[0] - to[0], dy: from[1] - to[1] }];
+  if (m.hit) { const o = other(col), f2 = bgXY(me, m.to, o, 0), t2 = bgXY(me, 'bar', o, Math.max(0, after.bar[o] - 1)); a.push({ where: 'bar', col: o, dx: f2[0] - t2[0], dy: f2[1] - t2[1] }); }
+  return a;
+}
 function bgFromDoc(g) {
   const me = bgMine(g), board = bgBoardOf(g), myTurn = g.status === 'play' && g.turn === me;
   const prev = bg && bg.mode === 'online' && bg.id === g.id ? bg : null;
   let t = null;
   if (myTurn && g.dice) t = prev && prev.t && prev.t.dice.join() === g.dice.join() && bgKey(prev.t.start) === bgKey(board) ? prev.t : { start: board, dice: g.dice, played: [], board };
   const over = g.status === 'done' ? { winner: g.winner === session() ? me : other(me), mult: g.mult || 1, resign: g.resign || null } : null;
-  bg = { mode: 'online', id: g.id, me, opp: bgOppOf(g), board, turn: g.turn, t, last: g.last || null, over, status: g.status, sel: prev && t === prev.t ? prev.sel : null };
+  // The other player's last turn: replay it with the animation when it just arrived.
+  let anim = null, oppDice = null;
+  if (prev && g.last && g.last.by !== me && bgKey(prev.board) !== bgKey(board) && !prev.t) {
+    oppDice = g.last.dice; anim = [];
+    let b = prev.board; for (const s of g.last.moves || []) { const [f, to] = s.split('>'), m = { from: f === 'bar' ? 'bar' : +f, to: to === 'off' ? 'off' : +to }; m.hit = typeof m.to === 'number' && b.pts[m.to] && Math.sign(b.pts[m.to]) !== (g.last.by === 'w' ? 1 : -1); const nb = applyMove(b, g.last.by, m); anim.push(...bgMoveAnim(b, nb, g.last.by, m, me)); b = nb; }
+  }
+  bg = { mode: 'online', id: g.id, me, opp: bgOppOf(g), board, turn: g.turn, t, last: g.last || null, over, status: g.status, stake: g.stake || 0, paid: g.paid, sel: prev && t === prev.t ? prev.sel : null, anim, oppDice: oppDice || (prev && prev.oppDice) || null };
   if (over) bgRecord(g.winner === session(), false, g.id);
 }
-function bgStartAi(fresh) {
+function bgStartAi(fresh, stake = 0) {
   const s = fresh ? null : bgLoadAi();
-  if (s && !s.over) { bg = { mode: 'ai', me: s.me || 'w', board: s.board, turn: s.turn, t: s.t, over: null, last: s.last, sel: null }; if (bg.turn !== bg.me) bgAiTurn(); return; }
-  bg = { mode: 'ai', me: 'w', board: BG_START(), turn: null, t: null, over: null, last: null, sel: null };
+  if (s && !s.over) { bg = { mode: 'ai', me: s.me || 'w', board: s.board, turn: s.turn, t: s.t, over: null, last: s.last, sel: null, stake: s.stake || 0 }; if (bg.turn !== bg.me) setTimeout(bgAiTurn, 400); return; }
+  if (stake) store.coinEvent('bet', { stake });
+  bg = { mode: 'ai', me: 'w', board: BG_START(), turn: null, t: null, over: null, last: null, sel: null, stake };
   // Opening roll: each side rolls one die, the higher one starts.
   let d; do d = roll(); while (d[0] === d[1]);
-  bg.turn = d[0] > d[1] ? 'w' : 'b'; bgSaveAi();
-  toast(`פתיחה: ${DIE[d[0] - 1]} מול ${DIE[d[1] - 1]} · ${bg.turn === 'w' ? 'את/ה מתחיל/ה' : 'המחשב מתחיל'}`);
-  if (bg.turn === 'b') setTimeout(bgAiTurn, 900);
+  bg.turn = d[0] > d[1] ? 'w' : 'b'; bg.opening = d; bg.rollAnim = true; bgSaveAi();
+  toast(`פתיחה: ${d[0]} מול ${d[1]} · ${bg.turn === 'w' ? 'את/ה מתחיל/ה' : 'המחשב מתחיל'}${stake ? ` · על ${stake} מטבעות` : ''}`);
+  if (bg.turn === 'b') setTimeout(bgAiTurn, 1300);
 }
 function bgAiTurn() {
   if (!bg || bg.mode !== 'ai' || bg.over) return;
-  const ai = other(bg.me), d = roll(); bg.turn = ai; bg.aiDice = d; drawBg();
+  const ai = other(bg.me), d = roll(); bg.turn = ai; bg.aiDice = d; bg.opening = null; bg.rollAnim = true; drawBg();
   setTimeout(() => {
     if (!bg || bg.mode !== 'ai') return;
     const best = bgBest(bg.board, ai, d); let i = 0;
     const step = () => {
       if (!bg || bg.mode !== 'ai') return;
-      if (i < best.moves.length) { bg.board = applyMove(bg.board, ai, best.moves[i]); bg.hl = best.moves[i]; i++; drawBg(); return setTimeout(step, 450); }
-      bg.last = { by: ai, dice: d, moves: best.moves.map(m => `${m.from}>${m.to}`) }; bg.aiDice = null; bg.hl = null;
+      if (i < best.moves.length) { const b0 = bg.board, m = best.moves[i]; bg.board = applyMove(b0, ai, m); bg.anim = bgMoveAnim(b0, bg.board, ai, m); if (m.hit) haptic([20, 30, 20]); i++; drawBg(); return setTimeout(step, 520); }
+      bg.last = { by: ai, dice: d, moves: best.moves.map(m => `${m.from}>${m.to}`) }; bg.aiDice = null; bg.oppDice = d;
       const w = bgWinner(bg.board); if (w) return bgOver(w);
       if (!best.moves.length) toast('למחשב אין מהלכים אפשריים');
       bg.turn = bg.me; bgSaveAi(); drawBg();
     };
     step();
-  }, 900);
+  }, 1100);
 }
 function bgOver(w, resign) {
   bg.over = { ...w, resign: resign || null }; bg.turn = null; bg.t = null; bgSaveAi(); drawBg();
   const won = w.winner === bg.me;
-  toast(won ? (w.mult === 3 ? 'ניצחון משולש (בקגמון)! 🏆' : w.mult === 2 ? 'ניצחון כפול (מארס)! 🏆' : 'ניצחת! 🏆') : 'הפעם המחשב ניצח');
-  if (bg.mode === 'ai') bgRecord(won, true);
+  if (bg.mode === 'ai') {
+    bgRecord(won, true);
+    if (bg.stake) store.coinEvent(won ? 'win' : 'lose');
+  }
+  haptic(won ? [20, 40, 20, 40, 80] : [60]);
+  toast(won ? (w.mult === 3 ? 'ניצחון משולש (בקגמון)! 🏆' : w.mult === 2 ? 'ניצחון כפול (מארס)! 🏆' : 'ניצחת! 🏆') + (bg.stake ? ` +${bg.stake * 2} 🪙` : '') : 'הפעם המחשב ניצח' + (bg.stake ? ` · −${bg.stake} 🪙` : ''));
 }
 function bgPlay(m) {
-  bg.t.board = applyMove(bg.t.board, bg.me, m); bg.t.played.push(m); bg.sel = null; haptic(8);
+  const b0 = bg.t.board; bg.t.board = applyMove(b0, bg.me, m); bg.t.played.push(m); bg.sel = null; bg.hint = null; bg.anim = bgMoveAnim(b0, bg.t.board, bg.me, m); haptic(m.hit ? [15, 25, 15] : 8);
   if (bg.mode === 'ai') bgSaveAi();
   if (bgWinner(bg.t.board)) return bgFinish();
   drawBg();
@@ -2598,100 +2685,285 @@ async function bgFinish() {
   if (bg.mode === 'ai') {
     bg.board = b; bg.last = { by: bg.me, dice, moves }; bg.t = null;
     if (w) return bgOver(w);
-    bg.turn = other(bg.me); bgSaveAi(); drawBg(); return bgAiTurn();
+    bg.turn = other(bg.me); bgSaveAi(); drawBg(); return setTimeout(bgAiTurn, 350);
   }
   const patch = { ...bgFields(b), turn: other(bg.me), dice: null, last: { by: bg.me, dice, moves }, ts: Date.now() };
   if (w) Object.assign(patch, { status: 'done', winner: session(), mult: w.mult });
   bgBusy = true; const r = await store.bgUpdate(bg.id, patch); bgBusy = false;
   if (r && r.error) return toast(r.error);
   bg.board = b; bg.turn = patch.turn; bg.t = null; bg.last = patch.last;
-  if (w) { bg.over = { winner: bg.me, mult: w.mult }; bgRecord(true, false, bg.id); toast('ניצחת! 🏆'); }
+  if (w) { bg.over = { winner: bg.me, mult: w.mult }; bgRecord(true, false, bg.id); toast('ניצחת! 🏆' + (bg.stake ? ` +${bg.stake} 🪙` : '')); }
   drawBg();
+}
+// Dice drawn on the board itself: they tumble in when rolled; a used die fades.
+function bgDiceSvg(d, used, side, rolling) {
+  if (!d) return '';
+  const { W, H, L, PW, BAR } = BGD, all = d[0] === d[1] ? [d[0], d[0], d[0], d[0]] : [d[0], d[1]], u = (used || []).slice(), S = 26;
+  const cx = side === 'me' ? L + 6 * PW + BAR + 3 * PW : L + 3 * PW, gap = all.length > 2 ? 30 : 36, x0 = cx - (all.length - 1) * gap / 2;
+  const PIP = { 1: [[.5, .5]], 2: [[.27, .27], [.73, .73]], 3: [[.27, .27], [.5, .5], [.73, .73]], 4: [[.27, .27], [.73, .27], [.27, .73], [.73, .73]], 5: [[.27, .27], [.73, .27], [.5, .5], [.27, .73], [.73, .73]], 6: [[.27, .25], [.73, .25], [.27, .5], [.73, .5], [.27, .75], [.73, .75]] };
+  return all.map((v, i) => {
+    const k = u.indexOf(v), x = k >= 0; if (x) u.splice(k, 1);
+    const dx = x0 + i * gap - S / 2, dy = H / 2 - S / 2;
+    return `<g class="bg-die ${x ? 'used' : ''} ${rolling ? 'rolling' : ''} ${side}" style="--i:${i};transform-origin:${dx + S / 2}px ${dy + S / 2}px"><rect x="${dx}" y="${dy}" width="${S}" height="${S}" rx="6"/>${PIP[v].map(([px, py]) => `<circle cx="${dx + px * S}" cy="${dy + py * S}" r="2.6"/>`).join('')}</g>`;
+  }).join('');
 }
 // The board, drawn from the player's side: their home is always at the bottom right.
 function bgSvg(board, me, o = {}) {
-  const W = 376, H = 300, L = 6, PW = 26, BAR = 22, R = 12, TH = 118;
+  const { W, H, L, PW, BAR, R, TH } = BGD;
   const disp = i => me === 'w' ? i : 23 - i;
-  const px = p => p < 6 ? L + 6 * PW + BAR + (5 - p) * PW : p < 12 ? L + (11 - p) * PW : p < 18 ? L + (p - 12) * PW : L + 6 * PW + BAR + (p - 18) * PW;
-  const opp = other(me), from = o.from || new Set(), dests = o.dests || new Set();
+  const opp = other(me), from = o.from || new Set(), dests = o.dests || new Set(), anim = o.anim || [];
+  const mv = (where, col, k, n) => { const a = anim.find(x => x.where === where && x.col === col); return a && k === n - 1 ? ` mv" style="--dx:${a.dx}px;--dy:${a.dy}px` : ''; };
   let s = `<svg class="bg-board" viewBox="0 0 ${W} ${H}" role="img" aria-label="לוח שש בש"><rect class="bgb-frame" x="0" y="0" width="${W}" height="${H}" rx="10"/>
     <rect class="bgb-felt" x="${L}" y="6" width="${6 * PW}" height="${H - 12}"/><rect class="bgb-felt" x="${L + 6 * PW + BAR}" y="6" width="${6 * PW}" height="${H - 12}"/>
     <rect class="bgb-bar" x="${L + 6 * PW}" y="6" width="${BAR}" height="${H - 12}"/><rect class="bgb-tray" x="${L + 12 * PW + BAR + 4}" y="6" width="${W - (L + 12 * PW + BAR + 4) - 6}" height="${H - 12}" rx="4"/>`;
   for (let i = 0; i < 24; i++) {
-    const p = disp(i), x = px(p), bot = p < 12, n = Math.abs(board.pts[i]), col = board.pts[i] > 0 ? 'w' : 'b';
+    const p = disp(i), x = bgPx(p), bot = p < 12, n = Math.abs(board.pts[i]), col = board.pts[i] > 0 ? 'w' : 'b';
     const y0 = bot ? H - 6 : 6, tip = bot ? H - 6 - TH : 6 + TH;
     s += `<polygon class="bgb-pt ${p % 2 ? 'a' : 'b'} ${from.has(i) ? 'can' : ''} ${o.sel === i ? 'sel' : ''}" points="${x},${y0} ${x + PW},${y0} ${x + PW / 2},${tip}"/>`;
-    for (let k = 0; k < Math.min(n, 5); k++) {
-      const cy = bot ? H - 6 - R - k * 2 * R : 6 + R + k * 2 * R;
-      s += `<circle class="bgc ${col} ${o.hl && o.hl.to === i && k === Math.min(n, 5) - 1 ? 'hl' : ''}" cx="${x + PW / 2}" cy="${cy}" r="${R - 1}"/>`;
-    }
+    for (let k = 0; k < Math.min(n, 5); k++) { const [cx, cy] = bgXY(me, i, col, k); s += `<circle class="bgc ${col}${mv(i, col, k, Math.min(n, 5))}" cx="${cx}" cy="${cy}" r="${R - 1}"/>`; }
     if (n > 5) s += `<text class="bgc-n ${col}" x="${x + PW / 2}" y="${(bot ? H - 6 - R - 4 * 2 * R : 6 + R + 4 * 2 * R) + 4}">${n}</text>`;
     if (dests.has(i)) s += `<circle class="bgb-dest" cx="${x + PW / 2}" cy="${bot ? H - 6 - R - Math.min(n, 4) * 2 * R : 6 + R + Math.min(n, 4) * 2 * R}" r="${R - 2}"/>`;
     s += `<rect class="bgb-hit" x="${x}" y="${bot ? H / 2 : 6}" width="${PW}" height="${H / 2 - 6}" data-action="bg-pt" data-p="${i}"/>`;
   }
   // The bar: the player's own checkers below the middle, the other side's above.
-  const bx = L + 6 * PW + BAR / 2;
-  for (let k = 0; k < board.bar[me]; k++) s += `<circle class="bgc ${me}" cx="${bx}" cy="${H / 2 + 16 + k * 2 * (R - 2)}" r="${R - 2}"/>`;
-  for (let k = 0; k < board.bar[opp]; k++) s += `<circle class="bgc ${opp}" cx="${bx}" cy="${H / 2 - 16 - k * 2 * (R - 2)}" r="${R - 2}"/>`;
+  for (const c of [me, opp]) for (let k = 0; k < board.bar[c]; k++) { const [cx, cy] = bgXY(me, 'bar', c, k); s += `<circle class="bgc ${c}${mv('bar', c, k, board.bar[c])}" cx="${cx}" cy="${cy}" r="${R - 2}"/>`; }
   if (from.has('bar')) s += `<rect class="bgb-can" x="${L + 6 * PW + 1}" y="${H / 2}" width="${BAR - 2}" height="${H / 2 - 8}" rx="4"/>`;
   s += `<rect class="bgb-hit" x="${L + 6 * PW}" y="${H / 2}" width="${BAR}" height="${H / 2 - 6}" data-action="bg-pt" data-p="bar"/>`;
   // Borne-off checkers in the tray at the side.
   const tx = L + 12 * PW + BAR + 7, tw = W - tx - 9;
-  for (let k = 0; k < board.off[me]; k++) s += `<rect class="bgc ${me}" x="${tx}" y="${H - 10 - (k + 1) * 8}" width="${tw}" height="7" rx="2"/>`;
-  for (let k = 0; k < board.off[opp]; k++) s += `<rect class="bgc ${opp}" x="${tx}" y="${10 + k * 8}" width="${tw}" height="7" rx="2"/>`;
+  for (const c of [me, opp]) for (let k = 0; k < board.off[c]; k++) { const y = c === me ? H - 10 - (k + 1) * 8 : 10 + k * 8; s += `<rect class="bgc ${c}${mv('off', c, k, board.off[c])}" x="${tx}" y="${y}" width="${tw}" height="7" rx="2"/>`; }
   if (dests.has('off')) s += `<rect class="bgb-dest-off" x="${tx - 2}" y="${H / 2}" width="${tw + 4}" height="${H / 2 - 10}" rx="4"/>`;
   s += `<rect class="bgb-hit" x="${tx - 3}" y="${H / 2}" width="${tw + 6}" height="${H / 2 - 6}" data-action="bg-pt" data-p="off"/>`;
-  return s + '</svg>';
+  return s + (o.dice || '') + '</svg>';
 }
-const diceHtml = (d, used = []) => { if (!d) return ''; const all = d[0] === d[1] ? [d[0], d[0], d[0], d[0]] : [d[0], d[1]], u = used.slice(); return all.map(v => { const k = u.indexOf(v), x = k >= 0; if (x) u.splice(k, 1); return `<span class="die ${x ? 'used' : ''}">${DIE[v - 1]}</span>`; }).join(''); };
 function bgGameHtml() {
   const me = bg.me, opp = other(me), oppName = bg.mode === 'ai' ? 'המחשב' : first(emp(bg.opp).name || 'עובד');
   const myTurn = !bg.over && bg.status !== 'invite' && bg.turn === me;
   const board = bg.t ? bg.t.board : bg.board, info = myTurn && bg.t ? turnInfo(bg.t, me) : null;
-  const from = new Set(info ? info.moves.map(m => m.from) : []), dests = new Set(info && bg.sel !== null && bg.sel !== undefined ? info.moves.filter(m => m.from === bg.sel).map(m => m.to) : []);
+  const from = new Set(info ? info.moves.map(m => m.from) : []), dests = new Set(!info || bg.sel === null || bg.sel === undefined ? [] : bg.hint && bg.hint.from === bg.sel ? [bg.hint.to] : info.moves.filter(m => m.from === bg.sel).map(m => m.to));
   let status = '', btns = '';
   if (bg.over) {
-    const won = bg.over.winner === me;
-    status = won ? (bg.over.mult === 3 ? 'ניצחון משולש! 🏆' : bg.over.mult === 2 ? 'ניצחון כפול! 🏆' : 'ניצחת! 🏆') : bg.over.resign ? (bg.mode === 'ai' || bg.over.resign === session() ? 'פרשת מהמשחק' : `${oppName} פרש/ה. ניצחת!`) : `${oppName} ניצח/ה`;
-    btns = bg.mode === 'ai' ? `<button class="btn primary" data-action="bg-ai-new">משחק חדש</button>` : `<button class="btn primary" data-action="bg-invite-to" data-id="${bg.opp}">משחק חוזר</button><button class="btn" data-action="bg-del" data-id="${bg.id}">מחיקה מהרשימה</button>`;
+    const won = bg.over.winner === me, pay = bg.stake ? (bg.mode === 'ai' ? (won ? ` · +${bg.stake * 2} 🪙` : ` · −${bg.stake} 🪙`) : ` · ${won ? '+' : '−'}${bg.paid ?? bg.stake} 🪙`) : '';
+    status = (won ? (bg.over.mult === 3 ? 'ניצחון משולש! 🏆' : bg.over.mult === 2 ? 'ניצחון כפול! 🏆' : 'ניצחת! 🏆') : bg.over.resign ? (bg.mode === 'ai' || bg.over.resign === session() ? 'פרשת מהמשחק' : `${oppName} פרש/ה. ניצחת!`) : `${oppName} ניצח/ה`) + pay;
+    btns = bg.mode === 'ai' ? `<button class="btn primary" data-action="bg-ai-new">משחק חדש</button>` : `<button class="btn primary" data-action="bg-invite-to" data-id="${bg.opp}" data-stake="${bg.stake || 0}">משחק חוזר</button><button class="btn" data-action="bg-del" data-id="${bg.id}">מחיקה מהרשימה</button>`;
   } else if (bg.status === 'invite') status = `מחכה ש${oppName} יאשר/תאשר את ההזמנה`;
   else if (!myTurn) status = bg.mode === 'ai' ? 'המחשב משחק…' : `התור של ${oppName}`;
   else if (!bg.t) { status = 'התור שלך'; btns = `<button class="btn primary" data-action="bg-roll">🎲 הטלת קוביות</button>`; }
-  else if (info.done) { status = 'סיימת את המהלכים'; btns = `<button class="btn primary" data-action="bg-done" ${bgBusy ? 'disabled' : ''}>סיום תור</button><button class="btn" data-action="bg-undo">ביטול המהלכים</button>`; }
+  else if (info.done) { status = 'סיימת את המהלכים'; btns = `<button class="btn primary" data-action="bg-done" ${bgBusy ? 'disabled' : ''}>סיום תור</button><button class="btn" data-action="bg-undo1">↩︎ מהלך אחד</button>`; }
   else if (!info.moves.length) { status = 'אין מהלכים אפשריים בהטלה הזו'; btns = `<button class="btn primary" data-action="bg-done">העברת התור</button>`; }
-  else { status = bg.sel !== null && bg.sel !== undefined ? 'לאן להזיז? המקומות המסומנים' : 'בחרו כלי להזזה'; if (bg.t.played.length) btns = `<button class="btn" data-action="bg-undo">ביטול המהלכים</button>`; }
-  const dice = myTurn && bg.t ? diceHtml(bg.t.dice, bg.t.played.map(m => m.die)) : bg.aiDice ? diceHtml(bg.aiDice) : bg.last ? `<span class="last-dice">${bg.last.by === me ? 'ההטלה שלך' : oppName}: ${diceHtml(bg.last.dice)}</span>` : '';
+  else {
+    status = bg.sel !== null && bg.sel !== undefined ? 'לאן להזיז? המקומות המסומנים' : 'בחרו כלי להזזה';
+    btns = `${bg.t.played.length ? `<button class="btn" data-action="bg-undo1">↩︎ מהלך אחד</button><button class="btn" data-action="bg-undo">ביטול הכול</button>` : ''}${bg.stake ? '' : `<button class="btn" data-action="bg-hint">💡 רמז</button>`}`;
+  }
+  const rolling = bg.rollAnim; bg.rollAnim = false;
+  const dice = myTurn && bg.t ? bgDiceSvg(bg.t.dice, bg.t.played.map(m => m.die), 'me', rolling)
+    : bg.aiDice ? bgDiceSvg(bg.aiDice, [], 'opp', rolling)
+      : bg.opening ? bgDiceSvg(bg.opening, [], 'me', rolling)
+        : bg.oppDice && myTurn ? bgDiceSvg(bg.oppDice, bg.oppDice[0] === bg.oppDice[1] ? [bg.oppDice[0], bg.oppDice[0], bg.oppDice[0], bg.oppDice[0]] : bg.oppDice, 'opp', false) : '';
+  const anim = bg.anim; bg.anim = null;
   return `<button class="link-btn" data-action="bg-lobby">${ic('chev', 'sm')}<span>לכל המשחקים</span></button>
-  <div class="bg-players"><span class="bgp ${opp}"><i></i>${esc(oppName)} · ${pips(board, opp)} צעדים</span><span class="bgp ${me}"><i></i>את/ה · ${pips(board, me)} צעדים</span></div>
-  ${bgSvg(board, me, { from, dests, sel: bg.sel, hl: bg.hl })}
-  <div class="bg-dice">${dice}</div>
+  ${bg.stake ? `<div class="bg-stake">משחק על ${coin(bg.stake)}${bg.mode === 'ai' ? ' · ניצחון מחזיר פי 2' : ''}</div>` : ''}
+  <div class="bg-players"><span class="bgp ${opp} ${!bg.over && bg.turn === opp ? 'turn' : ''}"><i></i>${esc(oppName)} · ${pips(board, opp)} צעדים</span><span class="bgp ${me} ${myTurn ? 'turn' : ''}"><i></i>את/ה · ${pips(board, me)} צעדים</span></div>
+  ${bgSvg(board, me, { from, dests, sel: bg.sel, anim, dice })}
   <p class="bg-status">${status}</p>
   <div class="actions bg-btns">${btns}</div>
-  ${!bg.over && bg.status !== 'invite' ? `<button class="link-btn danger-t bg-resign" data-action="bg-resign">פרישה מהמשחק</button>` : ''}`;
+  ${!bg.over && bg.status !== 'invite' ? `<button class="link-btn danger-t bg-resign" data-action="bg-resign">פרישה מהמשחק${bg.stake ? ` (הפסד של ${bg.stake} מטבעות)` : ''}</button>` : ''}`;
 }
 function bgLobbyHtml() {
   const saved = bgLoadAi(), open = saved && !saved.over, games = myGames().sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const inv = games.filter(g => g.status === 'invite' && g.b === session()), sent = games.filter(g => g.status === 'invite' && g.a === session());
   const play = games.filter(g => g.status === 'play'), done = games.filter(g => g.status === 'done').slice(0, 6);
-  const row = (g, right) => `<div class="row tap" data-action="bg-open" data-id="${g.id}">${avatar(emp(bgOppOf(g)), 'md')}<div class="row-main"><div class="row-title">${esc(emp(bgOppOf(g)).name)}</div><div class="row-sub">${right}</div></div></div>`;
+  const st = g => g.stake ? ` · ${coin(g.stake)}` : '';
+  const row = (g, right) => `<div class="row tap" data-action="bg-open" data-id="${g.id}">${avatar(emp(bgOppOf(g)), 'md')}<div class="row-main"><div class="row-title">${esc(emp(bgOppOf(g)).name)}</div><div class="row-sub">${right}${st(g)}</div></div></div>`;
   const champs = (S.scores || []).filter(s => s.game === 'bg' && emp(s.emp).name && ((s.wins || 0) + (s.losses || 0) + (s.aiWins || 0) + (s.aiLosses || 0))).sort((a, b) => (b.wins || 0) - (a.wins || 0) || (b.aiWins || 0) - (a.aiWins || 0));
-  return `<h2 class="vt">שש בש</h2>
+  return `<div class="game-head"><h2 class="vt">שש בש</h2><button class="coin-chip" data-action="coins-open">${coin(coinsOf())}</button></div>
   <div class="list">
-    <div class="row"><span class="fc-ic sm" aria-hidden="true">🤖</span><div class="row-main"><div class="row-title">נגד המחשב</div><div class="row-sub">${open ? 'יש לך משחק פתוח' : 'משחק מיידי, בלי לחכות לאף אחד'}</div></div><button class="btn primary sm" data-action="bg-ai">${open ? 'המשך' : 'משחק'}</button></div>
+    <div class="row"><span class="fc-ic sm" aria-hidden="true">🤖</span><div class="row-main"><div class="row-title">נגד המחשב</div><div class="row-sub">${open ? `יש לך משחק פתוח${saved.stake ? ` על ${saved.stake} מטבעות` : ''}` : 'משחק מיידי, אפשר גם על מטבעות'}</div></div><button class="btn primary sm" data-action="bg-ai">${open ? 'המשך' : 'משחק'}</button></div>
     <div class="row"><span class="fc-ic sm" aria-hidden="true">👥</span><div class="row-main"><div class="row-title">נגד עובד אחר</div><div class="row-sub">כל אחד משחק מהטלפון שלו</div></div><button class="btn primary sm" data-action="bg-invite">הזמנה</button></div>
   </div>
-  ${inv.length ? `<h3 class="sec">הזמנות אליך</h3><div class="list">${inv.map(g => `<div class="row">${avatar(emp(g.a), 'md')}<div class="row-main"><div class="row-title">${esc(emp(g.a).name)}</div><div class="row-sub">מזמין/ה אותך למשחק</div></div><div class="actions"><button class="btn primary sm" data-action="bg-accept" data-id="${g.id}">משחק</button><button class="btn sm" data-action="bg-del" data-id="${g.id}">לא עכשיו</button></div></div>`).join('')}</div>` : ''}
+  ${inv.length ? `<h3 class="sec">הזמנות אליך</h3><div class="list">${inv.map(g => `<div class="row">${avatar(emp(g.a), 'md')}<div class="row-main"><div class="row-title">${esc(emp(g.a).name)}</div><div class="row-sub">מזמין/ה אותך למשחק${st(g)}</div></div><div class="actions"><button class="btn primary sm" data-action="bg-accept" data-id="${g.id}">משחק</button><button class="btn sm" data-action="bg-del" data-id="${g.id}">לא עכשיו</button></div></div>`).join('')}</div>` : ''}
   ${play.length || sent.length ? `<h3 class="sec">המשחקים שלי</h3><div class="list">${play.map(g => row(g, g.turn === bgMine(g) ? '<span class="pill ok">התור שלך</span>' : '<span>התור שלו/ה</span>')).join('')}${sent.map(g => row(g, '<span>מחכה לאישור ההזמנה</span>')).join('')}</div>` : ''}
   ${done.length ? `<h3 class="sec">הסתיימו</h3><div class="list">${done.map(g => row(g, g.winner === session() ? '<span class="pill ok">ניצחת</span>' : '<span class="pill">הפסדת</span>')).join('')}</div>` : ''}
   <h3 class="sec">טבלת האלופים</h3><div class="list">${champs.map((s, i) => `<div class="row ${s.emp === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(emp(s.emp), 'md')}<div class="row-main"><div class="row-title">${esc(emp(s.emp).name)}</div><div class="row-sub"><span>נגד עובדים: ${s.wins || 0} ניצחונות, ${s.losses || 0} הפסדים</span><span>נגד המחשב: ${s.aiWins || 0}–${s.aiLosses || 0}</span></div></div><b class="num big-score">${s.wins || 0}</b></div>`).join('') || '<div class="row muted">עוד לא נגמר אף משחק.</div>'}</div>`;
 }
 function vBg() { return `<div id="bg-wrap">${bg ? bgGameHtml() : backFun() + bgLobbyHtml()}</div>`; }
-function drawBg() { const w = document.getElementById('bg-wrap'); if (w && view === 'bg') w.innerHTML = bg ? bgGameHtml() : backFun() + bgLobbyHtml(); renderNav(); }
+function drawBg() { const w = document.getElementById('bg-wrap'); if (w && view === 'bg') { w.innerHTML = bg ? bgGameHtml() : backFun() + bgLobbyHtml(); renderPending = false; } renderNav(); }
 // Server changes while on the backgammon screen: update the board in place.
 function patchBg() {
   if (bg && bg.mode === 'online') { const g = myGames().find(x => x.id === bg.id); if (!g) { bg = null; toast('המשחק נמחק'); } else bgFromDoc(g); }
   drawBg();
 }
+// Choosing what to play for: free, or 10 to 50 coins (never more than you have).
+function stakeSheet(title, sub, action, extra = '') {
+  const have = coinsOf();
+  sheet(`<h3>${title}</h3><p class="muted" style="margin:4px 0 12px">${sub} יש לך ${coin(have)}.</p>
+    <div class="stakes"><button class="stake" data-action="${action}" data-stake="0" ${extra}>בלי מטבעות</button>${STAKES.map(v => `<button class="stake" data-action="${action}" data-stake="${v}" ${extra} ${v > have ? 'disabled' : ''}>${coin(v)}</button>`).join('')}</div>`);
+}
+const BG_ACT = {
+  'bg-ai': () => { const s = bgLoadAi(); if (s && !s.over) { bgStartAi(false); return drawBg(); } stakeSheet('משחק נגד המחשב', 'על כמה משחקים? ניצחון מחזיר פי 2.', 'bg-ai-start'); },
+  'bg-ai-new': () => { stakeSheet('משחק חדש נגד המחשב', 'על כמה משחקים? ניצחון מחזיר פי 2.', 'bg-ai-start'); },
+  'bg-ai-start': d => { const st = +d.stake || 0; if (st > coinsOf()) return toast('אין לך מספיק מטבעות'); closeSheet(); try { localStorage.removeItem(BG_AI); } catch (e) { } bgStartAi(true, st); drawBg(); },
+  'bg-lobby': () => { bg = null; drawBg(); window.scrollTo(0, 0); },
+  'bg-open': d => { const g = myGames().find(x => x.id === d.id); if (!g) return; bg = null; bgFromDoc(g); drawBg(); window.scrollTo(0, 0); },
+  'bg-invite': () => {
+    const list = S.employees.filter(e => e.id !== session() && e.id !== 'news').sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    sheet(`<h3>את מי להזמין?</h3><p class="muted" style="margin:4px 0 12px">ההזמנה תופיע אצלו/ה בפנאי › שש בש, עם התראה לטלפון.</p><div class="list">${list.map(e => `<button class="row tap" data-action="bg-invite-stake" data-id="${e.id}">${avatar(e, 'md')}<div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${coin(coinsOf(e.id))}</div></div></button>`).join('') || '<div class="row muted">אין עובדים אחרים</div>'}</div>`);
+  },
+  'bg-invite-stake': d => stakeSheet(`משחק נגד ${esc(first(emp(d.id).name))}`, 'המפסיד משלם למנצח.', 'bg-invite-to', `data-id="${d.id}"`),
+  'bg-invite-to': async d => {
+    const st = +d.stake || 0; if (st > coinsOf()) return toast('אין לך מספיק מטבעות');
+    if (bgBusy) return; bgBusy = true; const r = await store.bgCreate(d.id, st); bgBusy = false;
+    if (r.error) return toast(r.error);
+    closeSheet(); toast(`ההזמנה נשלחה ל${first(emp(d.id).name)}${st ? ` · על ${st} מטבעות` : ''}`);
+    bg = null; const g = myGames().find(x => x.id === r.id); if (g) bgFromDoc(g);
+    if (view !== 'bg') go('bg'); else drawBg();
+  },
+  'bg-accept': async d => {
+    const g = myGames().find(x => x.id === d.id); if (!g) return;
+    if (g.stake && g.stake > coinsOf()) return toast(`המשחק על ${g.stake} מטבעות ויש לך רק ${coinsOf()}`);
+    const r = await store.bgUpdate(d.id, { status: 'play', turn: Math.random() < .5 ? 'w' : 'b', ts: Date.now() }); if (r && r.error) return toast(r.error);
+    const n = myGames().find(x => x.id === d.id); bg = null; if (n) bgFromDoc(n); drawBg();
+  },
+  'bg-del': async d => { const r = await store.bgDelete(d.id); if (r && r.error) return toast(r.error.includes('permission') || r.error.includes('הרשא') ? 'אי אפשר למחוק משחק על מטבעות באמצע. אפשר לפרוש' : r.error); if (bg && bg.id === d.id) bg = null; drawBg(); },
+  'bg-pt': d => {
+    if (!bg || !bg.t || bgBusy) return; const info = turnInfo(bg.t, bg.me); if (info.done) return;
+    const p = d.p === 'bar' || d.p === 'off' ? d.p : +d.p;
+    if (bg.sel !== null && bg.sel !== undefined) { const o = info.moves.filter(m => m.from === bg.sel && m.to === p).sort((a, b) => a.die - b.die); if (o.length) return bgPlay(o[0]); }
+    const mv = info.moves.filter(m => m.from === p).sort((a, b) => a.die - b.die);
+    bg.hint = null;
+    if (!mv.length) { bg.sel = null; return drawBg(); }
+    // Only one place this checker can go: move it right away.
+    if (new Set(mv.map(m => m.to)).size === 1) return bgPlay(mv[0]);
+    bg.sel = p; drawBg();
+  },
+  'bg-roll': async () => {
+    if (!bg || bg.t || bgBusy) return; const d = roll();
+    if (bg.mode === 'online') { bgBusy = true; const r = await store.bgUpdate(bg.id, { dice: d, ts: Date.now() }); bgBusy = false; if (r && r.error) return toast(r.error); }
+    bg.t = { start: bg.board, dice: d, played: [], board: bg.board }; bg.sel = null; bg.oppDice = null; bg.opening = null; bg.rollAnim = true; haptic([10, 30, 10]);
+    if (bg.mode === 'ai') bgSaveAi();
+    drawBg();
+  },
+  'bg-undo': () => { if (!bg || !bg.t) return; bg.t.board = bg.t.start; bg.t.played = []; bg.sel = null; if (bg.mode === 'ai') bgSaveAi(); drawBg(); },
+  'bg-undo1': () => { if (!bg || !bg.t || !bg.t.played.length) return; bg.t.played.pop(); bg.t.board = bg.t.played.reduce((b, m) => applyMove(b, bg.me, m), bg.t.start); bg.sel = null; if (bg.mode === 'ai') bgSaveAi(); drawBg(); },
+  'bg-hint': () => { if (!bg || !bg.t || bg.stake) return; const m = bgHint(bg.t, bg.me); if (!m) return; bg.sel = m.from; bg.hint = m; drawBg(); toast(m.to === 'off' ? 'כדאי להוציא את הכלי המסומן מהלוח' : 'סימנתי את הכלי שכדאי להזיז ולאן'); },
+  'bg-done': () => bgFinish(),
+  'bg-resign': () => { const b = document.querySelector('[data-action="bg-resign"]'); if (b) { b.dataset.action = 'bg-resign-yes'; b.textContent = 'לפרוש? לחצו שוב'; } },
+  'bg-resign-yes': async () => {
+    if (!bg || bg.over) return;
+    if (bg.mode === 'ai') return bgOver({ winner: other(bg.me), mult: 1 }, true);
+    const r = await store.bgUpdate(bg.id, { status: 'done', winner: bg.opp, resign: session(), ts: Date.now() }); if (r && r.error) return toast(r.error);
+    bg.over = { winner: other(bg.me), mult: 1, resign: session() }; bgRecord(false, false, bg.id); drawBg();
+  }
+};
+
+/* Sudoku: four levels and one daily puzzle that is the same for everyone. The puzzle in progress is kept on the phone. */
+const SD_KEY = 'dalpak-sudoku';
+let sd = null, sdTimer = null, sdLevel = (() => { try { return localStorage.getItem(SD_KEY + '-level') || 'easy'; } catch (e) { return 'easy'; } })();
+const sdName = l => l === 'daily' ? 'החידה היומית' : SUDOKU_LEVELS[l].name;
+const sdAll = () => { try { return JSON.parse(localStorage.getItem(SD_KEY) || '{}'); } catch (e) { return {}; } };
+function sdSave() { if (!sd) return; const all = sdAll(); Object.keys(all).forEach(k => { if (k.startsWith('daily:') && k !== 'daily:' + todayKey()) delete all[k]; }); all[sd.key] = sd; try { localStorage.setItem(SD_KEY, JSON.stringify(all)); } catch (e) { } }
+function sdOpen(level, fresh) {
+  if (level !== 'daily' && !SUDOKU_LEVELS[level]) level = 'easy';
+  const key = level === 'daily' ? 'daily:' + todayKey() : level, saved = sdAll()[key];
+  sdLevel = level; try { localStorage.setItem(SD_KEY + '-level', level); } catch (e) { }
+  if (saved && (level === 'daily' || !fresh)) { sd = saved; sd.sel = null; return; }
+  const g = makeSudoku(level === 'daily' ? 'medium' : level, level === 'daily' ? +todayKey().replace(/\D/g, '') : undefined);
+  sd = { key, level, puzzle: g.puzzle, solution: g.solution, cells: g.puzzle.slice(), notes: {}, errors: 0, hints: 0, secs: 0, sel: null, noteMode: false, hist: [], done: false };
+  sdSave();
+}
+const fmtClock = s => Math.floor(s / 60) + ':' + pad(s % 60);
+const sdStat = (s, level) => !s ? null : level === 'daily' ? (s.daily && s.daily.day === todayKey() ? s.daily : null) : (s.modes && s.modes[level]) || null;
+const sdRows = level => (S.scores || []).filter(s => s.game === 'sudoku' && emp(s.emp).name).map(s => ({ emp: s.emp, ...(sdStat(s, level) || {}) })).filter(s => s.best > 0).sort((a, b) => a.best - b.best);
+function sdBoardHtml() {
+  const sel = sd.sel, peers = sel === null ? [] : SD_PEERS[sel], same = sel !== null && sd.cells[sel] ? sd.cells[sel] : 0;
+  let h = '';
+  for (let i = 0; i < 81; i++) {
+    const v = sd.cells[i], given = !!sd.puzzle[i], bad = v && v !== sd.solution[i], nt = sd.notes[i];
+    const cls = ['sdc', given ? 'given' : '', i === sel ? 'sel' : peers.includes(i) ? 'peer' : '', same && v === same && i !== sel ? 'same' : '', bad ? 'bad' : '', i % 9 === 2 || i % 9 === 5 ? 'bx' : '', (i >= 18 && i < 27) || (i >= 45 && i < 54) ? 'by' : ''].filter(Boolean).join(' ');
+    h += `<button class="${cls}" data-action="sd-cell" data-i="${i}" aria-label="שורה ${Math.floor(i / 9) + 1} טור ${i % 9 + 1}${v ? ': ' + v : ''}">${v ? v : nt && nt.length ? `<span class="sdn">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<i>${nt.includes(n) ? n : ''}</i>`).join('')}</span>` : ''}</button>`;
+  }
+  return h;
+}
+function sdHtml() {
+  const left = n => 9 - sd.cells.filter((v, i) => v === n && v === sd.solution[i]).length;
+  const reward = sudokuReward(sd.level, sd.hints, sd.errors), rows = sdRows(sd.level);
+  return `<div class="sd-top"><span>⏱ <b id="sd-time" class="num">${fmtClock(sd.secs)}</b></span><span>טעויות <b class="num ${sd.errors ? 'danger-t' : ''}">${sd.errors}</b></span><span>רמזים <b class="num">${sd.hints}</b></span><button class="coin-chip" data-action="coins-open">${coin(coinsOf())}</button></div>
+  <div class="sd-grid ${sd.done ? 'done' : ''}" dir="ltr">${sdBoardHtml()}</div>
+  ${sd.done ? `<div class="sd-done"><b>פתרת! 🎉</b><span>${fmtClock(sd.secs)} · ${sd.errors} טעויות · ${sd.hints} רמזים${sd.reward ? ` · +${sd.reward} 🪙` : ''}</span>${sd.level === 'daily' ? '<span class="muted">חידה חדשה מחכה מחר</span>' : `<button class="btn primary" data-action="sd-new">חידה חדשה</button>`}</div>`
+    : `<div class="sd-pad" dir="ltr">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button data-action="sd-num" data-n="${n}" ${left(n) <= 0 ? 'class="out"' : ''}>${n}<small>${Math.max(0, left(n))}</small></button>`).join('')}</div>
+  <div class="sd-tools"><button data-action="sd-undo" ${sd.hist.length ? '' : 'disabled'}>↩︎<small>ביטול</small></button><button data-action="sd-erase">⌫<small>מחיקה</small></button><button data-action="sd-notes" class="${sd.noteMode ? 'on' : ''}">✎<small>הערות${sd.noteMode ? ' ✓' : ''}</small></button><button data-action="sd-hint">💡<small>רמז (−3 🪙)</small></button></div>
+  <p class="muted sd-help">פתרון מזכה ב-${coin(sudokuReward(sd.level, 0, 0))}. כל טעות מורידה 2 וכל רמז 3. כרגע: ${coin(reward)}.</p>`}
+  <h3 class="sec">הזמנים הטובים · ${sdName(sd.level)}${sd.level === 'daily' ? ' · היום' : ''}</h3>
+  <div class="list">${rows.map((s, i) => `<div class="row ${s.emp === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(emp(s.emp), 'md')}<div class="row-main"><div class="row-title">${esc(emp(s.emp).name)}</div>${s.plays ? `<div class="row-sub"><span>${s.plays} חידות</span></div>` : ''}</div><b class="num big-score">${fmtClock(s.best)}</b></div>`).join('') || '<div class="row muted">עוד אף אחד לא פתר. תהיו הראשונים!</div>'}</div>`;
+}
+function vSudoku() {
+  if (!sd || sd.key !== (sdLevel === 'daily' ? 'daily:' + todayKey() : sdLevel)) sdOpen(sdLevel);
+  return backFun() + `<h2 class="vt">סודוקו</h2>
+  <div class="modes" role="tablist">${[...Object.keys(SUDOKU_LEVELS), 'daily'].map(k => `<button class="mode ${k === sdLevel ? 'on' : ''}" data-action="sd-level" data-v="${k}" role="tab" aria-selected="${k === sdLevel}">${k === 'daily' ? '<span aria-hidden="true">📅</span>' : ''}${sdName(k)}</button>`).join('')}</div>
+  <div id="sd-wrap">${sdHtml()}</div>`;
+}
+function sdDraw() { const w = document.getElementById('sd-wrap'); if (w && sd) w.innerHTML = sdHtml(); }
+// The clock runs only while the puzzle is on screen.
+function sdClock() {
+  clearInterval(sdTimer); sdTimer = null;
+  if (view !== 'sudoku') return;
+  sdTimer = setInterval(() => {
+    if (view !== 'sudoku') { clearInterval(sdTimer); sdTimer = null; return; }
+    if (!sd || sd.done || document.hidden || document.querySelector('.sheet')) return;
+    sd.secs++; const t = document.getElementById('sd-time'); if (t) t.textContent = fmtClock(sd.secs);
+    if (sd.secs % 5 === 0) sdSave();
+  }, 1000);
+}
+function sdPut(n) {
+  if (!sd || sd.done || sd.sel === null) return; const i = sd.sel;
+  if (sd.puzzle[i]) return;
+  if (sd.cells[i] && sd.cells[i] === sd.solution[i]) return; // a right answer stays
+  sd.hist.push({ i, v: sd.cells[i], notes: JSON.stringify(sd.notes) }); if (sd.hist.length > 200) sd.hist.shift();
+  if (sd.noteMode && n) { const cur = sd.notes[i] || []; sd.notes[i] = cur.includes(n) ? cur.filter(x => x !== n) : [...cur, n]; sd.cells[i] = 0; }
+  else {
+    sd.cells[i] = n; delete sd.notes[i];
+    if (n && n !== sd.solution[i]) { sd.errors++; haptic([30, 40, 30]); }
+    else if (n) { SD_PEERS[i].forEach(p => { if (sd.notes[p]) sd.notes[p] = sd.notes[p].filter(x => x !== n); }); haptic(6); }
+  }
+  sdCheck();
+}
+async function sdCheck() {
+  if (sd.cells.every((v, i) => v === sd.solution[i])) {
+    sd.done = true; sd.sel = null; sd.reward = sudokuReward(sd.level, sd.hints, sd.errors); sdSave(); sdDraw(); haptic([20, 40, 20, 40, 60]);
+    const my = sdStat(scoreOf('sudoku'), sd.level) || {}, best = my.best ? Math.min(my.best, sd.secs) : sd.secs, st = { best, plays: (my.plays || 0) + 1 };
+    toast(`פתרת ב-${fmtClock(sd.secs)}!${sd.reward ? ` הרווחת ${sd.reward} מטבעות 🪙` : ''}`);
+    const r = await store.saveScore('sudoku', sd.level === 'daily' ? { daily: { day: todayKey(), ...st } } : { modes: { [sd.level]: st } });
+    if (r && r.error) toast(r.error);
+    if (sd.reward) store.coinEvent('sudoku', { level: sd.level, hints: sd.hints, errors: sd.errors });
+    return sdDraw();
+  }
+  sdSave(); sdDraw();
+}
+document.addEventListener('keydown', e => {
+  if (view !== 'sudoku' || !sd || sd.done || document.querySelector('.sheet') || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '')) return;
+  if (/^[1-9]$/.test(e.key)) { e.preventDefault(); sdPut(+e.key); }
+  else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') { e.preventDefault(); sdPut(0); }
+  else if (/^Arrow/.test(e.key) && sd.sel !== null) { e.preventDefault(); const d = { ArrowUp: -9, ArrowDown: 9, ArrowLeft: -1, ArrowRight: 1 }[e.key], n = sd.sel + d; if (n >= 0 && n < 81 && (Math.abs(d) === 9 || Math.floor(n / 9) === Math.floor(sd.sel / 9))) { sd.sel = n; sdDraw(); } }
+});
+const SUDOKU_ACT = {
+  'sd-level': d => { sdOpen(d.v); render(); },
+  'sd-new': () => { sdOpen(sdLevel, true); render(); },
+  'sd-cell': d => { if (!sd || sd.done) return; sd.sel = +d.i; sdDraw(); },
+  'sd-num': d => { if (sd && sd.sel === null) return toast('בחרו קודם משבצת'); sdPut(+d.n); },
+  'sd-erase': () => sdPut(0),
+  'sd-notes': () => { if (!sd) return; sd.noteMode = !sd.noteMode; sdDraw(); },
+  'sd-undo': () => { if (!sd || sd.done || !sd.hist.length) return; const h = sd.hist.pop(); sd.cells[h.i] = h.v; sd.notes = JSON.parse(h.notes); sd.sel = h.i; sdSave(); sdDraw(); },
+  'sd-hint': () => {
+    if (!sd || sd.done) return;
+    let i = sd.sel !== null && sd.cells[sd.sel] !== sd.solution[sd.sel] ? sd.sel : sd.cells.findIndex((v, k) => v !== sd.solution[k]);
+    if (i < 0) return;
+    sd.hist = []; sd.cells[i] = sd.solution[i]; delete sd.notes[i]; sd.hints++; sd.sel = i;
+    SD_PEERS[i].forEach(p => { if (sd.notes[p]) sd.notes[p] = sd.notes[p].filter(x => x !== sd.solution[i]); });
+    sdCheck();
+  }
+};
+
+const duelWaiting = () => 0;
 
 const FUN_ACT = {
   'gal-open': d => galShow(d.id),
@@ -2708,57 +2980,8 @@ const FUN_ACT = {
       shareDone(await shareFiles(files, r.caption || 'שאבעס מרקט'));
     } catch (e) { toast('השיתוף נכשל. בדקו את החיבור'); }
   },
-  'snake-dir': d => { if (!snakeG) return; if (!snakeG.running()) snakeG.start(); snakeG.turn(SNAKE_DIRS[d.d]); },
-  'snake-go': () => { if (!snakeG) return; if (snakeG.isOver()) { const e = document.getElementById('sn-score'); if (e) e.textContent = 0; } snakeG.toggle(); },
-  'bg-ai': () => { bgStartAi(false); drawBg(); },
-  'bg-ai-new': () => { try { localStorage.removeItem(BG_AI); } catch (e) { } bgStartAi(true); drawBg(); },
-  'bg-lobby': () => { bg = null; drawBg(); window.scrollTo(0, 0); },
-  'bg-open': d => { const g = myGames().find(x => x.id === d.id); if (!g) return; bgFromDoc(g); drawBg(); window.scrollTo(0, 0); },
-  'bg-invite': () => {
-    const list = S.employees.filter(e => e.id !== session() && e.id !== 'news').sort((a, b) => a.name.localeCompare(b.name, 'he'));
-    sheet(`<h3>את מי להזמין?</h3><p class="muted" style="margin:4px 0 12px">ההזמנה תופיע אצלו/ה בפנאי › שש בש, עם התראה לטלפון.</p><div class="list">${list.map(e => `<button class="row tap" data-action="bg-invite-to" data-id="${e.id}">${avatar(e, 'md')}<div class="row-main"><div class="row-title">${esc(e.name)}</div></div></button>`).join('') || '<div class="row muted">אין עובדים אחרים</div>'}</div>`);
-  },
-  'bg-invite-to': async d => {
-    if (bgBusy) return; bgBusy = true; const r = await store.bgCreate(d.id); bgBusy = false;
-    if (r.error) return toast(r.error);
-    closeSheet(); toast(`ההזמנה נשלחה ל${first(emp(d.id).name)}`);
-    const g = myGames().find(x => x.id === r.id); if (g) bgFromDoc(g); else bg = null;
-    if (view !== 'bg') go('bg'); else drawBg();
-  },
-  'bg-accept': async d => {
-    const g = myGames().find(x => x.id === d.id); if (!g) return;
-    const r = await store.bgUpdate(d.id, { status: 'play', turn: Math.random() < .5 ? 'w' : 'b', ts: Date.now() }); if (r && r.error) return toast(r.error);
-    const n = myGames().find(x => x.id === d.id); if (n) bgFromDoc(n); drawBg();
-  },
-  'bg-del': async d => { const r = await store.bgDelete(d.id); if (r && r.error) return toast(r.error); if (bg && bg.id === d.id) bg = null; drawBg(); },
-  'bg-pt': d => {
-    if (!bg || !bg.t || bgBusy) return; const info = turnInfo(bg.t, bg.me); if (info.done) return;
-    const p = d.p === 'bar' || d.p === 'off' ? d.p : +d.p;
-    if (bg.sel !== null && bg.sel !== undefined) { const o = info.moves.filter(m => m.from === bg.sel && m.to === p).sort((a, b) => a.die - b.die); if (o.length) return bgPlay(o[0]); }
-    const mv = info.moves.filter(m => m.from === p).sort((a, b) => a.die - b.die);
-    if (!mv.length) { bg.sel = null; return drawBg(); }
-    // Only one place this checker can go: move it right away.
-    if (new Set(mv.map(m => m.to)).size === 1) return bgPlay(mv[0]);
-    bg.sel = p; drawBg();
-  },
-  'bg-roll': async () => {
-    if (!bg || bg.t || bgBusy) return; const d = roll();
-    if (bg.mode === 'online') { bgBusy = true; const r = await store.bgUpdate(bg.id, { dice: d, ts: Date.now() }); bgBusy = false; if (r && r.error) return toast(r.error); }
-    bg.t = { start: bg.board, dice: d, played: [], board: bg.board }; bg.sel = null; haptic(12);
-    if (bg.mode === 'ai') bgSaveAi();
-    drawBg();
-  },
-  'bg-undo': () => { if (!bg || !bg.t) return; bg.t.board = bg.t.start; bg.t.played = []; bg.sel = null; if (bg.mode === 'ai') bgSaveAi(); drawBg(); },
-  'bg-done': () => bgFinish(),
-  'bg-resign': () => { const b = document.querySelector('[data-action="bg-resign"]'); if (b) { b.dataset.action = 'bg-resign-yes'; b.textContent = 'לפרוש? לחצו שוב'; } },
-  'bg-resign-yes': async () => {
-    if (!bg || bg.over) return;
-    if (bg.mode === 'ai') return bgOver({ winner: other(bg.me), mult: 1 }, true);
-    const r = await store.bgUpdate(bg.id, { status: 'done', winner: bg.opp, resign: session(), ts: Date.now() }); if (r && r.error) return toast(r.error);
-    bg.over = { winner: other(bg.me), mult: 1, resign: session() }; bgRecord(false, false, bg.id); drawBg();
-  }
 };
-Object.assign(ACT, FUN_ACT);
+Object.assign(ACT, FUN_ACT, SNAKE_ACT, BG_ACT, SUDOKU_ACT);
 FORMS['gal-up'] = async (v, f) => {
   if (!galPending || busy) return; busy = true; const list = galPending, btn = f.querySelector('button');
   try {
