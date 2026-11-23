@@ -148,6 +148,7 @@ export function createLocalStore() {
       if (kind === 'bet') { d = -Math.min(data.stake || 0, w.coins); w.bet = -d; }
       else if (kind === 'win') { d = 2 * (w.bet || 0); w.bet = 0; }
       else if (kind === 'lose') w.bet = 0;
+      else if (kind === 'draw') { d = w.bet || 0; w.bet = 0; }
       else { const raw = kind === 'snake' ? Math.min(30, Math.floor((data.score || 0) / 5)) : kind === 'sudoku' ? Math.max(0, (SD[data.level] || 0) - 3 * (data.hints || 0) - 2 * (data.errors || 0)) : 0, e = w.earn && w.earn.day === day ? w.earn.n : 0; d = Math.max(0, Math.min(raw, 150 - e)); w.earn = { day, n: e + d }; }
       demoCoins({ [session]: d }); persist(); return { ok: true };
     },
