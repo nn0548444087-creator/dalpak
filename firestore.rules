@@ -348,7 +348,7 @@ service cloud.firestore {
     match /wallets/{id} { allow read: if isEmp(); }
     match /coinEvents/{id} {
       allow create: if isStaff() && request.resource.data.emp == myEmpId()
-        && request.resource.data.kind in ['snake', 'sudoku', 'bet', 'win', 'lose']
+        && request.resource.data.kind in ['snake', 'sudoku', 'bet', 'win', 'lose', 'draw']
         && request.resource.data.keys().hasOnly(['emp', 'kind', 'score', 'stake', 'level', 'hints', 'errors', 'ts'])
         && request.resource.data.get('stake', 10) in [10, 20, 30, 40, 50]
         && request.resource.data.get('score', 0) is int && request.resource.data.get('score', 0) >= 0 && request.resource.data.get('score', 0) < 5000;
