@@ -74,7 +74,9 @@ export function createCloudStore(config) {
   let myPush = null;
   let empId = null, myPhone = null, myNum = null, owner = false, viewer = false, poster = false, viewerLogins = [], setupDone = true, pinLen = 4;
   // The signed-in Google account (email), its permissions per area, and a sign-up waiting for approval.
-  let me = null, perms = {}, pend = null, unsubPend = null, ownerEmp = null;
+  let me = null, perms = {}, pend = null, unsubPend = null, ownerEmp = null, guest = false;
+  // Everyone but hours/staff managers sees employees through staffPublic (no wages or phone numbers), plus their own full record.
+  let pubEmps = null, myEmpDoc = null, namesFallback = {};
   let ownerSet = false, migrated = false;
   // Level in an area: the owner has everything, the viewer sees everything.
   const lv = a => owner ? 'edit' : viewer ? 'view' : (perms[a] || 'none');
@@ -140,7 +142,7 @@ export function createCloudStore(config) {
       if (!m.exists()) return false;
       const d = m.data();
       if (!d.empId) return false;
-      me = em; empId = d.empId; perms = d.perms || {}; owner = d.owner === true; viewer = false; poster = false;
+      me = em; empId = d.empId; perms = d.perms || {}; owner = d.owner === true; guest = d.guest === true; viewer = false; poster = false;
       S.currentUser = empId; pend = null; if (unsubPend) { unsubPend(); unsubPend = null; }
       return true;
     } catch (e) { console.warn('member', e); return false; }
@@ -164,8 +166,8 @@ export function createCloudStore(config) {
     const em = u.email.toLowerCase();
     pend = { email: em, name: u.displayName || '', photo: u.photoURL || '' };
     try {
-      const had = await getDoc(doc(db, 'signups', em));
-      if (!had.exists()) await setDoc(doc(db, 'signups', em), { email: em, name: pend.name.slice(0, 150), photo: pend.photo.slice(0, 1900), ts: Date.now() });
+      // Written every time: the server answers it with a guest record, so the person can clock in right away.
+      await setDoc(doc(db, 'signups', em), { email: em, name: pend.name.slice(0, 150), photo: pend.photo.slice(0, 1900), ts: Date.now() });
     } catch (e) { console.warn('signup', e); }
     if (unsubPend) unsubPend();
     unsubPend = onSnapshot(doc(db, 'members', em), async d => {
@@ -178,8 +180,8 @@ export function createCloudStore(config) {
   async function recheck() {
     if (rechecking || !empId || !me) return; rechecking = true;
     try {
-      const was = stable(perms);
-      if (await linkMember()) { if (stable(perms) !== was) { subscribe(); emit(); } }
+      const was = stable(perms) + guest + empId;
+      if (await linkMember()) { if (stable(perms) + guest + empId !== was) { subscribe(); emit(); } }
       else { unsubs.forEach(u => u()); unsubs = []; empId = null; S.currentUser = null; const u = auth.currentUser; if (u && u.email) await requestJoin(u); emit(); }
     } finally { rechecking = false; }
   }
@@ -200,6 +202,7 @@ export function createCloudStore(config) {
     synced[col] = m;
     if (ARRAYS.includes(col)) S[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (col === 'employees') {
+      if (pubEmps) { pubEmps = S.employees; mergeMine(); }
       syncNames();
     }
     else if (col === 'logins') {
@@ -214,6 +217,14 @@ export function createCloudStore(config) {
     loadedCols.add(col);
   }
 
+  // staffPublic + this employee's own full record (wage etc.). Until the server has filled staffPublic,
+  // the names list stands in for it.
+  function mergeMine() {
+    let list = (pubEmps && pubEmps.length ? pubEmps : Object.entries(namesFallback).map(([id, name]) => ({ id, name }))).filter(e => e.id !== empId);
+    const mine = myEmpDoc || (pubEmps || []).find(e => e.id === empId);
+    if (mine) list = [...list, { ...mine, id: empId }];
+    S.employees = list;
+  }
   // Managers keep config/names up to date: just id → name, nothing private.
   function syncNames() {
     if (!staffMgr() || namesSynced === null || !loadedCols.has('employees')) return;
@@ -229,8 +240,28 @@ export function createCloudStore(config) {
   }
   function subscribe() {
     resetState();
+    pubEmps = null; myEmpDoc = null; namesFallback = {};
     if (!empId) { emit(); return; }
     const c = n => collection(db, n);
+    // Changes to this account (approved, new permissions, removed) apply at once.
+    if (me) unsubs.push(onSnapshot(doc(db, 'members', me), d => {
+      const x = d.exists() ? d.data() : null;
+      if (!x || x.empId !== empId || (x.guest === true) !== guest || stable(x.perms || {}) !== stable(perms) || (x.owner === true) !== owner) recheck();
+    }, () => { }));
+    const ownDoc = () => onSnapshot(doc(db, 'employees', empId), d => { myEmpDoc = d.exists() ? { id: d.id, ...d.data() } : null; mergeMine(); loadedCols.add('employees'); emit(); }, e => fail(e));
+    // A new account waiting for approval: only the clock (its own record and its own shifts).
+    if (guest) {
+      pubEmps = [];
+      unsubs.push(ownDoc());
+      unsubs.push(onSnapshot(query(c('shifts'), where('empId', '==', empId)), { includeMetadataChanges: true }, snap => { noteSync('shifts', snap); apply('shifts', snap); emit(); }, e => fail(e)));
+      emit(); return;
+    }
+    const fullEmps = viewer || can('hours') || can('staff');
+    if (!fullEmps) {
+      pubEmps = [];
+      unsubs.push(ownDoc());
+      unsubs.push(onSnapshot(doc(db, 'config', 'names'), d => { namesFallback = d.exists() ? d.data() : {}; mergeMine(); emit(); }, () => { }));
+    }
     if (staffMgr() || poster) unsubs.push(onSnapshot(doc(db, 'config', 'names'), d => { S.names = d.exists() ? d.data() : {}; namesSynced = stable(S.names); syncNames(); emit(); }, () => { }));
     // Each list loads in full only for those whose permissions cover it; otherwise just the employee's own part.
     const all = n => [n, c(n)], mine = n => [n, query(c(n), where('empId', '==', empId))], pub = n => [n, query(c(n), where('cat', 'in', PUBLIC_CATS))];
@@ -238,7 +269,7 @@ export function createCloudStore(config) {
     const specs = poster ? [['reels', c('reels')], ['reelComments', c('reelComments')], ['empPhotos', c('empPhotos')]]
       : viewer
       ? [...COLS.filter(n => n !== 'logins' && n !== MSG_Q).map(all), ['openShifts', query(c('shifts'), where('status', '==', 'open'))]]
-      : [all('employees'),
+      : [fullEmps ? all('employees') : ['employees', c('staffPublic')],
         can('hours') ? all('shifts') : mine('shifts'),
         ['openShifts', query(c('shifts'), where('status', '==', 'open'))],
         any('inv', 'products', 'orders', 'pos') ? all('inventory') : pub('inventory'),
@@ -297,7 +328,7 @@ export function createCloudStore(config) {
     // The poster account only ever writes its own profile photo here; reels go through uploadReel.
     // Only lists this employee may change (the rest are compared but never written).
     const ed = a => lv(a) === 'edit';
-    const W = { logins: false, inventory: ed('inv') || ed('products'), itemNotes: ed('inv') || ed('products'), itemImages: ed('inv') || ed('products'),
+    const W = { logins: false, employees: ed('staff'), inventory: ed('inv') || ed('products'), itemNotes: ed('inv') || ed('products'), itemImages: ed('inv') || ed('products'),
       suppliers: ed('orders') || ed('products'), orders: ed('orders'), grades: ed('tasks'), prices: ed('products'), catalog: ed('products'), sales: ed('pos') };
     const cols = poster ? ['empPhotos'] : COLS.filter(c => W[c] !== false && (W[c] === undefined || W[c]));
     for (const col of cols) {
@@ -421,6 +452,8 @@ export function createCloudStore(config) {
     ownerEmp: () => ownerEmp,
     hasOwner: () => ownerSet,
     isViewer: () => viewer,
+    // A new Google account that may only clock in until a manager approves it.
+    isGuest: () => guest && !!empId,
     isPoster: () => poster,
     // The "חדשות מרקט" login: posts reels only. Any manager may turn it on or off.
     async setPoster(phone, num) {
@@ -588,7 +621,10 @@ export function createCloudStore(config) {
       try {
         const em = String(email).toLowerCase(), b = writeBatch(db);
         let eid = id;
-        if (!eid && newEmp) { eid = newId(); b.set(doc(db, 'employees', eid), clean(newEmp)); }
+        // A guest (already clocking in) approved as a new employee keeps its record and hours.
+        const g = (S.members || []).find(m => m.id === em && m.guest === true);
+        if (!eid && newEmp && g) { eid = g.empId; b.set(doc(db, 'employees', eid), { ...clean(newEmp), guest: false }, { merge: true }); }
+        else if (!eid && newEmp) { eid = newId(); b.set(doc(db, 'employees', eid), clean(newEmp)); }
         if (!eid) return { error: 'צריך לבחור עובד' };
         // Another Google account linked to the same employee is replaced.
         (S.members || []).filter(m => m.empId === eid && m.id !== em).forEach(m => b.delete(doc(db, 'members', m.id)));
@@ -599,8 +635,13 @@ export function createCloudStore(config) {
       } catch (e) { return { error: errText(e) }; }
     },
     async reject(email) {
-      try { await withTimeout(deleteDoc(doc(db, 'signups', String(email).toLowerCase()))); return { ok: true }; }
-      catch (e) { return { error: errText(e) }; }
+      try {
+        const em = String(email).toLowerCase(), b = writeBatch(db);
+        b.delete(doc(db, 'signups', em));
+        // A refused guest loses the clock too (the server removes the guest record).
+        if ((S.members || []).some(m => m.id === em && m.guest === true)) b.delete(doc(db, 'members', em));
+        await withTimeout(b.commit()); return { ok: true };
+      } catch (e) { return { error: errText(e) }; }
     },
     async setPerms(email, p) {
       try {
@@ -626,7 +667,7 @@ export function createCloudStore(config) {
         await deleteDoc(doc(db, 'sessions', u.uid)).catch(() => { });
       }
       empId = null; owner = false; viewer = false; poster = false; S.currentUser = null; migrated = false;
-      me = null; perms = {}; pend = null; gErr = ''; if (unsubPend) { unsubPend(); unsubPend = null; }
+      me = null; perms = {}; pend = null; gErr = ''; guest = false; if (unsubPend) { unsubPend(); unsubPend = null; }
       await signOut(auth).catch(() => { });
       emit();
     },
