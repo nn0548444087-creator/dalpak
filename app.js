@@ -1,6 +1,6 @@
 import './style.css';
 import { createStore } from './store.js';
-import { BG_START, other, bgKey, turnInfo, applyMove, bgBest, bgHint, bgWinner, pips, roll, createSnake, SNAKE_SKINS, SNAKE_SPEEDS, SNAKE_MODES, SUDOKU_LEVELS, SD_PEERS, makeSudoku, sudokuReward } from './games.js';
+import { BG_START, other, bgKey, turnInfo, applyMove, bgBest, bgHint, bgWinner, pips, roll, createSnake, SNAKE_SKINS, SNAKE_SPEEDS, SNAKE_MODES, SUDOKU_LEVELS, SD_PEERS, makeSudoku, sudokuReward, CHESS_START, fenParse, fenOf, chessMoves, chessApply, chessStatus, chessKey, chessSan, chessBest, inCheck, sqName, DAMA_START, damaMoves, damaApply, damaStatus, damaBest } from './games.js';
 import { shareFiles, download } from './share.js';
 import { distM, geoOnce, geoStart, geoStop, geoWatching, geoBackground, geoSettings } from './geo.js';
 import { AREAS, H, DAY, uid, pad, sum, dur, sod, sameDay, monthKey, prevMonthKey, dateKey, weekStart, normPhone, fmtPhone, buildSummary, hasSummary, barcodeBits, barcodeSvg } from './util.js';
@@ -260,9 +260,9 @@ function render() {
   if (FUN_VIEWS.includes(view) && !funOk()) view = 'clock';
   if (view !== 'snake' && snakeG) { snakeG.destroy(); snakeG = null; }
   if (!invAll && (invTab === 'snacks' || invTab === 'all')) invTab = 'drinks';
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels, fun: vFun, gallery: vGallery, snake: vSnake, bg: vBg, sudoku: vSudoku };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels, fun: vFun, gallery: vGallery, snake: vSnake, bg: vBg, sudoku: vSudoku, duel: vDuel };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
-  renderNav(); tick(); watchReels(); cleanReels(); watchMore(); if (view === 'snake') mountSnake(); sdClock(); syncShown = ''; updateSync();
+  renderNav(); tick(); watchReels(); cleanReels(); watchMore(); if (view === 'snake') mountSnake(); sdClock(); if (view === 'duel') duSlide(); syncShown = ''; updateSync();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
   if (view === 'dm') { fitCompose(); markRead(); scrollDmEnd(); }
   if (view !== 'pos' && scanStop && !layerOpen()) { scanStop(); scanStop = null; }
@@ -280,6 +280,7 @@ function softRender() {
   if (view === 'snake') { updSnakeBoard(); renderNav(); return; }
   if (view === 'sudoku' && !document.querySelector('.sheet')) { sdDraw(); renderNav(); return; }
   if (view === 'bg' && !document.querySelector('.sheet')) return patchBg();
+  if (view === 'duel' && !document.querySelector('.sheet')) return patchDuel();
   if (typing || document.querySelector('.sheet')) { renderPending = true; renderNav(); return; }
   if (view === 'reels') return patchReels();
   render();
@@ -2388,14 +2389,14 @@ const FORMS = {
 };
 const VIEW_OK = ['reel-share', 'sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
 /* ---------- leisure: the shop's photo gallery, Snake and backgammon ---------- */
-const FUN_VIEWS = ['fun', 'gallery', 'snake', 'bg', 'sudoku'];
+const FUN_VIEWS = ['fun', 'gallery', 'snake', 'bg', 'sudoku', 'duel'];
 const funOk = () => !viewer && !poster;
 const scoreOf = (game, id = session()) => (S.scores || []).find(s => s.game === game && s.emp === id) || null;
 const dataToBlob = d => { const [h, b] = String(d).split(','), bin = atob(b), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Blob([u8], { type: (h.match(/data:([^;]+)/) || [])[1] || 'image/jpeg' }); };
 const shareDone = r => { if (r === 'saved') toast('הקובץ ירד למכשיר'); };
 const backFun = () => back('fun', 'חזרה לפנאי');
 function vFun() {
-  const g = galList(), sn = scoreOf('snake'), top = snakeRows('classic')[0], wait = bgWaiting(), have = coinsOf(), total = coinTotal() || 1;
+  const g = galList(), sn = scoreOf('snake'), top = snakeRows('classic')[0], wait = bgWaiting() - duelWaiting(), dwait = duelWaiting(), have = coinsOf(), total = coinTotal() || 1;
   const sdDone = sdStat(scoreOf('sudoku'), 'daily');
   return `<h2 class="vt">פנאי</h2>
   <button class="coin-card" data-action="coins-open"><span class="cc-ic" aria-hidden="true">🪙</span><div class="cc-txt"><b>${coin(have)}</b><small>הקופה המשותפת לכל המשחקים · ${Math.round(have / total * 100)}% מכל המטבעות</small></div><span class="cc-go">${ic('chev', 'sm')}</span></button>
@@ -2417,6 +2418,11 @@ function vFun() {
       <div class="fc-txt"><b>שש בש</b><small>נגד המחשב או נגד עובד אחר · אפשר על מטבעות</small></div>
       ${wait ? `<span class="pill bad">${wait} מחכים לך</span>` : ''}
     </button>
+    ${Object.entries(DUEL).map(([k, d]) => { const n = myDuels().filter(g => g.game === k && ((g.status === 'invite' && g.b === session()) || (g.status === 'play' && g.turn === (g.a === session() ? 'a' : 'b')))).length; return `<button class="fun-card" data-action="duel-open" data-g="${k}">
+      <span class="fc-ic" aria-hidden="true">${d.icon}</span>
+      <div class="fc-txt"><b>${d.name}</b><small>נגד המחשב בשלוש רמות או נגד עובד · אפשר על מטבעות</small></div>
+      ${n ? `<span class="pill bad">${n} מחכים לך</span>` : ''}
+    </button>`; }).join('')}
   </div>`;
 }
 
@@ -2481,7 +2487,7 @@ const todayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/
 function coinsSheet() {
   const total = coinTotal() || 1, rows = coinPlayers().map(e => ({ e, c: coinsOf(e.id) })).sort((a, b) => b.c - a.c), info = coinInfo();
   sheet(`<h3>הקופה המשותפת 🪙</h3>
-    <p class="muted coin-rules">כל אחד מתחיל עם 200 מטבעות. מרוויחים בסנייק ובסודוקו, ומהמרים בשש בש על 10 עד 50 מטבעות. ברגע שמישהו מחזיק 55% מכל המטבעות, הקופה נשברת וכולם חוזרים ל-200.</p>
+    <p class="muted coin-rules">כל אחד מתחיל עם 200 מטבעות. מרוויחים בסנייק ובסודוקו, ומהמרים בשש בש, בשחמט ובדמקה על 10 עד 50 מטבעות. ברגע שמישהו מחזיק 55% מכל המטבעות, הקופה נשברת וכולם חוזרים ל-200.</p>
     ${info && info.resetAt ? `<p class="muted coin-rules">הקופה נשברה ${ago(info.resetAt)}${emp(info.by).name ? ` על ידי ${esc(first(emp(info.by).name))}` : ''}.</p>` : ''}
     <div class="list">${rows.map((r, i) => { const pc = Math.round(r.c / total * 100); return `<div class="row ${r.e.id === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(r.e, 'md')}<div class="row-main"><div class="row-title">${esc(r.e.name)}</div><div class="coin-bar" aria-hidden="true"><i style="width:${Math.min(100, pc / .55)}%" class="${pc >= 45 ? 'hot' : ''}"></i></div><div class="row-sub"><span>${pc}% מהקופה</span></div></div>${coin(r.c)}</div>`; }).join('')}</div>`);
 }
@@ -2963,7 +2969,249 @@ const SUDOKU_ACT = {
   }
 };
 
-const duelWaiting = () => 0;
+/* Chess and checkers: against the computer (three levels, kept on this phone) or against another employee
+   (duels/{id} on the server). Both can be played for coins, like backgammon. */
+const DUEL = {
+  chess: { name: 'שחמט', icon: '♟️', start: () => ({ fen: CHESS_START, hist: [], san: [] }) },
+  dama: { name: 'דמקה', icon: '⛀', start: () => ({ b: DAMA_START, t: 'w', quiet: 0 }) }
+};
+const DUEL_LEVELS = { 1: 'קל', 2: 'בינוני', 3: 'קשה' };
+const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+let du = null, duGame = (() => { try { return localStorage.getItem('dalpak-duel-game') || 'chess'; } catch (e) { return 'chess'; } })(), duBusy = false;
+const duAiKey = g => 'dalpak-duel-ai-' + g;
+const myDuels = () => (S.duels || []).filter(g => (g.players || []).includes(session()));
+const duMine = g => g.a === session() ? 'w' : 'b';
+const duOppOf = g => g.a === session() ? g.b : g.a;
+const duelWaiting = () => myDuels().filter(g => (g.status === 'invite' && g.b === session()) || (g.status === 'play' && g.turn === (g.a === session() ? 'a' : 'b'))).length;
+// The side to move, from the game's own position.
+const duTurn = (game, st) => game === 'chess' ? fenParse(st.fen).t : st.t;
+function duStatusOf(game, st) {
+  if (game === 'chess') { const s = fenParse(st.fen); return chessStatus(s, st.hist || []); }
+  return damaStatus(st.b, st.t, st.quiet || 0);
+}
+// All legal moves now, as { f, t, ...} (chess) or { path, caps } (checkers), plus where each starts and ends.
+function duMoves(game, st) {
+  if (game === 'chess') return chessMoves(fenParse(st.fen)).map(m => ({ ...m, from: m.f, to: m.t }));
+  return damaMoves(st.b, st.t).map(m => ({ ...m, from: m.path[0], to: m.path[m.path.length - 1] }));
+}
+function duApply(game, st, m) {
+  if (game === 'chess') {
+    const s = fenParse(st.fen), n = chessApply(s, m);
+    return { fen: fenOf(n), hist: [...(st.hist || []), chessKey(s)].slice(-120), san: [...(st.san || []), chessSan(s, m)].slice(-300) };
+  }
+  const kingsOnly = !/[wb]/.test(st.b), b = damaApply(st.b, st.t, m);
+  return { b, t: st.t === 'w' ? 'b' : 'w', quiet: m.caps.length || !kingsOnly ? 0 : (st.quiet || 0) + 1 };
+}
+const duBoard = (game, st) => game === 'chess' ? fenParse(st.fen).b : st.b.split('');
+function duSaveAi() { if (!du || du.mode !== 'ai') return; try { localStorage.setItem(duAiKey(du.game), JSON.stringify({ st: du.st, me: du.me, over: du.over, last: du.last, stake: du.stake || 0, level: du.level })); } catch (e) { } }
+function duLoadAi(g) { try { return JSON.parse(localStorage.getItem(duAiKey(g)) || 'null'); } catch (e) { return null; } }
+const duRecorded = () => { try { return new Set(JSON.parse(localStorage.getItem('dalpak-duel-rec') || '[]')); } catch (e) { return new Set(); } };
+async function duRecord(game, res, ai, gameId) {
+  if (gameId) { const s = duRecorded(); if (s.has(gameId)) return; s.add(gameId); try { localStorage.setItem('dalpak-duel-rec', JSON.stringify([...s].slice(-200))); } catch (e) { } }
+  if (res === 'draw') return;
+  const c = scoreOf(game) || {}, k = ai ? (res === 'win' ? 'aiWins' : 'aiLosses') : (res === 'win' ? 'wins' : 'losses');
+  await store.saveScore(game, { [k]: (c[k] || 0) + 1 });
+}
+const WHY = { mate: 'מט', stalemate: 'פט', fifty: '50 מהלכים בלי הכאה', material: 'לא נשארו מספיק כלים', repeat: 'אותו מצב שלוש פעמים', resign: 'פרישה' };
+function duFinish(st) {
+  const r = duStatusOf(du.game, st); if (!r.over) return null;
+  return { winner: r.winner, why: r.why || (du.game === 'dama' ? (r.winner ? 'nomoves' : 'quiet') : '') };
+}
+function duStartAi(game, fresh, stake = 0, level = 2) {
+  const s = fresh ? null : duLoadAi(game);
+  du = { game, mode: 'ai', me: 'w', sel: null, anim: null };
+  if (s && !s.over) { Object.assign(du, { st: s.st, me: s.me || 'w', last: s.last, stake: s.stake || 0, level: s.level || 2, over: null }); if (duTurn(game, du.st) !== du.me) setTimeout(duAiTurn, 500); return; }
+  if (stake) store.coinEvent('bet', { stake });
+  Object.assign(du, { st: DUEL[game].start(), me: Math.random() < .5 ? 'w' : 'b', last: null, stake, level, over: null });
+  duSaveAi();
+  toast(du.me === 'w' ? 'את/ה משחק/ת בלבן ומתחיל/ה' : 'את/ה משחק/ת בשחור. המחשב מתחיל');
+  if (du.me !== 'w') setTimeout(duAiTurn, 700);
+}
+function duAiTurn() {
+  if (!du || du.mode !== 'ai' || du.over || duTurn(du.game, du.st) === du.me) return;
+  du.thinking = true; drawDuel();
+  setTimeout(() => {
+    if (!du || du.mode !== 'ai') return;
+    const ai = duTurn(du.game, du.st);
+    const m = du.game === 'chess' ? chessBest(fenParse(du.st.fen), du.level) : damaBest(du.st.b, ai, du.level);
+    du.thinking = false; if (!m) return;
+    duPlayMove(du.game === 'chess' ? { ...m, from: m.f, to: m.t } : { ...m, from: m.path[0], to: m.path[m.path.length - 1] });
+  }, 350);
+}
+function duOver(over) {
+  du.over = over; du.sel = null;
+  const res = !over.winner ? 'draw' : over.winner === du.me ? 'win' : 'lose';
+  if (du.mode === 'ai') { duSaveAi(); duRecord(du.game, res, true); if (du.stake) store.coinEvent(res); }
+  haptic(res === 'win' ? [20, 40, 20, 40, 80] : [60]);
+  toast(res === 'win' ? 'ניצחת! 🏆' + (du.stake && du.mode === 'ai' ? ` +${du.stake * 2} 🪙` : '') : res === 'draw' ? 'תיקו' + (du.stake && du.mode === 'ai' ? ' · המטבעות חזרו אליך' : '') : (du.mode === 'ai' ? 'הפעם המחשב ניצח' : 'הפסדת'));
+}
+// One move by whoever's turn it is (the player, the computer, or the other employee's move replayed).
+async function duPlayMove(m) {
+  const before = du.st, mover = duTurn(du.game, before), st = duApply(du.game, before, m);
+  du.anim = { from: m.from, to: m.to, caps: m.caps || (m.x ? [m.ep ? m.to + (mover === 'w' ? 8 : -8) : m.to] : []) };
+  du.last = { from: m.from, to: m.to, path: m.path || null };
+  const over = duFinish(st);
+  if (du.mode === 'online') {
+    const patch = { state: st, turn: duTurn(du.game, st) === 'w' ? 'a' : 'b', last: du.last, ts: Date.now() };
+    if (over) Object.assign(patch, { status: 'done', winner: over.winner ? (over.winner === du.me ? session() : du.opp) : null, why: over.why });
+    duBusy = true; const r = await store.duelUpdate(du.id, patch); duBusy = false;
+    if (r && r.error) { du.anim = null; toast(r.error); return drawDuel(); }
+  }
+  du.st = st; du.sel = null;
+  haptic(m.caps && m.caps.length || m.x ? [15, 25, 15] : 8);
+  if (over) { duOver(over); if (du.mode === 'online') duRecord(du.game, !over.winner ? 'draw' : over.winner === du.me ? 'win' : 'lose', false, du.id); return drawDuel(); }
+  if (du.mode === 'ai') { duSaveAi(); drawDuel(); return duAiTurn(); }
+  drawDuel();
+}
+function duFromDoc(g) {
+  const me = duMine(g), prev = du && du.mode === 'online' && du.id === g.id ? du : null;
+  const st = g.state || DUEL[g.game].start();
+  const over = g.status === 'done' ? { winner: g.winner ? (g.winner === session() ? me : me === 'w' ? 'b' : 'w') : null, why: g.resign ? 'resign' : g.why || '', resign: g.resign || null } : null;
+  // The other player's move just arrived: slide it in.
+  let anim = null;
+  if (prev && g.last && JSON.stringify(prev.st) !== JSON.stringify(st) && duTurn(g.game, st) === me) anim = { from: g.last.from, to: g.last.to, caps: [] };
+  du = { game: g.game, mode: 'online', id: g.id, me, opp: duOppOf(g), st, last: g.last || null, over, status: g.status, stake: g.stake || 0, paid: g.paid, sel: prev ? prev.sel : null, anim };
+  if (over) duRecord(g.game, !over.winner ? 'draw' : over.winner === me ? 'win' : 'lose', false, g.id);
+}
+function duBoardHtml() {
+  const game = du.game, board = duBoard(game, du.st), flip = du.me === 'b', myTurn = !du.over && du.status !== 'invite' && duTurn(game, du.st) === du.me && !du.thinking;
+  const moves = myTurn ? duMoves(game, du.st) : [], from = new Set(moves.map(m => m.from)), dests = new Set(du.sel !== null && du.sel !== undefined ? moves.filter(m => m.from === du.sel).map(m => m.to) : []);
+  const chk = game === 'chess' && !du.over ? (() => { const s = fenParse(du.st.fen); return inCheck(s) ? s.b.indexOf(s.t === 'w' ? 'K' : 'k') : -1; })() : -1;
+  const last = du.last || {}, anim = du.anim; du.anim = null;
+  let h = '';
+  for (let k = 0; k < 64; k++) {
+    const i = flip ? 63 - k : k, r = Math.floor(i / 8), f = i % 8, dark = (r + f) % 2 === 1, p = board[i];
+    const cls = ['dq', dark ? 'dk' : 'lt', i === du.sel ? 'sel' : '', last.from === i || last.to === i ? 'last' : '', dests.has(i) ? (p !== '.' ? 'dest cap' : 'dest') : '', from.has(i) && myTurn ? 'can' : '', i === chk ? 'check' : ''].filter(Boolean).join(' ');
+    let piece = '';
+    if (p !== '.') {
+      let style = '';
+      if (anim && anim.to === i) { const a = anim.from, df = (a % 8) - f, dr = Math.floor(a / 8) - r; style = ` style="--dx:${flip ? -df : df};--dy:${flip ? -dr : dr}"`; }
+      if (game === 'chess') { const w = p === p.toUpperCase(); piece = `<span class="cp ${w ? 'w' : 'b'}${style ? ' mv' : ''}"${style}>${GLYPH[p.toLowerCase()]}&#xFE0E;</span>`; }
+      else { const w = p.toLowerCase() === 'w', king = p === 'W' || p === 'B'; piece = `<span class="dp ${w ? 'w' : 'b'}${king ? ' king' : ''}${style ? ' mv' : ''}"${style}>${king ? '♛&#xFE0E;' : ''}</span>`; }
+    }
+    const coord = (flip ? r === 0 : r === 7) ? `<i class="cf">${'abcdefgh'[f]}</i>` : '', coordR = (flip ? f === 7 : f === 0) ? `<i class="cr">${8 - r}</i>` : '';
+    h += `<button class="${cls}" data-action="du-sq" data-i="${i}" aria-label="${game === 'chess' ? sqName(i) : ''}">${piece}${coord}${coordR}</button>`;
+  }
+  return `<div class="duel-board ${game}" dir="ltr">${h}</div>`;
+}
+function duGameHtml() {
+  const game = du.game, me = du.me, oppName = du.mode === 'ai' ? `המחשב (${DUEL_LEVELS[du.level] || ''})` : first(emp(du.opp).name || 'עובד');
+  const turn = duTurn(game, du.st), myTurn = !du.over && du.status !== 'invite' && turn === me;
+  let status = '', btns = '';
+  if (du.over) {
+    const res = !du.over.winner ? 'draw' : du.over.winner === me ? 'win' : 'lose';
+    const pay = du.stake ? (du.mode === 'ai' ? (res === 'win' ? ` · +${du.stake * 2} 🪙` : res === 'draw' ? ' · המטבעות חזרו' : ` · −${du.stake} 🪙`) : res === 'draw' ? '' : ` · ${res === 'win' ? '+' : '−'}${du.paid ?? du.stake} 🪙`) : '';
+    status = (res === 'win' ? 'ניצחת! 🏆' : res === 'draw' ? 'תיקו' : du.over.resign === session() || (du.mode === 'ai' && du.over.why === 'resign') ? 'פרשת מהמשחק' : `${oppName} ניצח/ה`) + (WHY[du.over.why] && du.over.why !== 'resign' ? ` (${WHY[du.over.why]})` : '') + pay;
+    btns = du.mode === 'ai' ? `<button class="btn primary" data-action="du-ai-new">משחק חדש</button>` : `<button class="btn primary" data-action="du-invite-to" data-id="${du.opp}" data-stake="${du.stake || 0}">משחק חוזר</button><button class="btn" data-action="du-del" data-id="${du.id}">מחיקה מהרשימה</button>`;
+  } else if (du.status === 'invite') status = `מחכה ש${oppName} יאשר/תאשר את ההזמנה`;
+  else if (!myTurn) status = du.mode === 'ai' ? 'המחשב חושב…' : `התור של ${oppName}`;
+  else {
+    const check = game === 'chess' && inCheck(fenParse(du.st.fen));
+    status = (check ? 'שח! ' : '') + (du.sel !== null && du.sel !== undefined ? 'לאן להזיז? המקומות המסומנים' : 'התור שלך · בחרו כלי');
+    if (game === 'dama' && duMoves(game, du.st).some(m => m.caps.length)) status = 'חובה להכות! ' + status;
+  }
+  const san = game === 'chess' && du.st.san && du.st.san.length ? `<div class="san" dir="ltr">${du.st.san.map((x, i) => (i % 2 ? '' : `<b>${i / 2 + 1}.</b>`) + `<span>${esc(x)}</span>`).slice(-24).join(' ')}</div>` : '';
+  const counts = game === 'dama' ? (() => { const b = du.st.b; return { w: (b.match(/[wW]/g) || []).length, b: (b.match(/[bB]/g) || []).length }; })() : null;
+  const label = c => game === 'chess' ? (c === 'w' ? 'לבן' : 'שחור') : `${c === 'w' ? 'לבן' : 'שחור'} · ${counts[c]} כלים`;
+  return `<button class="link-btn" data-action="du-lobby">${ic('chev', 'sm')}<span>לכל המשחקים</span></button>
+  ${du.stake ? `<div class="bg-stake">משחק על ${coin(du.stake)}${du.mode === 'ai' ? ' · ניצחון מחזיר פי 2' : ''}</div>` : ''}
+  <div class="bg-players"><span class="bgp ${me === 'w' ? 'b' : 'w'} ${!du.over && turn !== me ? 'turn' : ''}"><i></i>${esc(oppName)} · ${label(me === 'w' ? 'b' : 'w')}</span><span class="bgp ${me} ${myTurn ? 'turn' : ''}"><i></i>את/ה · ${label(me)}</span></div>
+  ${duBoardHtml()}
+  <p class="bg-status">${status}</p>
+  <div class="actions bg-btns">${btns}</div>
+  ${san}
+  ${!du.over && du.status !== 'invite' ? `<button class="link-btn danger-t bg-resign" data-action="du-resign">פרישה מהמשחק${du.stake ? ` (הפסד של ${du.stake} מטבעות)` : ''}</button>` : ''}`;
+}
+function duLobbyHtml() {
+  const game = duGame, D = DUEL[game], saved = duLoadAi(game), open = saved && !saved.over;
+  const games = myDuels().filter(g => g.game === game).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const inv = games.filter(g => g.status === 'invite' && g.b === session()), sent = games.filter(g => g.status === 'invite' && g.a === session());
+  const play = games.filter(g => g.status === 'play'), done = games.filter(g => g.status === 'done').slice(0, 6);
+  const st = g => g.stake ? ` · ${coin(g.stake)}` : '';
+  const row = (g, right) => `<div class="row tap" data-action="du-open" data-id="${g.id}">${avatar(emp(duOppOf(g)), 'md')}<div class="row-main"><div class="row-title">${esc(emp(duOppOf(g)).name)}</div><div class="row-sub">${right}${st(g)}</div></div></div>`;
+  const champs = (S.scores || []).filter(s => s.game === game && emp(s.emp).name && ((s.wins || 0) + (s.losses || 0) + (s.aiWins || 0) + (s.aiLosses || 0))).sort((a, b) => (b.wins || 0) - (a.wins || 0) || (b.aiWins || 0) - (a.aiWins || 0));
+  return `<div class="game-head"><h2 class="vt">${D.name}</h2><button class="coin-chip" data-action="coins-open">${coin(coinsOf())}</button></div>
+  <div class="modes" role="tablist">${Object.entries(DUEL).map(([k, d]) => `<button class="mode ${k === game ? 'on' : ''}" role="tab" aria-selected="${k === game}" data-action="du-game" data-g="${k}"><span aria-hidden="true">${d.icon}</span>${d.name}</button>`).join('')}</div>
+  ${game === 'dama' ? '<p class="muted snake-help">חובה להכות, אפשר להכות גם אחורה, ומלך זז כמה משבצות שרוצים באלכסון.</p>' : ''}
+  <div class="list">
+    <div class="row"><span class="fc-ic sm" aria-hidden="true">🤖</span><div class="row-main"><div class="row-title">נגד המחשב</div><div class="row-sub">${open ? `יש לך משחק פתוח · ${DUEL_LEVELS[saved.level] || ''}${saved.stake ? ` · על ${saved.stake} מטבעות` : ''}` : 'שלוש רמות קושי, אפשר גם על מטבעות'}</div></div><button class="btn primary sm" data-action="du-ai">${open ? 'המשך' : 'משחק'}</button></div>
+    <div class="row"><span class="fc-ic sm" aria-hidden="true">👥</span><div class="row-main"><div class="row-title">נגד עובד אחר</div><div class="row-sub">כל אחד משחק מהטלפון שלו</div></div><button class="btn primary sm" data-action="du-invite">הזמנה</button></div>
+  </div>
+  ${inv.length ? `<h3 class="sec">הזמנות אליך</h3><div class="list">${inv.map(g => `<div class="row">${avatar(emp(g.a), 'md')}<div class="row-main"><div class="row-title">${esc(emp(g.a).name)}</div><div class="row-sub">מזמין/ה אותך למשחק${st(g)}</div></div><div class="actions"><button class="btn primary sm" data-action="du-accept" data-id="${g.id}">משחק</button><button class="btn sm" data-action="du-del" data-id="${g.id}">לא עכשיו</button></div></div>`).join('')}</div>` : ''}
+  ${play.length || sent.length ? `<h3 class="sec">המשחקים שלי</h3><div class="list">${play.map(g => row(g, g.turn === (g.a === session() ? 'a' : 'b') ? '<span class="pill ok">התור שלך</span>' : '<span>התור שלו/ה</span>')).join('')}${sent.map(g => row(g, '<span>מחכה לאישור ההזמנה</span>')).join('')}</div>` : ''}
+  ${done.length ? `<h3 class="sec">הסתיימו</h3><div class="list">${done.map(g => row(g, !g.winner ? '<span class="pill">תיקו</span>' : g.winner === session() ? '<span class="pill ok">ניצחת</span>' : '<span class="pill">הפסדת</span>')).join('')}</div>` : ''}
+  <h3 class="sec">טבלת האלופים · ${D.name}</h3><div class="list">${champs.map((s, i) => `<div class="row ${s.emp === session() ? 'me-row' : ''}"><span class="rank">${MEDAL[i] || i + 1}</span>${avatar(emp(s.emp), 'md')}<div class="row-main"><div class="row-title">${esc(emp(s.emp).name)}</div><div class="row-sub"><span>נגד עובדים: ${s.wins || 0} ניצחונות, ${s.losses || 0} הפסדים</span><span>נגד המחשב: ${s.aiWins || 0}–${s.aiLosses || 0}</span></div></div><b class="num big-score">${s.wins || 0}</b></div>`).join('') || '<div class="row muted">עוד לא נגמר אף משחק.</div>'}</div>`;
+}
+function vDuel() { return `<div id="du-wrap">${du ? duGameHtml() : backFun() + duLobbyHtml()}</div>`; }
+function drawDuel() { const w = document.getElementById('du-wrap'); if (w && view === 'duel') { w.innerHTML = du ? duGameHtml() : backFun() + duLobbyHtml(); renderPending = false; duSlide(); } renderNav(); }
+// The piece that just moved slides from its old square (measured in squares, so it fits any screen size).
+function duSlide() {
+  if (reduceMotion()) return;
+  document.querySelectorAll('.duel-board .mv').forEach(el => {
+    const c = el.closest('.duel-board').clientWidth / 8, dx = +el.style.getPropertyValue('--dx') * c, dy = +el.style.getPropertyValue('--dy') * c;
+    if (el.animate) el.animate([{ transform: `translate(${dx}px, ${dy}px) scale(1.12)` }, { transform: 'translate(0, 0) scale(1)' }], { duration: 340, easing: 'cubic-bezier(.3,.7,.3,1)' });
+  });
+}
+function patchDuel() {
+  if (du && du.mode === 'online') { const g = myDuels().find(x => x.id === du.id); if (!g) { du = null; toast('המשחק נמחק'); } else if (!duBusy) duFromDoc(g); }
+  drawDuel();
+}
+function duelLevelSheet(game) {
+  sheet(`<h3>${DUEL[game].name} נגד המחשב</h3><p class="muted" style="margin:4px 0 12px">איזו רמה?</p>
+    <div class="stakes">${Object.entries(DUEL_LEVELS).map(([k, n]) => `<button class="stake lvl" data-action="du-ai-level" data-level="${k}">${n}</button>`).join('')}</div>`);
+}
+const DUEL_ACT = {
+  'du-game': d => { duGame = d.g; try { localStorage.setItem('dalpak-duel-game', d.g); } catch (e) { } drawDuel(); },
+  'duel-open': d => { duGame = d.g; try { localStorage.setItem('dalpak-duel-game', d.g); } catch (e) { } du = null; go('duel'); },
+  'du-ai': () => { const s = duLoadAi(duGame); if (s && !s.over) { duStartAi(duGame, false); return drawDuel(); } duelLevelSheet(duGame); },
+  'du-ai-new': () => duelLevelSheet(du ? du.game : duGame),
+  'du-ai-level': d => stakeSheet(`${DUEL[duGame].name} · ${DUEL_LEVELS[d.level]}`, 'על כמה משחקים? ניצחון מחזיר פי 2, ובתיקו המטבעות חוזרים.', 'du-ai-start', `data-level="${d.level}"`),
+  'du-ai-start': d => { const st = +d.stake || 0; if (st > coinsOf()) return toast('אין לך מספיק מטבעות'); closeSheet(); try { localStorage.removeItem(duAiKey(duGame)); } catch (e) { } duStartAi(duGame, true, st, +d.level || 2); drawDuel(); window.scrollTo(0, 0); },
+  'du-lobby': () => { if (du) duGame = du.game; du = null; drawDuel(); window.scrollTo(0, 0); },
+  'du-open': d => { const g = myDuels().find(x => x.id === d.id); if (!g) return; du = null; duFromDoc(g); drawDuel(); window.scrollTo(0, 0); },
+  'du-invite': () => {
+    const list = S.employees.filter(e => e.id !== session() && e.id !== 'news').sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    sheet(`<h3>את מי להזמין ל${DUEL[duGame].name}?</h3><p class="muted" style="margin:4px 0 12px">ההזמנה תופיע אצלו/ה בפנאי, עם התראה לטלפון. את/ה משחק/ת בלבן ומתחיל/ה.</p><div class="list">${list.map(e => `<button class="row tap" data-action="du-invite-stake" data-id="${e.id}">${avatar(e, 'md')}<div class="row-main"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${coin(coinsOf(e.id))}</div></div></button>`).join('') || '<div class="row muted">אין עובדים אחרים</div>'}</div>`);
+  },
+  'du-invite-stake': d => stakeSheet(`${DUEL[duGame].name} נגד ${esc(first(emp(d.id).name))}`, 'המפסיד משלם למנצח. בתיקו אף אחד לא משלם.', 'du-invite-to', `data-id="${d.id}"`),
+  'du-invite-to': async d => {
+    const st = +d.stake || 0, game = du ? du.game : duGame; if (st > coinsOf()) return toast('אין לך מספיק מטבעות');
+    if (duBusy) return; duBusy = true; const r = await store.duelCreate(game, d.id, DUEL[game].start(), st); duBusy = false;
+    if (r.error) return toast(r.error);
+    closeSheet(); toast(`ההזמנה נשלחה ל${first(emp(d.id).name)}${st ? ` · על ${st} מטבעות` : ''}`);
+    duGame = game; du = null; const g = myDuels().find(x => x.id === r.id); if (g) duFromDoc(g);
+    if (view !== 'duel') go('duel'); else drawDuel();
+  },
+  'du-accept': async d => {
+    const g = myDuels().find(x => x.id === d.id); if (!g) return;
+    if (g.stake && g.stake > coinsOf()) return toast(`המשחק על ${g.stake} מטבעות ויש לך רק ${coinsOf()}`);
+    const r = await store.duelUpdate(d.id, { status: 'play', ts: Date.now() }); if (r && r.error) return toast(r.error);
+    const n = myDuels().find(x => x.id === d.id); du = null; if (n) duFromDoc(n); drawDuel();
+  },
+  'du-del': async d => { const r = await store.duelDelete(d.id); if (r && r.error) return toast(/permission|הרשא/.test(r.error) ? 'אי אפשר למחוק משחק על מטבעות באמצע. אפשר לפרוש' : r.error); if (du && du.id === d.id) du = null; drawDuel(); },
+  'du-sq': d => {
+    if (!du || du.over || duBusy || du.thinking || du.status === 'invite' || duTurn(du.game, du.st) !== du.me) return;
+    const i = +d.i, moves = duMoves(du.game, du.st);
+    if (du.sel !== null && du.sel !== undefined) {
+      const opts = moves.filter(m => m.from === du.sel && m.to === i);
+      if (opts.length > 1 && opts[0].pr) return sheet(`<h3>להכתיר ל…</h3><div class="stakes promo">${opts.map(m => `<button class="stake" data-action="du-promo" data-f="${m.f}" data-t="${m.t}" data-p="${m.pr}"><span class="cp ${du.me}">${GLYPH[m.pr.toLowerCase()]}&#xFE0E;</span></button>`).join('')}</div>`);
+      if (opts.length) return duPlayMove(opts[0]);
+    }
+    const mine = moves.filter(m => m.from === i);
+    if (!mine.length) { du.sel = null; if (du.game === 'dama' && moves.some(m => m.caps.length) && duBoard(du.game, du.st)[i].toLowerCase() === du.me) toast('חובה להכות עם כלי אחר'); return drawDuel(); }
+    if (new Set(mine.map(m => m.to)).size === 1 && du.game === 'dama') return duPlayMove(mine[0]);
+    du.sel = i; haptic(4); drawDuel();
+  },
+  'du-promo': d => { closeSheet(); const m = duMoves('chess', du.st).find(x => x.f === +d.f && x.t === +d.t && x.pr === d.p); if (m) duPlayMove(m); },
+  'du-resign': () => { const b = document.querySelector('[data-action="du-resign"]'); if (b) { b.dataset.action = 'du-resign-yes'; b.textContent = 'לפרוש? לחצו שוב'; } },
+  'du-resign-yes': async () => {
+    if (!du || du.over) return;
+    if (du.mode === 'ai') { duOver({ winner: du.me === 'w' ? 'b' : 'w', why: 'resign' }); return drawDuel(); }
+    const r = await store.duelUpdate(du.id, { status: 'done', winner: du.opp, resign: session(), ts: Date.now() }); if (r && r.error) return toast(r.error);
+    du.over = { winner: du.me === 'w' ? 'b' : 'w', why: 'resign', resign: session() }; duRecord(du.game, 'lose', false, du.id); drawDuel();
+  }
+};
+
 
 const FUN_ACT = {
   'gal-open': d => galShow(d.id),
@@ -2981,7 +3229,7 @@ const FUN_ACT = {
     } catch (e) { toast('השיתוף נכשל. בדקו את החיבור'); }
   },
 };
-Object.assign(ACT, FUN_ACT, SNAKE_ACT, BG_ACT, SUDOKU_ACT);
+Object.assign(ACT, FUN_ACT, SNAKE_ACT, BG_ACT, SUDOKU_ACT, DUEL_ACT);
 FORMS['gal-up'] = async (v, f) => {
   if (!galPending || busy) return; busy = true; const list = galPending, btn = f.querySelector('button');
   try {
