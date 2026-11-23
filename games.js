@@ -439,3 +439,231 @@ export function makeSudoku(level = 'easy', seed) {
   return { puzzle, solution };
 }
 export const sudokuReward = (level, hints = 0, errors = 0) => Math.max(0, (SUDOKU_COINS[level] || 0) - 3 * hints - 2 * errors);
+
+/* ---------- Chess ----------
+   A position is kept as FEN text. Squares are 0..63: 0 = a8, 7 = h8, 56 = a1, 63 = h1.
+   White pieces are upper case (PNBRQK), black lower case. */
+export const CHESS_START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+export function fenParse(fen) {
+  const [pl, t, c, ep, h, n] = fen.split(' '), b = [];
+  for (const ch of pl.replace(/\//g, '')) { if (/\d/.test(ch)) for (let k = 0; k < +ch; k++) b.push('.'); else b.push(ch); }
+  return { b, t, c: c === '-' ? '' : c, ep: ep === '-' ? -1 : sqIdx(ep), h: +h || 0, n: +n || 1 };
+}
+export function fenOf(s) {
+  let out = '';
+  for (let r = 0; r < 8; r++) { let e = 0; for (let f = 0; f < 8; f++) { const p = s.b[r * 8 + f]; if (p === '.') e++; else { if (e) out += e; e = 0; out += p; } } if (e) out += e; if (r < 7) out += '/'; }
+  return `${out} ${s.t} ${s.c || '-'} ${s.ep < 0 ? '-' : sqName(s.ep)} ${s.h} ${s.n}`;
+}
+export const sqName = i => 'abcdefgh'[i % 8] + (8 - Math.floor(i / 8));
+const sqIdx = n => (8 - +n[1]) * 8 + 'abcdefgh'.indexOf(n[0]);
+const isW = p => p !== '.' && p === p.toUpperCase();
+const colorOf = p => p === '.' ? null : isW(p) ? 'w' : 'b';
+const N8 = [[-1, -2], [1, -2], [-2, -1], [2, -1], [-2, 1], [2, 1], [-1, 2], [1, 2]];
+const K8 = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+const DIAG = [[-1, -1], [1, -1], [-1, 1], [1, 1]], ORTH = [[0, -1], [-1, 0], [1, 0], [0, 1]];
+const at = (f, r) => f >= 0 && f < 8 && r >= 0 && r < 8 ? r * 8 + f : -1;
+// Is square i attacked by side `by`?
+function attacked(b, i, by) {
+  const f = i % 8, r = Math.floor(i / 8), up = by === 'w' ? 1 : -1; // a white pawn attacks from the row below (higher index)
+  const P = by === 'w' ? 'P' : 'p', N = by === 'w' ? 'N' : 'n', B = by === 'w' ? 'B' : 'b', R = by === 'w' ? 'R' : 'r', Q = by === 'w' ? 'Q' : 'q', K = by === 'w' ? 'K' : 'k';
+  for (const df of [-1, 1]) { const j = at(f + df, r + up); if (j >= 0 && b[j] === P) return true; }
+  for (const [df, dr] of N8) { const j = at(f + df, r + dr); if (j >= 0 && b[j] === N) return true; }
+  for (const [df, dr] of K8) { const j = at(f + df, r + dr); if (j >= 0 && b[j] === K) return true; }
+  for (const [dirs, A] of [[DIAG, B], [ORTH, R]]) for (const [df, dr] of dirs) {
+    let ff = f + df, rr = r + dr;
+    while (ff >= 0 && ff < 8 && rr >= 0 && rr < 8) { const p = b[rr * 8 + ff]; if (p !== '.') { if (p === A || p === Q) return true; break; } ff += df; rr += dr; }
+  }
+  return false;
+}
+const kingAt = (b, c) => b.indexOf(c === 'w' ? 'K' : 'k');
+export const inCheck = (s, c = s.t) => attacked(s.b, kingAt(s.b, c), c === 'w' ? 'b' : 'w');
+function pseudo(s) {
+  const out = [], b = s.b, c = s.t, opp = c === 'w' ? 'b' : 'w';
+  for (let i = 0; i < 64; i++) {
+    const p = b[i]; if (colorOf(p) !== c) continue;
+    const f = i % 8, r = Math.floor(i / 8), t = p.toLowerCase();
+    const add = (j, extra = {}) => out.push({ f: i, t: j, ...extra });
+    if (t === 'p') {
+      const dir = c === 'w' ? -1 : 1, start = c === 'w' ? 6 : 1, last = c === 'w' ? 0 : 7, one = at(f, r + dir);
+      const push = (j, extra) => { if (Math.floor(j / 8) === last) for (const q of 'qrbn') add(j, { ...extra, pr: c === 'w' ? q.toUpperCase() : q }); else add(j, extra); };
+      if (one >= 0 && b[one] === '.') { push(one); const two = at(f, r + 2 * dir); if (r === start && b[two] === '.') add(two, { dbl: 1 }); }
+      for (const df of [-1, 1]) { const j = at(f + df, r + dir); if (j < 0) continue; if (colorOf(b[j]) === opp) push(j, { x: 1 }); else if (j === s.ep) add(j, { ep: 1, x: 1 }); }
+    } else if (t === 'n' || t === 'k') {
+      for (const [df, dr] of t === 'n' ? N8 : K8) { const j = at(f + df, r + dr); if (j >= 0 && colorOf(b[j]) !== c) add(j, b[j] !== '.' ? { x: 1 } : {}); }
+      if (t === 'k') {
+        const home = c === 'w' ? 60 : 4, rights = c === 'w' ? s.c.replace(/[a-z]/g, '') : s.c.replace(/[A-Z]/g, '').toUpperCase();
+        if (i === home && !attacked(b, i, opp)) {
+          if (rights.includes('K') && b[i + 1] === '.' && b[i + 2] === '.' && b[i + 3] === (c === 'w' ? 'R' : 'r') && !attacked(b, i + 1, opp) && !attacked(b, i + 2, opp)) add(i + 2, { castle: 'k' });
+          if (rights.includes('Q') && b[i - 1] === '.' && b[i - 2] === '.' && b[i - 3] === '.' && b[i - 4] === (c === 'w' ? 'R' : 'r') && !attacked(b, i - 1, opp) && !attacked(b, i - 2, opp)) add(i - 2, { castle: 'q' });
+        }
+      }
+    } else {
+      const dirs = t === 'b' ? DIAG : t === 'r' ? ORTH : [...DIAG, ...ORTH];
+      for (const [df, dr] of dirs) { let ff = f + df, rr = r + dr; while (ff >= 0 && ff < 8 && rr >= 0 && rr < 8) { const j = rr * 8 + ff; if (b[j] === '.') add(j); else { if (colorOf(b[j]) === opp) add(j, { x: 1 }); break; } ff += df; rr += dr; } }
+    }
+  }
+  return out;
+}
+export function chessApply(s, m) {
+  const b = s.b.slice(), p = b[m.f], c = s.t, opp = c === 'w' ? 'b' : 'w';
+  let cr = s.c;
+  b[m.t] = m.pr || p; b[m.f] = '.';
+  if (m.ep) b[m.t + (c === 'w' ? 8 : -8)] = '.';
+  if (m.castle === 'k') { b[m.t - 1] = b[m.t + 1]; b[m.t + 1] = '.'; }
+  if (m.castle === 'q') { b[m.t + 1] = b[m.t - 2]; b[m.t - 2] = '.'; }
+  if (p === 'K') cr = cr.replace(/[KQ]/g, ''); if (p === 'k') cr = cr.replace(/[kq]/g, '');
+  for (const [sq, ch] of [[63, 'K'], [56, 'Q'], [7, 'k'], [0, 'q']]) if (m.f === sq || m.t === sq) cr = cr.replace(ch, '');
+  const pawn = p.toLowerCase() === 'p';
+  return { b, t: opp, c: cr, ep: m.dbl ? (m.f + m.t) / 2 : -1, h: pawn || s.b[m.t] !== '.' || m.ep ? 0 : s.h + 1, n: s.n + (c === 'b' ? 1 : 0) };
+}
+export const chessMoves = s => pseudo(s).filter(m => !inCheck(chessApply(s, m), s.t));
+const posKey = s => s.b.join('') + s.t + s.c + s.ep;
+function lowMaterial(b) {
+  const left = b.filter(p => p !== '.' && p.toLowerCase() !== 'k');
+  return !left.length || (left.length === 1 && /[nb]/i.test(left[0]));
+}
+// The result after the side to move has no move, or by the draw rules. hist = position keys so far (for repetition).
+export function chessStatus(s, hist = []) {
+  const ms = chessMoves(s);
+  if (!ms.length) return inCheck(s) ? { over: true, winner: s.t === 'w' ? 'b' : 'w', why: 'mate' } : { over: true, winner: null, why: 'stalemate' };
+  if (s.h >= 100) return { over: true, winner: null, why: 'fifty' };
+  if (lowMaterial(s.b)) return { over: true, winner: null, why: 'material' };
+  const k = posKey(s); if (hist.filter(x => x === k).length >= 2) return { over: true, winner: null, why: 'repeat' };
+  return { over: false, check: inCheck(s) };
+}
+export const chessKey = posKey;
+// Short algebraic notation for the move list (e4, Nf3, exd5, O-O, e8=Q+).
+export function chessSan(s, m) {
+  const p = s.b[m.f], t = p.toLowerCase(), n = chessApply(s, m), st = chessMoves(n).length ? (inCheck(n) ? '+' : '') : (inCheck(n) ? '#' : '');
+  if (m.castle) return (m.castle === 'k' ? 'O-O' : 'O-O-O') + st;
+  let san = '';
+  if (t === 'p') san = (m.x ? sqName(m.f)[0] + 'x' : '') + sqName(m.t) + (m.pr ? '=' + m.pr.toUpperCase() : '');
+  else {
+    const same = chessMoves(s).filter(o => o.t === m.t && o.f !== m.f && s.b[o.f] === p);
+    let dis = ''; if (same.length) dis = same.some(o => o.f % 8 === m.f % 8) ? (same.some(o => Math.floor(o.f / 8) === Math.floor(m.f / 8)) ? sqName(m.f) : sqName(m.f)[1]) : sqName(m.f)[0];
+    san = t.toUpperCase() + dis + (m.x ? 'x' : '') + sqName(m.t);
+  }
+  return san + st;
+}
+// The computer: alpha-beta search with piece-square tables. Level 1..3 = how far it looks.
+const VAL = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
+const PST = {
+  p: [0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50, 50, 50, 50, 50, 50, 10, 10, 20, 30, 30, 20, 10, 10, 5, 5, 10, 25, 25, 10, 5, 5, 0, 0, 0, 20, 20, 0, 0, 0, 5, -5, -10, 0, 0, -10, -5, 5, 5, 10, 10, -20, -20, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+  n: [-50, -40, -30, -30, -30, -30, -40, -50, -40, -20, 0, 0, 0, 0, -20, -40, -30, 0, 10, 15, 15, 10, 0, -30, -30, 5, 15, 20, 20, 15, 5, -30, -30, 0, 15, 20, 20, 15, 0, -30, -30, 5, 10, 15, 15, 10, 5, -30, -40, -20, 0, 5, 5, 0, -20, -40, -50, -40, -30, -30, -30, -30, -40, -50],
+  b: [-20, -10, -10, -10, -10, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 10, 10, 5, 0, -10, -10, 5, 5, 10, 10, 5, 5, -10, -10, 0, 10, 10, 10, 10, 0, -10, -10, 10, 10, 10, 10, 10, 10, -10, -10, 5, 0, 0, 0, 0, 5, -10, -20, -10, -10, -10, -10, -10, -10, -20],
+  r: [0, 0, 0, 0, 0, 0, 0, 0, 5, 10, 10, 10, 10, 10, 10, 5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, 0, 0, 0, 5, 5, 0, 0, 0],
+  q: [-20, -10, -10, -5, -5, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5, 5, 5, 5, 0, -10, -5, 0, 5, 5, 5, 5, 0, -5, 0, 0, 5, 5, 5, 5, 0, -5, -10, 5, 5, 5, 5, 5, 0, -10, -10, 0, 5, 0, 0, 0, 0, -10, -20, -10, -10, -5, -5, -10, -10, -20],
+  k: [-30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -20, -30, -30, -40, -40, -30, -30, -20, -10, -20, -20, -20, -20, -20, -20, -10, 20, 20, 0, 0, 0, 0, 20, 20, 20, 30, 10, 0, 0, 10, 30, 20]
+};
+function chessEval(s) { // from white's side
+  let v = 0;
+  for (let i = 0; i < 64; i++) { const p = s.b[i]; if (p === '.') continue; const t = p.toLowerCase(); if (isW(p)) v += VAL[t] + PST[t][i]; else v -= VAL[t] + PST[t][(7 - Math.floor(i / 8)) * 8 + i % 8]; }
+  return v;
+}
+const order = (s, ms) => ms.map(m => ({ m, k: (m.x ? 10 * VAL[(s.b[m.t] === '.' ? 'p' : s.b[m.t].toLowerCase())] - VAL[s.b[m.f].toLowerCase()] / 10 : 0) + (m.pr ? 800 : 0) })).sort((a, b) => b.k - a.k).map(x => x.m);
+function quiesce(s, a, b, d) {
+  const stand = (s.t === 'w' ? 1 : -1) * chessEval(s);
+  if (stand >= b) return b; if (a < stand) a = stand; if (d <= 0) return a;
+  for (const m of order(s, chessMoves(s).filter(m => m.x || m.pr))) { const v = -quiesce(chessApply(s, m), -b, -a, d - 1); if (v >= b) return b; if (v > a) a = v; }
+  return a;
+}
+function negamax(s, depth, a, b, ply) {
+  const ms = chessMoves(s);
+  if (!ms.length) return inCheck(s) ? -100000 + ply : 0;
+  if (s.h >= 100) return 0;
+  if (depth === 0) return quiesce(s, a, b, 4);
+  for (const m of order(s, ms)) { const v = -negamax(chessApply(s, m), depth - 1, -b, -a, ply + 1); if (v >= b) return b; if (v > a) a = v; }
+  return a;
+}
+export function chessBest(s, level = 2, rnd = Math.random) {
+  const ms = order(s, chessMoves(s)); if (!ms.length) return null;
+  const depth = level <= 1 ? 1 : level === 2 ? 2 : 3;
+  let scored = ms.map(m => ({ m, v: -negamax(chessApply(s, m), depth - 1, -Infinity, Infinity, 1) }));
+  scored.sort((x, y) => y.v - x.v);
+  // The easy level sometimes picks a weaker move; the others choose among moves that are about as good.
+  const slack = level <= 1 ? 120 : level === 2 ? 25 : 8;
+  const good = scored.filter(x => x.v >= scored[0].v - slack);
+  return good[Math.floor(rnd() * good.length)].m;
+}
+
+/* ---------- Checkers (דמקה) ----------
+   8x8, pieces on the dark squares. Men move one step diagonally forward and capture forward and backward.
+   Capturing is a must, and a capture goes on as long as it can. A man that reaches the far row becomes a king,
+   which moves and captures any distance along a diagonal. The board is a 64-char string: . w b W B (W/B = kings).
+   White starts at the bottom (rows 5..7) and moves up. */
+export const DAMA_START = (() => { let s = ''; for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) s += (r + c) % 2 ? (r < 3 ? 'b' : r > 4 ? 'w' : '.') : '.'; return s; })();
+const dOwner = p => p === '.' ? null : p.toLowerCase();
+const dKing = p => p === 'W' || p === 'B';
+function damaCaptures(b, i, c, taken, out, path, kinged) {
+  const p = kinged ? c.toUpperCase() : b[i], r = Math.floor(i / 8), f = i % 8, opp = c === 'w' ? 'b' : 'w';
+  let found = false;
+  for (const [df, dr] of DIAG) {
+    if (dKing(p)) {
+      let ff = f + df, rr = r + dr;
+      while (at(ff, rr) >= 0 && b[at(ff, rr)] === '.') { ff += df; rr += dr; }
+      const e = at(ff, rr); if (e < 0 || dOwner(b[e]) !== opp || taken.includes(e)) continue;
+      let lf = ff + df, lr = rr + dr;
+      while (at(lf, lr) >= 0 && b[at(lf, lr)] === '.') {
+        const land = at(lf, lr); found = true;
+        const nb = b.slice(0, i) + '.' + b.slice(i + 1), nb2 = nb.slice(0, land) + p + nb.slice(land + 1);
+        if (!damaCaptures(nb2, land, c, [...taken, e], out, [...path, land], true)) out.push({ path: [...path, land], caps: [...taken, e] });
+        lf += df; lr += dr;
+      }
+    } else {
+      const e = at(f + df, r + dr), land = at(f + 2 * df, r + 2 * dr);
+      if (e < 0 || land < 0 || dOwner(b[e]) !== opp || taken.includes(e) || b[land] !== '.') continue;
+      found = true;
+      const promote = (c === 'w' && Math.floor(land / 8) === 0) || (c === 'b' && Math.floor(land / 8) === 7);
+      const nb = b.slice(0, i) + '.' + b.slice(i + 1), nb2 = nb.slice(0, land) + (promote ? c.toUpperCase() : c) + nb.slice(land + 1);
+      if (!damaCaptures(nb2, land, c, [...taken, e], out, [...path, land], promote)) out.push({ path: [...path, land], caps: [...taken, e] });
+    }
+  }
+  return found;
+}
+export function damaMoves(b, c) {
+  const caps = [], steps = [], fwd = c === 'w' ? -1 : 1;
+  for (let i = 0; i < 64; i++) {
+    if (dOwner(b[i]) !== c) continue;
+    damaCaptures(b, i, c, [], caps, [i], false);
+    if (caps.length) continue;
+    const f = i % 8, r = Math.floor(i / 8);
+    for (const [df, dr] of DIAG) {
+      if (dKing(b[i])) { let ff = f + df, rr = r + dr; while (at(ff, rr) >= 0 && b[at(ff, rr)] === '.') { steps.push({ path: [i, at(ff, rr)], caps: [] }); ff += df; rr += dr; } }
+      else if (dr === fwd) { const j = at(f + df, r + dr); if (j >= 0 && b[j] === '.') steps.push({ path: [i, j], caps: [] }); }
+    }
+  }
+  return caps.length ? caps : steps;
+}
+export function damaApply(b, c, m) {
+  const a = b.split(''), from = m.path[0], to = m.path[m.path.length - 1];
+  let p = a[from]; a[from] = '.';
+  m.caps.forEach(x => { a[x] = '.'; });
+  if (m.path.some(x => (c === 'w' && Math.floor(x / 8) === 0) || (c === 'b' && Math.floor(x / 8) === 7))) p = c.toUpperCase();
+  a[to] = p; return a.join('');
+}
+// quiet = moves in a row with kings only and no capture (30 = a draw).
+export function damaStatus(b, c, quiet = 0) {
+  if (!damaMoves(b, c).length) return { over: true, winner: c === 'w' ? 'b' : 'w' };
+  if (quiet >= 30) return { over: true, winner: null };
+  return { over: false };
+}
+function damaEval(b) { // from white's side
+  let v = 0;
+  for (let i = 0; i < 64; i++) { const p = b[i]; if (p === '.') continue; const r = Math.floor(i / 8), f = i % 8, center = (f > 1 && f < 6 ? 4 : 0);
+    if (p === 'w') v += 100 + (7 - r) * 6 + center; else if (p === 'b') v -= 100 + r * 6 + center; else if (p === 'W') v += 300; else v -= 300; }
+  return v;
+}
+function damaNeg(b, c, depth, a, bt) {
+  const ms = damaMoves(b, c); if (!ms.length) return -100000 - depth;
+  if (depth === 0) return (c === 'w' ? 1 : -1) * damaEval(b);
+  ms.sort((x, y) => y.caps.length - x.caps.length);
+  for (const m of ms) { const v = -damaNeg(damaApply(b, c, m), c === 'w' ? 'b' : 'w', depth - 1, -bt, -a); if (v >= bt) return bt; if (v > a) a = v; }
+  return a;
+}
+export function damaBest(b, c, level = 2, rnd = Math.random) {
+  const ms = damaMoves(b, c); if (!ms.length) return null;
+  const depth = level <= 1 ? 2 : level === 2 ? 4 : 6;
+  const scored = ms.map(m => ({ m, v: -damaNeg(damaApply(b, c, m), c === 'w' ? 'b' : 'w', depth - 1, -Infinity, Infinity) })).sort((x, y) => y.v - x.v);
+  const slack = level <= 1 ? 90 : level === 2 ? 15 : 3, good = scored.filter(x => x.v >= scored[0].v - slack);
+  return good[Math.floor(rnd() * good.length)].m;
+}
