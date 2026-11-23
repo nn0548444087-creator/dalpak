@@ -124,6 +124,7 @@ export function createLocalStore() {
     async setPerms(email, p) { const m = S.members.find(x => x.id === email); if (!m) return { error: 'החשבון לא נמצא' }; m.perms = p; persist(); return { ok: true }; },
     async unlink(email) { S.members = S.members.filter(x => x.id !== email); persist(); return { ok: true }; },
     isViewer: () => session === 'viewer',
+    isGuest: () => { const e = S.employees.find(x => x.id === session); return !!(e && e.guest); },
     isPoster: () => session === 'news',
     async setPoster(phone, num) { S.posterLogin = phone ? { phone, num: String(num) } : null; persist(); return { ok: true }; },
     async setViewer(phone, num) { S.viewerLogin = phone ? { phone, num: String(num) } : null; persist(); return { ok: true }; },
