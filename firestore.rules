@@ -340,26 +340,65 @@ service cloud.firestore {
     match /scores/{id} {
       allow read: if isEmp();
       allow create, update: if isStaff() && request.resource.data.emp == myEmpId()
-        && request.resource.data.game in ['snake', 'bg'] && id == request.resource.data.game + '_' + myEmpId()
-        && request.resource.data.keys().hasOnly(['game', 'emp', 'best', 'plays', 'total', 'wins', 'losses', 'aiWins', 'aiLosses', 'ts'])
-        && request.resource.data.get('best', 0) is int && request.resource.data.get('best', 0) >= 0 && request.resource.data.get('best', 0) < 400;
+        && request.resource.data.game in ['snake', 'bg', 'sudoku', 'chess', 'dama'] && id == request.resource.data.game + '_' + myEmpId()
+        && request.resource.data.keys().hasOnly(['game', 'emp', 'best', 'plays', 'total', 'wins', 'losses', 'aiWins', 'aiLosses', 'modes', 'daily', 'ts'])
+        && request.resource.data.get('best', 0) is int && request.resource.data.get('best', 0) >= 0 && request.resource.data.get('best', 0) < 5000;
+    }
+    // Coins: one purse per employee for all the games. Only the server changes it; the app reports what happened.
+    match /wallets/{id} { allow read: if isEmp(); }
+    match /coinEvents/{id} {
+      allow create: if isStaff() && request.resource.data.emp == myEmpId()
+        && request.resource.data.kind in ['snake', 'sudoku', 'bet', 'win', 'lose']
+        && request.resource.data.keys().hasOnly(['emp', 'kind', 'score', 'stake', 'level', 'hints', 'errors', 'ts'])
+        && request.resource.data.get('stake', 10) in [10, 20, 30, 40, 50]
+        && request.resource.data.get('score', 0) is int && request.resource.data.get('score', 0) >= 0 && request.resource.data.get('score', 0) < 5000;
     }
     // Backgammon between two employees: only the two players see the game. The invited one accepts it;
     // after that only the player whose turn it is may change the board. Either one may resign or remove the game.
+    // The coins of a game played for coins are moved by the server (settled, paid).
     match /bgGames/{id} {
       allow read: if isStaff() && myEmpId() in resource.data.players;
       allow create: if isStaff() && request.resource.data.a == myEmpId() && request.resource.data.b != myEmpId()
         && request.resource.data.players == [myEmpId(), request.resource.data.b]
-        && request.resource.data.status == 'invite';
+        && request.resource.data.status == 'invite'
+        && request.resource.data.get('stake', 0) in [0, 10, 20, 30, 40, 50]
+        && !request.resource.data.keys().hasAny(['settled', 'paid']);
       allow update: if isStaff() && myEmpId() in resource.data.players
         && request.resource.data.players == resource.data.players
         && request.resource.data.a == resource.data.a && request.resource.data.b == resource.data.b
+        && request.resource.data.get('stake', 0) == resource.data.get('stake', 0)
+        && request.resource.data.get('settled', false) == resource.data.get('settled', false)
+        && request.resource.data.get('paid', 0) == resource.data.get('paid', 0)
         && ((resource.data.status == 'invite' && myEmpId() == resource.data.b && request.resource.data.status == 'play')
           || (resource.data.status == 'play' && request.resource.data.status in ['play', 'done']
             && resource.data.turn == (myEmpId() == resource.data.a ? 'w' : 'b'))
           || (resource.data.status == 'play' && request.resource.data.status == 'done'
             && request.resource.data.resign == myEmpId() && onlyChanges(['status', 'winner', 'resign', 'ts'])));
-      allow delete: if isStaff() && myEmpId() in resource.data.players;
+      allow delete: if isStaff() && myEmpId() in resource.data.players
+        && (resource.data.status != 'play' || resource.data.get('stake', 0) == 0);
+    }
+    // Chess and checkers between two employees: the same idea; turn is 'a' or 'b' (a plays first).
+    match /duels/{id} {
+      allow read: if isStaff() && myEmpId() in resource.data.players;
+      allow create: if isStaff() && request.resource.data.a == myEmpId() && request.resource.data.b != myEmpId()
+        && request.resource.data.players == [myEmpId(), request.resource.data.b]
+        && request.resource.data.game in ['chess', 'dama'] && request.resource.data.status == 'invite'
+        && request.resource.data.get('stake', 0) in [0, 10, 20, 30, 40, 50]
+        && !request.resource.data.keys().hasAny(['settled', 'paid']);
+      allow update: if isStaff() && myEmpId() in resource.data.players
+        && request.resource.data.players == resource.data.players
+        && request.resource.data.a == resource.data.a && request.resource.data.b == resource.data.b
+        && request.resource.data.game == resource.data.game
+        && request.resource.data.get('stake', 0) == resource.data.get('stake', 0)
+        && request.resource.data.get('settled', false) == resource.data.get('settled', false)
+        && request.resource.data.get('paid', 0) == resource.data.get('paid', 0)
+        && ((resource.data.status == 'invite' && myEmpId() == resource.data.b && request.resource.data.status == 'play')
+          || (resource.data.status == 'play' && request.resource.data.status in ['play', 'done']
+            && resource.data.turn == (myEmpId() == resource.data.a ? 'a' : 'b'))
+          || (resource.data.status == 'play' && request.resource.data.status == 'done'
+            && request.resource.data.resign == myEmpId() && onlyChanges(['status', 'winner', 'resign', 'ts'])));
+      allow delete: if isStaff() && myEmpId() in resource.data.players
+        && (resource.data.status != 'play' || resource.data.get('stake', 0) == 0);
     }
 
     // Deliveries and bonuses: an employee reports a delivery, an hours manager approves it with an amount.
