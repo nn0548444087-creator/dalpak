@@ -10,7 +10,7 @@ const { getMessaging } = require('firebase-admin/messaging');
 initializeApp();
 const db = getFirestore();
 const SITE = 'https://nn0548444087-creator.github.io/dalpak/';
-const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo', 'signups', 'bgGames', 'coinEvents', 'duels'];
+const WATCHED = ['messages', 'tasks', 'shifts', 'reels', 'notifications', 'pushTests', 'shiftGeo', 'signups', 'bgGames', 'coinEvents', 'duels', 'employees', 'members'];
 
 const first = n => String(n || '').trim().split(/\s+/)[0] || '';
 const cut = (t, n = 120) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -190,6 +190,7 @@ async function onShiftGeo(before, after, id) {
 // Every few minutes: close shifts whose employee left the area and did not come back in time,
 // at the last time they were inside. Works also when the employee's app is closed.
 exports.geoWatch = onSchedule({ schedule: 'every 5 minutes', region: 'europe-west1', timeZone: 'Asia/Jerusalem', retryCount: 0 }, async () => {
+  await syncStaffPublic().catch(e => console.error('staffPublic', e));
   const c = await geoCfg(); if (!c || !c.on) return;
   const now = Date.now(), grace = graceOf(c);
   const snap = await db.collection('shiftGeo').where('outAt', '>', 0).get();
@@ -215,10 +216,56 @@ exports.geoWatch = onSchedule({ schedule: 'every 5 minutes', region: 'europe-wes
 });
 
 // Someone signed in with Google for the first time: the managers who approve employees hear about it.
-async function onSignup(before, after) {
-  if (before || !after) return;
+// A Google account asked to join. It gets a guest employee record right away, so the person can clock in at once;
+// the managers get a notification and approve the rest (see onMember for when they link it to an existing employee).
+async function onSignup(before, after, id) {
+  if (!after || !after.email) return;
+  const em = String(id).toLowerCase(), memRef = db.collection('members').doc(em);
+  let made = false;
+  await db.runTransaction(async t => {
+    const m = await t.get(memRef); if (m.exists) return;
+    const empRef = db.collection('employees').doc();
+    t.set(empRef, { name: String(after.name || em.split('@')[0]).slice(0, 60), num: '', phone: '', wage: 0, guest: true, email: em, ts: Date.now() });
+    t.set(memRef, { empId: empRef.id, email: em, perms: {}, guest: true, ts: Date.now() });
+    made = true;
+  });
+  if (!made || before) return;
   const who = after.name || after.email || 'מישהו';
-  await send(await managers(true), 'בקשת הצטרפות חדשה', `${who} נכנס/ה לאפליקציה ומחכה לאישור שלך`, { view: 'staff' }, 'alerts');
+  await send(await managers(true), 'עובד/ת חדש/ה נכנס/ה', `${who} נכנס/ה לאפליקציה. כרגע אפשר רק להחתים שעון. אשרו כדי לפתוח את השאר`, { view: 'staff' }, 'alerts');
+}
+
+// Everyone sees employees through staffPublic: the same record without wage, phone, number and e-mail.
+const PRIVATE_EMP = ['wage', 'phone', 'num', 'email', 'owner'];
+const pubOf = d => Object.fromEntries(Object.entries(d).filter(([k]) => !PRIVATE_EMP.includes(k)));
+async function onEmployee(before, after, id) {
+  const ref = db.collection('staffPublic').doc(id);
+  if (!after) return ref.delete();
+  await ref.set(pubOf(after));
+}
+// One-time (and self-healing) copy of every employee to staffPublic.
+async function syncStaffPublic() {
+  const [emps, pubs] = await Promise.all([db.collection('employees').get(), db.collection('staffPublic').get()]);
+  const have = new Map(pubs.docs.map(d => [d.id, JSON.stringify(d.data())])), b = db.batch(); let n = 0;
+  emps.docs.forEach(d => { const p = pubOf(d.data()); if (have.get(d.id) !== JSON.stringify(p)) { b.set(db.collection('staffPublic').doc(d.id), p); n++; } have.delete(d.id); });
+  have.forEach((_, id) => { b.delete(db.collection('staffPublic').doc(id)); n++; });
+  if (n) await b.commit();
+}
+// A manager approved a guest by linking the account to an employee who already exists: the guest's hours move
+// to that employee and the guest record goes away. A guest whose account was removed is removed too.
+async function onMember(before, after) {
+  if (!before || before.guest !== true) return;
+  const old = before.empId; if (!old) return;
+  const oldRef = db.collection('employees').doc(old), od = await oldRef.get();
+  if (!od.exists || od.data().guest !== true) return;
+  if (after && after.empId === old) { if (after.guest !== true) await oldRef.update({ guest: false }); return; }
+  if (after && after.empId) {
+    for (const col of ['shifts', 'extras']) {
+      const snap = await db.collection(col).where('empId', '==', old).get();
+      for (let i = 0; i < snap.docs.length; i += 400) { const b = db.batch(); snap.docs.slice(i, i + 400).forEach(d => b.update(d.ref, { empId: after.empId })); await b.commit(); }
+    }
+    const g = await db.collection('shiftGeo').where('emp', '==', old).get(); for (const d of g.docs) await d.ref.update({ emp: after.empId });
+  }
+  await oldRef.delete();
 }
 
 /* ---------- coins: one shared purse per employee for all the games ----------
@@ -260,8 +307,9 @@ async function onCoin(before, after, id) {
     const cur = await t.get(ref); if (!cur.exists) return null;
     const e = cur.data(), me = e.emp, my = w[me] || {}; if (!(me in bal)) return { after: tt => tt.delete(ref) };
     let d = 0, set = {};
-    if (e.kind === 'bet') { const st = STAKES.includes(e.stake) ? Math.min(e.stake, bal[me]) : 0; d = -st; set = { bet: st }; }
-    else if (e.kind === 'win') { d = 2 * (my.bet || 0); set = { bet: 0 }; }
+    if (e.kind === 'bet') { const st = STAKES.includes(e.stake) ? Math.min(e.stake, bal[me]) : 0; d = -st; set = { bet: st, betAt: Date.now() }; }
+    // A real game against the computer takes more than half a minute; a "win" right after the bet pays nothing.
+    else if (e.kind === 'win') { d = my.bet && Date.now() - (my.betAt || 0) >= 30000 ? 2 * my.bet : 0; set = { bet: 0 }; }
     else if (e.kind === 'lose') set = { bet: 0 };
     else if (e.kind === 'draw') { d = my.bet || 0; set = { bet: 0 }; }
     else {
@@ -336,6 +384,6 @@ exports.notify = onDocumentWritten({ document: '{col}/{id}', region: 'me-west1',
   if (!WATCHED.includes(col)) return;
   const before = event.data.before.exists ? event.data.before.data() : null;
   const after = event.data.after.exists ? event.data.after.data() : null;
-  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo, signups: onSignup, bgGames: onBg, coinEvents: onCoin, duels: onDuel }[col];
+  const run = { messages: onMessage, tasks: onTask, shifts: onShift, reels: onReel, notifications: onAlert, pushTests: onTest, shiftGeo: onShiftGeo, signups: onSignup, bgGames: onBg, coinEvents: onCoin, duels: onDuel, employees: onEmployee, members: onMember }[col];
   try { await run(before, after, event.params.id); } catch (e) { console.error(col, event.params.id, e); }
 });
