@@ -1,7 +1,10 @@
 rules_version = '2';
 // Security rules for Dalpak.
-// Employees sign in with their Google account. A Google account counts as an employee only after a manager
-// approved it: members/{email} links it to an employee record and holds that employee's permissions.
+// Employees sign in with their Google account. members/{email} links the account to an employee record and holds
+// that employee's permissions. A new Google account gets a "guest" record from the server right away: a guest may
+// only clock in and out and see their own hours, until a manager approves the account (guest removed).
+// Wages and phone numbers stay in employees/{id}, which only hours/staff managers and the employee read;
+// everyone else sees staffPublic/{id}, a copy without the private fields kept by the server.
 // Each area of the app (till, products, inventory, deliveries, orders, hours, tasks, staff, shop management,
 // reels, messages) has a level per employee: none, view or edit. The owner has everything.
 // Two shared accounts still sign in with a phone number + number: the viewer ("בקרה", reads like a manager,
@@ -20,7 +23,11 @@ service cloud.firestore {
     function email() { return request.auth.token.get('email', '').lower(); }
     function gOk() { return signedIn() && request.auth.token.get('email_verified', false) == true && email() != ''; }
     function memDoc() { return /databases/$(database)/documents/members/$(email()); }
-    function isMember() { return gOk() && exists(memDoc()); }
+    function hasMem() { return gOk() && exists(memDoc()); }
+    // An approved employee account (not a guest).
+    function isMember() { return hasMem() && mem().get('guest', false) != true; }
+    // A new account waiting for approval: clock only.
+    function isGuest() { return hasMem() && mem().get('guest', false) == true; }
     function mem() { return get(memDoc()).data; }
     function lvl(a) { return mem().get('perms', {}).get(a, 'none'); }
 
@@ -43,7 +50,9 @@ service cloud.firestore {
     function isEmp() { return isMember() || isViewer(); }
     // Anyone who may change data: an approved employee (the viewer writes nothing).
     function isStaff() { return isMember(); }
-    function myEmpId() { return isMember() ? mem().empId : login().empId; }
+    function myEmpId() { return hasMem() ? mem().empId : login().empId; }
+    // May use the time clock: an approved employee or a guest.
+    function isClocker() { return isMember() || isGuest(); }
     function isOwner() { return isMember() && mem().get('owner', false) == true; }
     // Permission per area. The viewer sees what a manager sees.
     function canView(a) { return isOwner() || isViewer() || (isMember() && lvl(a) in ['view', 'edit']); }
@@ -70,7 +79,7 @@ service cloud.firestore {
     }
     // Closing a shift by location: the shop's location, radius and waiting time.
     match /config/geo {
-      allow read: if isEmp();
+      allow read: if isEmp() || isGuest();
       allow write: if canEdit('admin')
         && request.resource.data.keys().hasOnly(['on', 'lat', 'lng', 'acc', 'radius', 'grace', 'ts']);
     }
@@ -138,17 +147,24 @@ service cloud.firestore {
 
     // The owner's employee record: other staff managers may change only its name and wage.
     match /employees/{id} {
-      allow read: if isEmp();
+      allow read: if canView('hours') || canView('staff') || (isClocker() && id == myEmpId());
       allow create: if canEdit('staff') || bootstrapping();
       allow update: if canEdit('staff') && (!isOwnerEmp(id) || isOwner()
         || !request.resource.data.keys().hasAny(['phone', 'num', 'owner']));
       allow delete: if canEdit('staff') && !isOwnerEmp(id);
     }
+    // Names and other non-private details of every employee, for everyone (kept by the server).
+    match /staffPublic/{id} {
+      allow read: if isEmp();
+    }
 
     match /shifts/{id} {
       // Everyone can see who is on shift right now; past shifts stay private.
-      allow read: if canView('hours') || (isEmp() && (resource.data.empId == myEmpId() || resource.data.status == 'open'));
-      allow create: if canEdit('hours') || (isStaff() && request.resource.data.empId == myEmpId() && (
+      allow read: if canView('hours') || (isEmp() && (resource.data.empId == myEmpId() || resource.data.status == 'open'))
+        || (isGuest() && resource.data.empId == myEmpId());
+      allow create: if canEdit('hours') || (isClocker() && request.resource.data.empId == myEmpId()
+        && request.resource.data.keys().hasOnly(['empId', 'start', 'end', 'status', 'source', 'note', 'ts', 'allowUntil'])
+        && request.resource.data.start is number && (
           (request.resource.data.status == 'open' && request.resource.data.end == null
             && math.abs(request.resource.data.start - nowMs()) < 300000)
           || (request.resource.data.status == 'pending' && request.resource.data.end <= nowMs()
@@ -158,20 +174,23 @@ service cloud.firestore {
       allow update: if isOwner()
         || (canEdit('hours') && (onlyChanges(['status', 'allowUntil'])
             || (resource.data.status == 'open' && onlyChanges(['end', 'status', 'allowUntil', 'autoGeo', 'geoUnsure']))))
-        || (isStaff() && resource.data.empId == myEmpId()
+        || (isClocker() && resource.data.empId == myEmpId()
           && resource.data.status == 'open' && request.resource.data.status == 'approved'
           && request.resource.data.empId == resource.data.empId
           && request.resource.data.start == resource.data.start
-          && request.resource.data.end <= nowMs() + 300000);
+          && request.resource.data.end is number
+          && request.resource.data.end >= resource.data.start
+          && request.resource.data.end <= nowMs() + 300000
+          && onlyChanges(['end', 'status', 'allowUntil', 'autoGeo', 'geoUnsure']));
       allow delete: if isOwner();
     }
 
     // Where each open shift stands by location (written by the employee's own phone, read by the server).
     match /shiftGeo/{id} {
-      allow read: if canView('hours') || (isEmp() && resource.data.emp == myEmpId());
-      allow create, update: if isStaff() && request.resource.data.emp == myEmpId()
+      allow read: if canView('hours') || (isClocker() && resource.data.emp == myEmpId());
+      allow create, update: if isClocker() && request.resource.data.emp == myEmpId()
         && request.resource.data.keys().hasOnly(['emp', 'home', 'lastIn', 'outAt', 'dist', 'acc', 'unsure', 'ts']);
-      allow delete: if canEdit('hours') || (isStaff() && resource.data.emp == myEmpId());
+      allow delete: if canEdit('hours') || (isClocker() && resource.data.emp == myEmpId());
     }
 
     // Everyone sees drinks and salads; the rest of the stock needs a permission.
@@ -201,7 +220,8 @@ service cloud.firestore {
     match /notifications/{id} {
       allow read: if canView('hours') || canView('inv') || canView('staff');
       allow update, delete: if canEdit('hours') || canEdit('inv') || canEdit('staff');
-      allow create: if canEdit('hours') || canEdit('inv') || (isStaff() && request.resource.data.type == 'info');
+      allow create: if canEdit('hours') || canEdit('inv') || (isStaff() && request.resource.data.type == 'info'
+        && request.resource.data.get('text', '').size() <= 1000);
     }
 
     match /itemNotes/{id} {
@@ -260,6 +280,7 @@ service cloud.firestore {
       allow read: if isAcct();
       allow create: if canPost() && request.resource.data.by == myEmpId()
         && math.abs(request.resource.data.ts - nowMs()) < 600000
+        && request.resource.data.get('caption', '').size() <= 2200
         && request.resource.data.get('poster', '').size() < 60000;
       // The author may finish the upload; anyone may set only their own reaction; shop managers anything.
       allow update: if canEdit('admin')
@@ -304,19 +325,19 @@ service cloud.firestore {
     }
     // Phone notification tokens: each phone saves its own under the signed-in employee. Only the server reads them.
     match /pushTokens/{token} {
-      allow create, update: if isStaff() && request.resource.data.emp == myEmpId() && request.resource.data.token == token
+      allow create, update: if isClocker() && request.resource.data.emp == myEmpId() && request.resource.data.token == token
         && request.resource.data.keys().hasOnly(['emp', 'token', 'platform', 'ts']);
-      allow delete: if isAcct() && resource.data.emp == myEmpId();
+      allow delete: if (isAcct() || isGuest()) && resource.data.emp == myEmpId();
     }
     // Notification settings: each employee reads and writes only their own.
     match /pushPrefs/{emp} {
-      allow read: if isStaff() && emp == myEmpId();
-      allow write: if isStaff() && emp == myEmpId()
+      allow read: if isClocker() && emp == myEmpId();
+      allow write: if isClocker() && emp == myEmpId()
         && request.resource.data.keys().hasOnly(['msg', 'preview', 'task', 'shift', 'req', 'reels', 'alerts', 'quiet', 'quietFrom', 'quietTo', 'shabbat', 'ts']);
     }
     // A request for a test notification to yourself; the server sends it and deletes the request.
     match /pushTests/{id} {
-      allow create: if isStaff() && request.resource.data.emp == myEmpId() && request.resource.data.keys().hasOnly(['emp', 'ts']);
+      allow create: if isClocker() && request.resource.data.emp == myEmpId() && request.resource.data.keys().hasOnly(['emp', 'ts']);
     }
 
     // ---- leisure ----
