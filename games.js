@@ -155,69 +155,287 @@ export function bgBest(b, c, dice) {
   }
   return best;
 }
+// A suggestion for the next move of a turn in progress: the first step of the best way to play the dice that are left.
+export function bgHint(t, c) {
+  const info = turnInfo(t, c); if (info.done || !info.moves.length) return null;
+  const memo = new Map(), need = info.total - t.played.length;
+  let best = null, bs = -Infinity;
+  const walk = (bd, left, first, depth) => {
+    if (depth === need) { const w = bgWinner(bd), v = w && w.winner === c ? 1e6 : bgEval(bd, c); if (v > bs) { bs = v; best = first; } return; }
+    for (const d of new Set(left)) for (const m of singleMoves(bd, c, d)) {
+      const nb = applyMove(bd, c, m), nl = removeOne(left, d);
+      if (depth + 1 + maxDepth(nb, c, nl, memo) === need) walk(nb, nl, first || m, depth + 1);
+    }
+  };
+  walk(t.board, info.left, null, 0);
+  return best && info.moves.find(m => m.from === best.from && m.to === best.to && m.die === best.die) || info.moves[0];
+}
 export const roll = () => [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
 
 /* ---------- Snake ----------
-   A grid the snake moves on; it grows with every fruit and speeds up. Swipes, arrows or the keyboard turn it. */
-export function createSnake(canvas, { colors, onScore, onOver, size = 18 }) {
-  const ctx = canvas.getContext('2d');
-  let snake, dir, nextDirs, food, score, step, timer = null, over = false, paused = false, lastT = 0, acc = 0, raf = 0;
-  const N = size;
-  const reset = () => {
-    const m = Math.floor(N / 2); snake = [[m, m], [m + 1, m], [m + 2, m]]; dir = [-1, 0]; nextDirs = []; score = 0; step = 150; over = false; paused = false; placeFood(); draw();
-  };
-  const placeFood = () => {
-    const free = []; for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) if (!snake.some(s => s[0] === x && s[1] === y)) free.push([x, y]);
-    food = free[Math.floor(Math.random() * free.length)];
-  };
-  const turn = d => {
-    const last = nextDirs.length ? nextDirs[nextDirs.length - 1] : dir;
-    if (d[0] === -last[0] && d[1] === -last[1]) return; if (d[0] === last[0] && d[1] === last[1]) return;
-    if (nextDirs.length < 3) nextDirs.push(d);
-  };
-  const tick = () => {
-    if (nextDirs.length) dir = nextDirs.shift();
-    const h = [snake[0][0] + dir[0], snake[0][1] + dir[1]];
-    const eats = h[0] === food[0] && h[1] === food[1];
+   A smooth snake on a grid. Every fifth fruit brings a red orb for five seconds: worth 7 in its first second,
+   one less every second after. Six ways to play (modes), three speeds and a few colours. */
+export const SNAKE_SKINS = {
+  green: { name: 'ירוק', a: '#3DBE6E', b: '#1E7A45' },
+  blue: { name: 'כחול', a: '#4C9BFF', b: '#1F4FA8' },
+  purple: { name: 'סגול', a: '#B07CFF', b: '#5B2CB8' },
+  orange: { name: 'כתום', a: '#FFB347', b: '#D9641E' },
+  pink: { name: 'ורוד', a: '#FF7EB6', b: '#B83279' },
+  rainbow: { name: 'קשת', a: null, b: null }
+};
+export const SNAKE_SPEEDS = { slow: { name: 'איטי', ms: 200 }, normal: { name: 'רגיל', ms: 145 }, fast: { name: 'מהיר', ms: 100 } };
+export const SNAKE_MODES = {
+  classic: { name: 'קלאסי', icon: '🐍', desc: 'הקירות פוסלים. כל 5 פירות מגיע עיגול אדום ששווה עד 7' },
+  wrap: { name: 'בלי קירות', icon: '🌀', desc: 'יוצאים מצד אחד ונכנסים מהצד השני' },
+  maze: { name: 'מבוך', icon: '🧱', desc: 'מכשולים על הלוח. כל 6 פירות עולים שלב ונוסף קיר' },
+  time: { name: 'נגד השעון', icon: '⏱', desc: '60 שניות. כמה שיותר נקודות' },
+  power: { name: 'פירות מיוחדים', icon: '✨', desc: 'האטה, מעבר דרך קירות, ניקוד כפול וקיצור' },
+  daily: { name: 'האתגר היומי', icon: '📅', desc: 'אותו מבוך ואותם פירות לכולם. טבלה חדשה כל יום' }
+};
+export const BONUS_MS = 5000, BONUS_TOP = 7;
+const POWERS = {
+  slow: { icon: '🐢', color: '#5AC8FA', ms: 7000, name: 'האטה' },
+  ghost: { icon: '👻', color: '#C7B8FF', ms: 6000, name: 'מעבר דרך הכול' },
+  double: { icon: '✖2', color: '#FFD60A', ms: 8000, name: 'ניקוד כפול' },
+  shrink: { icon: '✂', color: '#FF9F0A', ms: 0, name: 'קיצור' }
+};
+// A small random generator that gives the same numbers for the same seed (the daily challenge).
+export function seeded(seed) { let a = seed >>> 0 || 1; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+export function createSnake(canvas, o) {
+  const ctx = canvas.getContext('2d'), N = o.size || 17, C = o.colors;
+  const mode = SNAKE_MODES[o.mode] ? o.mode : 'classic', daily = mode === 'daily';
+  let skin = SNAKE_SKINS[o.skin] ? o.skin : 'green';
+  const base = daily ? SNAKE_SPEEDS.normal.ms : (SNAKE_SPEEDS[o.speed] || SNAKE_SPEEDS.normal).ms;
+  let rnd, snake, prev, dir, queue, food, bonus, power, effects, walls, score, eaten, level, over, running, paused;
+  let raf = 0, lastT = 0, acc = 0, timeLeft = 0, parts = [], pops = [], now = 0, flash = 0;
+  const key = (x, y) => x + ',' + y, wallSet = () => new Set(walls.map(w => key(w[0], w[1])));
+  const occupied = () => { const s = wallSet(); snake.forEach(p => s.add(key(p[0], p[1]))); if (food) s.add(key(food[0], food[1])); if (bonus) s.add(key(bonus.x, bonus.y)); if (power) s.add(key(power.x, power.y)); return s; };
+  function freeCell(avoidHead = 3) {
+    const s = occupied(), h = snake[0], free = [];
+    for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) if (!s.has(key(x, y)) && Math.abs(x - h[0]) + Math.abs(y - h[1]) >= avoidHead) free.push([x, y]);
+    return free.length ? free[Math.floor(rnd() * free.length)] : null;
+  }
+  // Every free cell must stay reachable, or a new wall is not placed.
+  function connected(ws) {
+    const block = new Set(ws.map(w => key(w[0], w[1]))), start = snake[0], seen = new Set([key(start[0], start[1])]), q = [start];
+    while (q.length) { const [x, y] = q.pop(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, k = key(nx, ny); if (nx < 0 || ny < 0 || nx >= N || ny >= N || block.has(k) || seen.has(k)) continue; seen.add(k); q.push([nx, ny]); } }
+    return seen.size === N * N - block.size;
+  }
+  function addWall() {
+    for (let tries = 0; tries < 60; tries++) {
+      const len = 2 + Math.floor(rnd() * 3), hz = rnd() < .5, x0 = 1 + Math.floor(rnd() * (N - 2 - (hz ? len : 0))), y0 = 1 + Math.floor(rnd() * (N - 2 - (hz ? 0 : len)));
+      const bar = []; for (let k = 0; k < len; k++) bar.push(hz ? [x0 + k, y0] : [x0, y0 + k]);
+      const occ = occupied(), h = snake[0];
+      if (bar.some(([x, y]) => occ.has(key(x, y)) || (y === h[1] && Math.abs(x - h[0]) < 5) || Math.abs(x - h[0]) + Math.abs(y - h[1]) < 3)) continue;
+      if (!connected([...walls, ...bar])) continue;
+      walls.push(...bar); return true;
+    }
+    return false;
+  }
+  function reset() {
+    rnd = daily ? seeded(o.seed || 1) : Math.random;
+    const m = Math.floor(N / 2); snake = [[m, m], [m + 1, m], [m + 2, m]]; prev = snake.map(p => p.slice());
+    dir = [-1, 0]; queue = []; food = null; bonus = null; power = null; effects = {}; walls = []; score = 0; eaten = 0; level = 1;
+    over = false; running = false; paused = false; parts = []; pops = []; timeLeft = mode === 'time' ? 60000 : 0; acc = 0;
+    if (mode === 'maze' || daily) for (let k = 0; k < (daily ? 5 : 3); k++) addWall();
+    food = freeCell();
+  }
+  const fx = (n, cx, cy, col) => { for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, v = .02 + Math.random() * .05; parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col }); } };
+  const pop = (txt, x, y, col) => pops.push({ txt, x, y, life: 1, col });
+  const stepMs = () => Math.max(base * .55, base - eaten * 2) * (effects.slow > now ? 1.6 : 1);
+  const has = (arr, x, y) => arr.some(p => p[0] === x && p[1] === y);
+  function tick() {
+    if (queue.length) dir = queue.shift();
+    let h = [snake[0][0] + dir[0], snake[0][1] + dir[1]];
+    const ghost = effects.ghost > now, wrap = mode === 'wrap' || ghost;
+    if (wrap) h = [(h[0] + N) % N, (h[1] + N) % N];
+    const out = h[0] < 0 || h[1] < 0 || h[0] >= N || h[1] >= N;
+    const eats = food && h[0] === food[0] && h[1] === food[1];
     const body = eats ? snake : snake.slice(0, -1);
-    if (h[0] < 0 || h[1] < 0 || h[0] >= N || h[1] >= N || body.some(s => s[0] === h[0] && s[1] === h[1])) { over = true; stop(); draw(); onOver && onOver(score); return; }
-    snake.unshift(h); if (eats) { score++; step = Math.max(60, 150 - score * 3); onScore && onScore(score); placeFood(); } else snake.pop();
-    draw();
-  };
-  const loop = t => {
-    if (!timer) return;
-    if (!lastT) lastT = t; acc += t - lastT; lastT = t;
-    if (acc > 600) acc = step; // the phone was busy: don't jump ahead
-    while (acc >= step && timer && !over) { acc -= step; tick(); }
-    raf = requestAnimationFrame(loop);
-  };
-  const start = () => { if (over) reset(); if (timer) return; timer = 1; paused = false; lastT = 0; acc = 0; raf = requestAnimationFrame(loop); };
-  const stop = () => { timer = null; cancelAnimationFrame(raf); };
-  const pause = () => { if (!timer) return; stop(); paused = true; draw(); };
-  function draw() {
-    const W = canvas.width, c = W / N, r = c * 0.28;
-    ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, W, W);
-    ctx.fillStyle = colors.grid;
-    for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) if ((x + y) % 2) ctx.fillRect(x * c, y * c, c, c);
-    const rr = (x, y, w, h, rad) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, rad); else ctx.rect(x, y, w, h); ctx.fill(); };
-    ctx.fillStyle = colors.food; ctx.beginPath(); ctx.arc(food[0] * c + c / 2, food[1] * c + c / 2, c * 0.36, 0, Math.PI * 2); ctx.fill();
-    snake.forEach((s, i) => { ctx.fillStyle = i ? colors.body : colors.head; rr(s[0] * c + 1, s[1] * c + 1, c - 2, c - 2, r); });
-    // Eyes on the head, looking where it goes.
-    const [hx, hy] = snake[0], ex = dir[1] ? [0.3, 0.7] : [0.5 + dir[0] * 0.2, 0.5 + dir[0] * 0.2], ey = dir[0] ? [0.3, 0.7] : [0.5 + dir[1] * 0.2, 0.5 + dir[1] * 0.2];
-    ctx.fillStyle = colors.eye; for (let k = 0; k < 2; k++) { ctx.beginPath(); ctx.arc((hx + ex[k]) * c, (hy + ey[k]) * c, c * 0.09, 0, Math.PI * 2); ctx.fill(); }
-    if (over || paused || !timer) {
-      ctx.fillStyle = colors.veil; ctx.fillRect(0, 0, W, W);
-      ctx.fillStyle = colors.text; ctx.textAlign = 'center'; ctx.font = `700 ${Math.round(W / 14)}px ${colors.font}`;
-      ctx.fillText(over ? 'המשחק נגמר' : paused ? 'הפסקה' : 'מוכנים?', W / 2, W / 2 - W / 30);
-      ctx.font = `500 ${Math.round(W / 24)}px ${colors.font}`;
-      ctx.fillText(over ? `ניקוד: ${score} · לחצו לשחק שוב` : 'לחצו כדי להתחיל', W / 2, W / 2 + W / 18);
+    if (out || (!ghost && (has(walls, h[0], h[1]) || has(body, h[0], h[1])))) return end();
+    prev = snake.map(p => p.slice());
+    snake.unshift(h);
+    const mult = effects.double > now ? 2 : 1;
+    if (eats) {
+      eaten++; const g = 1 * mult; score += g; fx(10, h[0] + .5, h[1] + .5, C.food); pop('+' + g, h[0], h[1], '#fff');
+      o.onScore && o.onScore(score, g, 'fruit');
+      if (eaten % 5 === 0) { const c = freeCell(4); if (c) bonus = { x: c[0], y: c[1], t0: now }; }
+      if (mode === 'power' && eaten % 3 === 0 && !power) { const c = freeCell(4), ks = Object.keys(POWERS); if (c) power = { x: c[0], y: c[1], t0: now, k: ks[Math.floor(rnd() * ks.length)] }; }
+      if ((mode === 'maze' || daily) && eaten % 6 === 0) { level++; addWall(); flash = now; pop('שלב ' + level, N / 2 - 1, N / 2 - 1, '#FFD60A'); }
+      food = freeCell();
+    } else snake.pop();
+    if (bonus && h[0] === bonus.x && h[1] === bonus.y) {
+      const g = bonusValue() * mult; score += g; fx(22, h[0] + .5, h[1] + .5, '#FF3B30'); pop('+' + g, h[0], h[1], '#FF6B6B'); bonus = null;
+      o.onScore && o.onScore(score, g, 'bonus');
+    }
+    if (power && h[0] === power.x && h[1] === power.y) {
+      const P = POWERS[power.k]; fx(16, h[0] + .5, h[1] + .5, P.color); pop(P.name, h[0] - 1, h[1], P.color);
+      if (power.k === 'shrink') { const cut = Math.min(3, snake.length - 3); if (cut > 0) snake.splice(-cut); prev = snake.map(p => p.slice()); }
+      else effects[power.k] = now + P.ms;
+      power = null; o.onScore && o.onScore(score, 0, 'power');
     }
   }
-  reset();
+  // Worth 7 in the first second, then one less every second.
+  const bonusValue = () => bonus ? Math.max(1, BONUS_TOP - Math.floor((now - bonus.t0) / 1000)) : 0;
+  function end() { over = true; running = false; fx(30, snake[0][0] + .5, snake[0][1] + .5, '#FF453A'); o.onOver && o.onOver(score, { mode, level, eaten }); }
+  function loop(t) {
+    raf = requestAnimationFrame(loop);
+    const dt = lastT ? Math.min(100, t - lastT) : 16; lastT = t;
+    if (running && !paused && !over) {
+      now += dt; acc += dt;
+      if (bonus && now - bonus.t0 >= BONUS_MS) { fx(8, bonus.x + .5, bonus.y + .5, '#FF3B30'); bonus = null; }
+      if (power && now - power.t0 >= 7000) power = null;
+      if (mode === 'time') { timeLeft -= dt; if (timeLeft <= 0) { timeLeft = 0; draw(1); return end(); } }
+      let st = stepMs();
+      while (acc >= st && running && !over) { acc -= st; tick(); st = stepMs(); }
+    }
+    parts.forEach(p => { p.x += p.vx * dt / 16; p.y += p.vy * dt / 16; p.life -= dt / 600; }); parts = parts.filter(p => p.life > 0);
+    pops.forEach(p => { p.y -= dt / 900; p.life -= dt / 900; }); pops = pops.filter(p => p.life > 0);
+    draw(running && !over ? Math.min(1, acc / stepMs()) : 1);
+  }
+  const lerp = (a, b, t) => a + (b - a) * t;
+  function skinColor(i, n) {
+    const S = SNAKE_SKINS[skin], f = n > 1 ? i / (n - 1) : 0;
+    if (!S.a) return `hsl(${(i * 22 + now / 12) % 360} 85% 58%)`;
+    const pa = S.a.match(/\w\w/g).map(h => parseInt(h, 16)), pb = S.b.match(/\w\w/g).map(h => parseInt(h, 16));
+    return `rgb(${pa.map((v, k) => Math.round(lerp(v, pb[k], f))).join(',')})`;
+  }
+  function draw(t) {
+    const W = canvas.width, c = W / N;
+    // The board: soft checks and rounded corners.
+    ctx.clearRect(0, 0, W, W);
+    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, W);
+    ctx.fillStyle = C.grid; for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) if ((x + y) % 2) ctx.fillRect(x * c, y * c, c, c);
+    if (flash && now - flash < 600) { ctx.fillStyle = `rgba(255,214,10,${.25 * (1 - (now - flash) / 600)})`; ctx.fillRect(0, 0, W, W); }
+    const rr = (x, y, w, h, r) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); ctx.fill(); };
+    // Walls.
+    walls.forEach(([x, y]) => { ctx.fillStyle = C.wall; rr(x * c + 1.5, y * c + 1.5, c - 3, c - 3, c * .22); ctx.fillStyle = 'rgba(255,255,255,.12)'; rr(x * c + 3, y * c + 3, c - 6, c * .3, c * .15); });
+    const pulse = 1 + Math.sin(now / 180) * .06;
+    // The fruit: an apple with a leaf.
+    if (food) {
+      const fx0 = food[0] * c + c / 2, fy0 = food[1] * c + c / 2, r = c * .36 * pulse;
+      ctx.fillStyle = 'rgba(0,0,0,.15)'; ctx.beginPath(); ctx.ellipse(fx0, fy0 + r * .9, r * .8, r * .25, 0, 0, Math.PI * 2); ctx.fill();
+      const g = ctx.createRadialGradient(fx0 - r * .35, fy0 - r * .35, r * .1, fx0, fy0, r); g.addColorStop(0, '#FFB199'); g.addColorStop(1, C.food);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(fx0, fy0, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#3DBE6E'; ctx.beginPath(); ctx.ellipse(fx0 + r * .3, fy0 - r * 1.0, r * .32, r * .16, -.6, 0, Math.PI * 2); ctx.fill();
+    }
+    // The red orb: glowing, with a ring that empties and its value right now.
+    if (bonus) {
+      const bx = bonus.x * c + c / 2, by = bonus.y * c + c / 2, left = 1 - (now - bonus.t0) / BONUS_MS, r = c * .44;
+      ctx.save(); ctx.shadowColor = '#FF3B30'; ctx.shadowBlur = c * .8 * pulse;
+      const g = ctx.createRadialGradient(bx - r * .3, by - r * .3, r * .1, bx, by, r); g.addColorStop(0, '#FF8A80'); g.addColorStop(1, '#D70015');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, r * pulse, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = c * .08; ctx.beginPath(); ctx.arc(bx, by, r + c * .12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(c * .5)}px ${C.font}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(bonusValue(), bx, by + 1);
+    }
+    if (power) {
+      const P = POWERS[power.k], px = power.x * c + c / 2, py = power.y * c + c / 2, blink = now - power.t0 > 5000 && Math.floor(now / 150) % 2;
+      if (!blink) { ctx.save(); ctx.shadowColor = P.color; ctx.shadowBlur = c * .7; ctx.fillStyle = P.color; ctx.beginPath(); ctx.arc(px, py, c * .42 * pulse, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        ctx.font = `700 ${Math.round(c * .48)}px ${C.font}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#222'; ctx.fillText(P.icon, px, py + 1); }
+    }
+    // The snake: one smooth body, sliding between cells.
+    const n = snake.length, pts = [];
+    for (let i = 0; i < n; i++) { const a = prev[Math.min(i, prev.length - 1)], b = snake[i]; const jump = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) > 1; pts.push(jump ? [b[0], b[1]] : [lerp(a[0], b[0], t), lerp(a[1], b[1], t)]); }
+    const ghost = effects.ghost > now;
+    ctx.save(); if (ghost) ctx.globalAlpha = .55 + Math.sin(now / 90) * .15;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = c * .74;
+    ctx.beginPath(); pts.forEach((p, i) => { const X = p[0] * c + c / 2, Y = p[1] * c + c / 2 + c * .08; if (i && Math.abs(p[0] - pts[i - 1][0]) + Math.abs(p[1] - pts[i - 1][1]) > 1.5) ctx.moveTo(X, Y); else i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.stroke();
+    for (let i = n - 1; i > 0; i--) {
+      const p = pts[i], q = pts[i - 1]; if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) > 1.5) continue;
+      ctx.strokeStyle = skinColor(i, n); ctx.lineWidth = c * (.7 - .22 * i / n);
+      ctx.beginPath(); ctx.moveTo(p[0] * c + c / 2, p[1] * c + c / 2); ctx.lineTo(q[0] * c + c / 2, q[1] * c + c / 2); ctx.stroke();
+    }
+    // A light stripe along the back.
+    ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = c * .14;
+    ctx.beginPath(); pts.forEach((p, i) => { const X = p[0] * c + c / 2 - c * .1, Y = p[1] * c + c / 2 - c * .1; if (i && Math.abs(p[0] - pts[i - 1][0]) + Math.abs(p[1] - pts[i - 1][1]) > 1.5) ctx.moveTo(X, Y); else i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.stroke();
+    // The head, with eyes that look where it goes and a tongue now and then.
+    const hx = pts[0][0] * c + c / 2, hy = pts[0][1] * c + c / 2;
+    ctx.fillStyle = skinColor(0, n); ctx.beginPath(); ctx.arc(hx, hy, c * .44, 0, Math.PI * 2); ctx.fill();
+    if (!over && Math.floor(now / 700) % 4 === 0) { ctx.strokeStyle = '#E5484D'; ctx.lineWidth = c * .07; ctx.beginPath(); ctx.moveTo(hx + dir[0] * c * .4, hy + dir[1] * c * .4); ctx.lineTo(hx + dir[0] * c * .7, hy + dir[1] * c * .7); ctx.stroke(); }
+    const side = [-dir[1], dir[0]];
+    for (const sgn of [-1, 1]) {
+      const ex = hx + dir[0] * c * .14 + side[0] * sgn * c * .2, ey = hy + dir[1] * c * .14 + side[1] * sgn * c * .2;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ey, c * .13, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#111'; ctx.beginPath(); over ? (ctx.font = `700 ${Math.round(c * .22)}px sans-serif`, ctx.textAlign = 'center', ctx.textBaseline = 'middle', ctx.fillText('×', ex, ey)) : (ctx.arc(ex + dir[0] * c * .05, ey + dir[1] * c * .05, c * .065, 0, Math.PI * 2), ctx.fill());
+    }
+    ctx.restore();
+    // Sparks and the points that float up.
+    parts.forEach(p => { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x * c, p.y * c, c * .09, 0, Math.PI * 2); ctx.fill(); });
+    ctx.globalAlpha = 1;
+    pops.forEach(p => { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.col; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 3; ctx.font = `800 ${Math.round(c * .6)}px ${C.font}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.strokeText(p.txt, (p.x + .5) * c, (p.y + .5) * c); ctx.fillText(p.txt, (p.x + .5) * c, (p.y + .5) * c); });
+    ctx.globalAlpha = 1;
+    // Time left (against the clock) and the effects running now.
+    if (mode === 'time') { const f = timeLeft / 60000; ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, 0, W, c * .22); ctx.fillStyle = f < .2 ? '#FF453A' : '#FFD60A'; ctx.fillRect(0, 0, W * f, c * .22); }
+    const act = Object.entries(effects).filter(([, until]) => until > now);
+    act.forEach(([k, until], i) => { const P = POWERS[k]; ctx.fillStyle = 'rgba(0,0,0,.45)'; rr(6 + i * c * 1.9, W - c * .9, c * 1.75, c * .7, c * .3); ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(c * .36)}px ${C.font}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`${P.icon} ${Math.ceil((until - now) / 1000)}`, 6 + i * c * 1.9 + c * .87, W - c * .55); });
+    if (over || paused || !running) {
+      ctx.fillStyle = C.veil; ctx.fillRect(0, 0, W, W);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = `800 ${Math.round(W / 13)}px ${C.font}`;
+      ctx.fillText(over ? (mode === 'time' && timeLeft <= 0 ? 'נגמר הזמן!' : 'המשחק נגמר') : paused ? 'הפסקה' : SNAKE_MODES[mode].name, W / 2, W / 2 - W / 28);
+      ctx.font = `500 ${Math.round(W / 26)}px ${C.font}`;
+      ctx.fillText(over ? `ניקוד: ${score} · לחצו לשחק שוב` : paused ? 'לחצו להמשך' : 'לחצו או החליקו כדי להתחיל', W / 2, W / 2 + W / 18);
+    }
+  }
+  const start = () => { if (over) reset(); running = true; paused = false; };
+  const pause = () => { if (running && !over) paused = true; };
+  const turn = d => {
+    if (over) return; if (!running || paused) start();
+    const last = queue.length ? queue[queue.length - 1] : dir;
+    if ((d[0] === -last[0] && d[1] === -last[1]) || (d[0] === last[0] && d[1] === last[1])) return;
+    if (queue.length < 3) queue.push(d);
+  };
+  reset(); raf = requestAnimationFrame(loop);
   return {
-    start, pause, turn, draw, reset,
-    toggle: () => (timer ? pause() : start()),
-    running: () => !!timer, isOver: () => over, score: () => score,
-    destroy: () => stop()
+    start, pause, turn, reset: () => { reset(); },
+    toggle: () => (running && !paused && !over ? pause() : start()),
+    running: () => running && !paused && !over, isOver: () => over, score: () => score, mode: () => mode,
+    setSkin: k => { if (SNAKE_SKINS[k]) skin = k; },
+    // For tests: a look at the state.
+    peek: () => ({ snake: snake.map(p => p.slice()), dir: dir.slice(), food, bonus: bonus && { ...bonus, value: bonusValue() }, power, walls: walls.slice(), level, now, timeLeft, effects: { ...effects } }),
+    advance: ms => { const st = ms; now += st; acc += st; },
+    destroy: () => cancelAnimationFrame(raf)
   };
 }
+
+/* ---------- Sudoku ----------
+   Every puzzle has exactly one solution. Fewer given numbers = harder. */
+export const SUDOKU_LEVELS = { easy: { name: 'קל', clues: 40 }, medium: { name: 'בינוני', clues: 33 }, hard: { name: 'קשה', clues: 28 }, expert: { name: 'מומחה', clues: 24 } };
+export const SUDOKU_COINS = { easy: 5, medium: 10, hard: 18, expert: 30, daily: 15 };
+export const SD_PEERS = Array.from({ length: 81 }, (_, i) => {
+  const r = Math.floor(i / 9), c = i % 9, br = r - r % 3, bc = c - c % 3, s = new Set();
+  for (let k = 0; k < 9; k++) { s.add(r * 9 + k); s.add(k * 9 + c); s.add((br + Math.floor(k / 3)) * 9 + bc + k % 3); }
+  s.delete(i); return [...s];
+});
+// Counts solutions up to limit (2 is enough to know a puzzle is not unique).
+function sdSolve(g, limit, rnd) {
+  let count = 0; const a = g.slice();
+  const rec = () => {
+    let best = -1, opts = null;
+    for (let i = 0; i < 81; i++) if (!a[i]) {
+      const used = new Set(SD_PEERS[i].map(p => a[p])), o = [1, 2, 3, 4, 5, 6, 7, 8, 9].filter(v => !used.has(v));
+      if (!o.length) return false;
+      if (!opts || o.length < opts.length) { best = i; opts = o; if (o.length === 1) break; }
+    }
+    if (best < 0) { count++; if (count === 1) g.solved = a.slice(); return count >= limit; }
+    if (rnd) for (let k = opts.length - 1; k > 0; k--) { const j = Math.floor(rnd() * (k + 1)); [opts[k], opts[j]] = [opts[j], opts[k]]; }
+    for (const v of opts) { a[best] = v; if (rec()) return true; }
+    a[best] = 0; return false;
+  };
+  rec(); return count;
+}
+export function makeSudoku(level = 'easy', seed) {
+  const rnd = seed ? seeded(seed) : Math.random, clues = (SUDOKU_LEVELS[level] || SUDOKU_LEVELS.easy).clues;
+  const empty = Array(81).fill(0); sdSolve(empty, 1, rnd); const solution = empty.solved;
+  const puzzle = solution.slice(), order = [...Array(81).keys()];
+  for (let k = 80; k > 0; k--) { const j = Math.floor(rnd() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
+  let left = 81;
+  for (const i of order) {
+    if (left <= clues) break;
+    const keep = puzzle[i]; puzzle[i] = 0;
+    if (sdSolve(puzzle, 2) !== 1) puzzle[i] = keep; else left--;
+  }
+  return { puzzle, solution };
+}
+export const sudokuReward = (level, hints = 0, errors = 0) => Math.max(0, (SUDOKU_COINS[level] || 0) - 3 * hints - 2 * errors);
