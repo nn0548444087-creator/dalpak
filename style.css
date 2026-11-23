@@ -94,6 +94,7 @@ p{margin:0}
 .banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:var(--rb);font-size:.906rem}
 .banner.bad{background:var(--bad-soft);color:var(--bad)}
 .banner.info{background:var(--accent-soft);color:var(--accent)}
+.banner.warn{background:var(--warn-soft);color:var(--warn);margin-bottom:12px}
 
 /* lists */
 .list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
@@ -862,3 +863,22 @@ body.kb-open .dm-list{padding-bottom:70px}
 .san{display:flex;flex-wrap:wrap;gap:4px 8px;justify-content:center;font-size:.82rem;color:var(--muted);margin:8px 0 0}
 .san b{color:var(--ink);font-weight:700}
 .stake.lvl{padding:16px 6px}.stakes .stake.lvl:first-child{grid-column:auto}
+
+/* calendar: Gregorian month with the Hebrew date, and who worked each day */
+.cal{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;box-shadow:var(--shadow)}
+.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.cal-title{display:flex;flex-direction:column;align-items:center;text-align:center}
+.cal-title b{font-size:1.1rem}.cal-title small{color:var(--muted);font-size:.85rem}
+.cal-nav{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:1.4rem;line-height:1;cursor:pointer}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-w{text-align:center;font-size:.75rem;font-weight:700;color:var(--muted);padding:2px 0}
+.cal-d{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:1px;min-height:58px;padding:5px 2px 4px;border:1px solid transparent;border-radius:10px;background:var(--sunk);color:var(--ink);font:inherit;cursor:pointer}
+.cal-d.empty{background:transparent;cursor:default}
+.cal-d b{font-size:1rem;line-height:1.1}.cal-d small{font-size:.7rem;color:var(--muted);line-height:1}
+.cal-d.sat{background:var(--accent-soft)}
+.cal-d.today{border-color:var(--accent)}
+.cal-d.sel{background:var(--accent);color:var(--accent-ink)}.cal-d.sel small{color:var(--accent-ink);opacity:.85}
+.cal-dot{position:absolute;bottom:3px;font-style:normal;font-size:.62rem;font-weight:800;padding:0 5px;border-radius:999px;background:var(--ok);color:#fff;line-height:1.5}
+.cal-d.sel .cal-dot{background:var(--accent-ink);color:var(--accent)}
+.cal-day-h{display:flex;flex-direction:column;gap:2px;margin:16px 2px 10px}.cal-day-h small{color:var(--muted)}
+.cal-emp .row-sub{gap:8px;flex-wrap:wrap}.cal-span{font-weight:700;color:var(--ink)}
