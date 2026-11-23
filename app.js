@@ -61,6 +61,8 @@ new MutationObserver(() => {
 let viewer = false;
 // The "חדשות מרקט" account: it can only post reels and sees nothing else in the app.
 let poster = false;
+// A new Google account not approved yet: only the clock and its own calendar.
+let guest = false;
 const NEWS = { id: 'news', name: 'חדשות מרקט', num: '', phone: '', wage: 0 };
 const POSTER_OK = ['reel-share', 'sync-info', 'cap-more', 'nav', 'close', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-new', 'reel-type', 'reel-tap', 'reel-sound', 'reel-del', 'reel-del-yes', 'reel-viewers', 'reel-comments', 'reel-open', 'mention-pick', 'fill-login', 'step'];
 const P = { clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>', truck: '<path d="M2 6h11v10H2zM13 9h4.5l3.5 4v3h-8"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.8"/>', check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', chev: '<path d="m15 6-6 6 6 6"/>', chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', task: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>', cog: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>', user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>', eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', out: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>', phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>' };
@@ -182,7 +184,7 @@ function alerts() {
 }
 
 /* ---------- shell ---------- */
-const MORE_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail'];
+const MORE_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'display', 'suppliers', 'supplier', 'orders', 'report', 'avail', 'cal'];
 const MGR_VIEWS = ['pos', 'products', 'hours', 'tasks', 'admin', 'staff', 'suppliers', 'supplier', 'orders', 'report', 'geo'];
 function tabPill() {
   const nav = document.getElementById('nav'); if (!nav || document.getElementById('navbar').hidden) return;
@@ -192,6 +194,7 @@ function tabPill() {
 function renderNav() {
   const nav = document.getElementById('navbar'); nav.hidden = !session(); if (!session()) return;
   if (poster) { document.getElementById('nav').innerHTML = `<button class="tab on" data-action="nav" data-view="reels">${ic('play')}רילס</button><button class="tab" data-action="logout">${ic('out')}יציאה</button>`; tabPill(); return; }
+  if (guest) { document.getElementById('nav').innerHTML = [['clock', 'שעון', 'clock'], ['cal', 'לוח שנה', 'cal']].map(([v, l, i]) => `<button class="tab ${view === v ? 'on' : ''}" data-action="nav" data-view="${v}">${ic(i)}${l}</button>`).join('') + `<button class="tab" data-action="logout">${ic('out')}יציאה</button>`; tabPill(); return; }
   const n = (viewer ? 0 : alerts().count) + newTasks().length + newMentions().length + newActivity().length;
   // The bell is there for everyone: employees see their own tasks, managers also see approvals.
   const tabs = [['clock', 'שעון', 'clock'], ['inv', 'מלאי', 'box'], ['deliv', 'אספקה', 'truck'], ['reels', 'רילס', 'play'], ...(funOk() ? [['fun', 'פנאי', 'fun']] : []), ['more', 'עוד', 'menu']];
@@ -226,7 +229,7 @@ window.addEventListener('offline', () => setTimeout(updateSync, 300));
 function render() {
   renderPending = false;
   if (!store) return;
-  S = store.S; viewer = !!store.isViewer?.(); poster = !!store.isPoster?.();
+  S = store.S; viewer = !!store.isViewer?.(); poster = !!store.isPoster?.(); guest = !viewer && !poster && !!store.isGuest?.();
   // "manager" = may see the manager parts of the current screen; "ro" = only to look at them.
   const A = AREA_OF[view];
   manager = !poster && (viewer || (view === 'alerts' ? canV('hours') || canV('inv') || canV('staff')
@@ -236,6 +239,7 @@ function render() {
   if ((view === 'chat' || view === 'dm') && !viewer && !poster && lvl('chat') === 'none') view = 'clock';
   document.body.classList.toggle('is-viewer', viewer); document.body.classList.toggle('is-poster', poster);
   if (poster && session() && view !== 'display') view = 'reels';
+  if (guest && !['clock', 'cal', 'display'].includes(view)) view = 'clock';
   const brand = `<div class="brand"><img class="mark" src="./logo.png" alt=""><div><b>שאבעס מרקט</b><small>ניהול חנות${local() ? ' · גרסת דמו' : ''}</small></div></div>`;
   const hdr = document.getElementById('hdr'), main = document.getElementById('main');
   if (booting) { hdr.innerHTML = brand; main.innerHTML = `<div class="view"><div class="lock"><p class="muted">טוען נתונים…</p></div></div>`; renderNav(); return; }
@@ -250,7 +254,7 @@ function render() {
   const bell = chatBtn + `<button class="hbell ${view === 'alerts' ? 'on' : ''}" id="hbell" data-action="nav" data-view="alerts" aria-label="התראות">${ic('bell')}<span class="badge" id="hbadge" hidden></span></button>`;
   if ((viewer || poster) && (view === 'chat' || view === 'dm' || view === 'notif')) view = poster ? 'reels' : 'clock';
   if (view === 'dm' && !chatWith) view = 'chat';
-  hdr.innerHTML = (poster ? brand : brand.replace(/<\/div>$/, bell + '</div>')) + `
+  hdr.innerHTML = (poster || guest ? brand : brand.replace(/<\/div>$/, bell + '</div>')) + `
     <div class="top-actions">
       <button class="chip sync-chip" id="sync-chip" data-action="sync-info" hidden>${ic('alert', 'sm')}<span class="st"></span></button>
       ${viewer ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה בלבד</span></span>` : ro ? `<span class="chip">${ic('eye', 'sm')}<span class="cl">צפייה</span></span>` : ''}
@@ -260,7 +264,7 @@ function render() {
   if (FUN_VIEWS.includes(view) && !funOk()) view = 'clock';
   if (view !== 'snake' && snakeG) { snakeG.destroy(); snakeG = null; }
   if (!invAll && (invTab === 'snacks' || invTab === 'all')) invTab = 'drinks';
-  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels, fun: vFun, gallery: vGallery, snake: vSnake, bg: vBg, sudoku: vSudoku, duel: vDuel };
+  const V = { clock: vClock, inv: vInv, deliv: vDeliv, alerts: vAlerts, more: vMore, hours: vHours, tasks: vTasks, admin: vAdmin, staff: vStaff, display: vDisplay, suppliers: vSuppliers, supplier: vSupplier, orders: vOrders, products: vProducts, pos: vPos, notif: vNotif, geo: vGeo, chat: vChat, dm: vDm, report: vReport, avail: vAvail, reels: vReels, fun: vFun, gallery: vGallery, snake: vSnake, bg: vBg, sudoku: vSudoku, duel: vDuel, cal: vCal };
   main.innerHTML = `<div class="view ${view === 'reels' ? 'view-reels' : ''}">${(V[view] || vClock)()}</div>`;
   renderNav(); tick(); watchReels(); cleanReels(); watchMore(); if (view === 'snake') mountSnake(); sdClock(); if (view === 'duel') duSlide(); syncShown = ''; updateSync();
   slideSegs(main); const dir = navDir; navDir = null; animateView(dir);
@@ -341,7 +345,7 @@ function vClock() {
   if (viewer) { const crew = onShiftNow().map(s => emp(s.empId)).filter(e => e.id);
     return `<div class="card"><b>${ic('eye', 'sm')} מצב בקרה · צפייה בלבד</b><p class="muted" style="margin:6px 0 0">אפשר לראות את כל הנתונים במערכת: מלאי, אספקה, רילס, התראות, שעות ושכר, ספקים והזמנות. אי אפשר לשנות נתונים או להוציא דוחות.</p></div>
     <h3 class="sec">במשמרת עכשיו · ${crew.length}</h3><div class="crew"><div class="crew-row">${crew.map(e => `<span class="crew-p">${avatar(e, 'md')}<small>${esc(first(e.name))}</small></span>`).join('') || '<span class="muted">אף אחד לא במשמרת כרגע</span>'}</div></div>
-    <div class="list">${[['hours', 'chart', 'שעות עובדים ושכר'], ['orders', 'cart', 'הזמנות מספקים'], ['suppliers', 'users', 'ספקים ומחירים'], ['tasks', 'task', 'משימות'], ['avail', 'cal', 'אילוצים של עובדים']].map(([v, i, l]) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${ic('chev', 'sm chev')}</button>`).join('')}</div>`; }
+    <div class="list">${[['hours', 'chart', 'שעות עובדים ושכר'], ['orders', 'cart', 'הזמנות מספקים'], ['suppliers', 'users', 'ספקים ומחירים'], ['tasks', 'task', 'משימות'], ['cal', 'cal', 'לוח שנה ופירוט שעות'], ['avail', 'cal', 'אילוצים של עובדים']].map(([v, i, l]) => `<button class="menu-item" data-action="nav" data-view="${v}">${ic(i)}<span class="grow">${l}</span>${ic('chev', 'sm chev')}</button>`).join('')}</div>`; }
   const me = cur(), now = Date.now(), open = openShift(me.id);
   const counted = s => s.empId === me.id && (s.status === 'approved' || s.status === 'open');
   const tH = sum(S.shifts.filter(s => counted(s) && sameDay(s.start, now)).map(dur));
@@ -351,7 +355,8 @@ function vClock() {
   const C = 2 * Math.PI * 46, ms0 = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1).getTime();
   const xT = exSum(extrasOf(me.id, sod(now), now + DAY)), xM = exSum(extrasOf(me.id, ms0, now + DAY));
   const myEx = (S.extras || []).filter(x => x.empId === me.id && x.ts >= ms0).sort((a, b) => b.ts - a.ts);
-  return pushCard() + `
+  const pay = DS.showPay && !guest;
+  return (guest ? `<div class="banner warn">${ic('alert')}<span>החשבון שלך עוד לא אושר. בינתיים אפשר להחתים שעון ולראות את השעות שלך. כשמנהל יאשר, שאר האפליקציה תיפתח כאן לבד.</span></div>` : '') + pushCard() + `
   <section class="hero">
     <div class="today">${fmtLong(now)}</div>
     <button class="dial ${open ? 'on' : ''}" data-action="clock" aria-label="${open ? 'יציאה מהמשמרת' : 'כניסה למשמרת'}">
@@ -364,28 +369,29 @@ function vClock() {
     </button>
     <div class="since">${open ? `נכנסת ב-${fmtT(open.start)}${sameDay(open.start, now) ? '' : ' · ' + fmtD(open.start)}` : `עובד מס׳ ${esc(me.num)}`}</div>
   </section>
-  <div class="extra-box"><button class="btn block" data-action="extra-new">${ic('truck', 'sm')}עשיתי משלוח</button>
+  ${guest ? '' : `<div class="extra-box"><button class="btn block" data-action="extra-new">${ic('truck', 'sm')}עשיתי משלוח</button>
   ${myEx.length ? `<div class="list">${myEx.map(x => `<div class="row"><div class="row-main"><div class="row-title">${EXTRA[x.kind] || 'משלוח'} · ${fmtD(x.ts)} ${fmtT(x.ts)}</div>${x.note ? `<div class="row-sub">${esc(x.note)}</div>` : ''}</div>
-    ${x.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : x.status === 'rejected' ? '<span class="pill bad">נדחה</span>' : DS.showPay ? `<b class="num">${money(+x.amount || 0)}</b>` : '<span class="pill ok">אושר</span>'}</div>`).join('')}</div>` : ''}</div>
+    ${x.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : x.status === 'rejected' ? '<span class="pill bad">נדחה</span>' : DS.showPay ? `<b class="num">${money(+x.amount || 0)}</b>` : '<span class="pill ok">אושר</span>'}</div>`).join('')}</div>` : ''}</div>`}
   ${(() => { const crew = onShiftNow().map(s => ({ e: emp(s.empId), s, me: s.empId === me.id })).filter(x => x.e.id).sort((x, y) => y.me - x.me);
     return crew.length ? `<div class="crew"><span class="crew-l">${open ? (crew.length > 1 ? 'במשמרת איתך עכשיו' : 'במשמרת עכשיו') : 'במשמרת עכשיו'}</span><div class="crew-row">${crew.map(x => `<span class="crew-p ${x.me ? 'me' : ''}" title="${esc(x.e.name)} · מ-${fmtT(x.s.start)}">${avatar(x.e, 'md')}<small>${x.me ? 'אני' : esc(first(x.e.name))}</small></span>`).join('')}</div></div>` : ''; })()}
   ${open ? geoBanner(open) : ''}
   ${open && now - open.start > 12 * H ? `<div class="banner bad">${ic('alert')}<span>המשמרת פתוחה יותר מ-12 שעות. נשלחה התראה למנהל המערכת.</span></div>` : ''}
   <div class="stats">
     <div class="stat"><span>שעות היום</span><b class="num">${fmtH(tH)}</b></div>
-    ${DS.showPay ? `<div class="stat"><span>שכר היום</span><b class="num">${money(tH * me.wage + xT)}</b>${xT ? `<small>כולל ${money(xT)} משלוחים ובונוסים</small>` : ''}</div>` : `<div class="stat"><span>משמרות השבוע</span><b class="num">${mine.filter(s => s.status !== 'rejected').length}</b></div>`}
+    ${pay ? `<div class="stat"><span>שכר היום</span><b class="num">${money(tH * me.wage + xT)}</b>${xT ? `<small>כולל ${money(xT)} משלוחים ובונוסים</small>` : ''}</div>` : `<div class="stat"><span>משמרות השבוע</span><b class="num">${mine.filter(s => s.status !== 'rejected').length}</b></div>`}
     <div class="stat"><span>שעות החודש</span><b class="num">${fmtH(mH)}</b></div>
-    ${DS.showPay ? `<div class="stat"><span>שכר החודש</span><b class="num">${money(mH * me.wage + xM)}</b><small>${xM ? `כולל ${money(xM)} משלוחים ובונוסים` : `לפי ${money(me.wage)} לשעה`}</small></div>` : `<div class="stat"><span>שכר</span><b class="num">•••</b><small>מוסתר בהגדרות התצוגה</small></div>`}
+    ${pay ? `<div class="stat"><span>שכר החודש</span><b class="num">${money(mH * me.wage + xM)}</b><small>${xM ? `כולל ${money(xM)} משלוחים ובונוסים` : `לפי ${money(me.wage)} לשעה`}</small></div>` : `<div class="stat"><span>שכר</span><b class="num">•••</b><small>${guest ? 'ייקבע אחרי אישור המנהל' : 'מוסתר בהגדרות התצוגה'}</small></div>`}
   </div>
   <div class="link-row"><button class="link-btn" data-action="req-hours">${ic('plus', 'sm')}שכחתי להחתים שעון – בקשת אישור שעות</button>
-  <button class="link-btn" data-action="nav" data-view="avail">${ic('cal', 'sm')}ימים שאני לא יכול לעבוד</button></div>
+  <button class="link-btn" data-action="nav" data-view="cal">${ic('cal', 'sm')}לוח שנה ופירוט השעות שלי</button>
+  ${guest ? '' : `<button class="link-btn" data-action="nav" data-view="avail">${ic('cal', 'sm')}ימים שאני לא יכול לעבוד</button>`}</div>
   <h3 class="sec">המשמרות שלי השבוע</h3>
   <div class="list">${mine.length ? mine.map(s => `
     <div class="row"><div class="row-main"><div class="row-title">${fmtD(s.start)}</div>
       <div class="row-sub num">${fmtT(s.start)} – ${s.end ? fmtT(s.end) : 'עכשיו'} · ${fmtH(dur(s))} ש׳
       ${s.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : s.status === 'rejected' ? '<span class="pill bad">נדחה</span>' : s.status === 'open' ? '<span class="pill ok">פתוח</span>' : ''}
       ${s.source === 'request' && s.status === 'approved' ? '<span class="pill acc">אושר ידנית</span>' : ''}</div></div>
-      ${DS.showPay ? `<div class="num" style="font-weight:700">${s.status === 'rejected' ? '—' : money(dur(s) * me.wage)}</div>` : ''}</div>`).join('') : '<div class="row"><span class="muted">עוד לא נרשמו משמרות השבוע.</span></div>'}</div>`;
+      ${pay ? `<div class="num" style="font-weight:700">${s.status === 'rejected' ? '—' : money(dur(s) * me.wage)}</div>` : ''}</div>`).join('') : '<div class="row"><span class="muted">עוד לא נרשמו משמרות השבוע.</span></div>'}</div>`;
 }
 
 const img = id => (S.images && S.images[id] && (S.images[id].data || S.images[id].url)) || '';
@@ -520,7 +526,7 @@ function vMore() {
   return `<h2 class="vt">תפריט</h2>
   <button class="sync-line" id="sync-line" data-action="sync-info"><i class="pp-dot"></i><span></span></button>
   ${mgmt.length ? `<div class="list">${mgmt.map(([v, i, l]) => it(v, i, l)).join('')}</div>` : ''}
-  <div class="list">${it('avail', 'cal', canV('hours') ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד')}${it('display', 'eye', 'הגדרות תצוגה')}
+  <div class="list">${it('cal', 'cal', canV('hours') ? 'לוח שנה ופירוט שעות של כולם' : 'לוח שנה ופירוט השעות שלי')}${it('avail', 'cal', canV('hours') ? 'אילוצים של עובדים למשמרות' : 'ימים שאני לא יכול לעבוד')}${it('display', 'eye', 'הגדרות תצוגה')}
   <button class="menu-item" data-action="logout">${ic('out')}<span class="grow">התנתקות</span><span class="muted">${esc(cur().name)}</span></button></div>
   <p class="lead">${local() ? 'גרסת דמו: הנתונים נשמרים בטלפון הזה בלבד.' : 'הנתונים נשמרים בענן ומשותפים לכל הטלפונים של העובדים.'}</p>`;
 }
@@ -540,7 +546,7 @@ function vHours() {
     ${hoursRange === 'week' ? `<div class="row-sub num">${days.map(d => { const x = sum(r.sh.filter(s => sameDay(s.start, d)).map(dur)); return `<span class="pill ${x ? 'acc' : ''}">${new Date(d).toLocaleDateString('he-IL', { weekday: 'narrow' })} ${x ? fmtH(x) : '–'}</span>`; }).join('')}</div>` : ''}</div>
     <div class="num" style="font-weight:700">${money(r.pay)}</div></div>`).join('')}</div>
   <p class="lead">כולל משמרות פתוחות עד לרגע זה. בקשות שעדיין ממתינות לאישור לא נספרות.</p>
-  <div class="actions"><button class="btn primary" data-action="report-new">${ic('chart', 'sm')}דוח שכר מפורט</button><button class="btn" data-action="extra-add">${ic('plus', 'sm')}הוספת משלוח או בונוס</button></div>`;
+  <div class="actions"><button class="btn primary" data-action="report-new">${ic('chart', 'sm')}דוח שכר מפורט</button><button class="btn" data-action="nav" data-view="cal">${ic('cal', 'sm')}לוח שנה · מי עבד מתי</button><button class="btn" data-action="extra-add">${ic('plus', 'sm')}הוספת משלוח או בונוס</button></div>`;
 }
 
 // Star rating in half steps. Each star has two tap zones: the left half gives n−½, the right half n.
@@ -2387,10 +2393,77 @@ const FORMS = {
   },
   task: f => { S.tasks.push({ id: uid(), title: f.title.trim(), empId: f.emp, hours: parseFloat(f.hours) || 1, done: false, seen: false, ts: Date.now() }); save(); render(); toast(`המשימה נוספה. ${first(emp(f.emp).name)} יקבל/תקבל התראה`); }
 };
-const VIEW_OK = ['reel-share', 'sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+const VIEW_OK = ['cal-day', 'cal-move', 'reel-share', 'sync-info', 'nav', 'back', 'close', 'inv-tab', 'range', 'sup-open', 'img-view', 'account', 'nav-close', 'logout', 'ds', 'ds-tog', 'ds-reset', 'reel-comments', 'reel-viewers', 'emp-shifts', 'reel-tap', 'cap-more', 'reel-sound', 'reel-open', 'order-open', 'sale-open', 'sale-pdf', 'sale-share', 'prod-open', 'prod-nobc', 'prod-more', 'inv-more', 'inv-update', 'emp-edit', 'fill-login', 'step'];
+/* Calendar: the Gregorian month with the Hebrew date in every day. Tapping a day lists exactly who worked that day,
+   from when to when (managers of hours see everyone; an employee sees their own shifts). */
+const HEB_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'], HEB_TENS = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'], HEB_HUNDREDS = ['', 'ק', 'ר', 'ש', 'ת'];
+// A number in Hebrew letters: 15 = ט״ו, 22 = כ״ב, 787 = תשפ״ז.
+function hebNum(n) {
+  let s = '', h = Math.floor(n / 100) % 10;
+  while (h > 4) { s += 'ת'; h -= 4; }
+  s += HEB_HUNDREDS[h];
+  const r = n % 100;
+  if (r === 15) s += 'טו'; else if (r === 16) s += 'טז'; else s += HEB_TENS[Math.floor(r / 10)] + HEB_ONES[r % 10];
+  return s.length > 1 ? s.slice(0, -1) + '״' + s.slice(-1) : s + '׳';
+}
+const hebFmt = (() => { try { return new Intl.DateTimeFormat('he-IL-u-ca-hebrew', { day: 'numeric', month: 'long', year: 'numeric' }); } catch (e) { return null; } })();
+function hebDate(ts) {
+  if (!hebFmt) return null;
+  const p = {}; hebFmt.formatToParts(new Date(ts)).forEach(x => { p[x.type] = x.value; });
+  const day = parseInt(p.day, 10), year = parseInt(p.year, 10);
+  if (!day || !year) return null;
+  return { day, dayHeb: hebNum(day), month: p.month, year, yearHeb: hebNum(year % 1000) };
+}
+let calMonth = null, calDay = null;
+const calAll = () => viewer || canV('hours');
+// Shifts that touch a day (a shift over midnight shows on both days).
+const calShifts = (from, to) => S.shifts.filter(s => s.status !== 'rejected' && s.start < to && (s.end || Date.now()) > from && (calAll() || s.empId === session()));
+function calMonthHtml() {
+  const now = Date.now(), base = calMonth ? new Date(calMonth) : new Date(now), y = base.getFullYear(), m = base.getMonth();
+  const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate(), lead = first.getDay();
+  const h1 = hebDate(first.getTime()), h2 = hebDate(new Date(y, m, days).getTime());
+  const hebTitle = h1 && h2 ? (h1.month === h2.month ? `${h1.month} ${h1.yearHeb}` : `${h1.month}${h1.year !== h2.year ? ' ' + h1.yearHeb : ''} – ${h2.month} ${h2.yearHeb}`) : '';
+  const sel = calDay || (now >= first.getTime() && now < new Date(y, m + 1, 1).getTime() ? sod(now) : first.getTime());
+  let cells = '';
+  for (let i = 0; i < lead; i++) cells += '<span class="cal-d empty"></span>';
+  for (let d = 1; d <= days; d++) {
+    const t = new Date(y, m, d).getTime(), h = hebDate(t), sh = calShifts(t, t + DAY), hrs = sum(sh.map(s => Math.min(s.end || now, t + DAY) - Math.max(s.start, t))) / H;
+    const people = new Set(sh.map(s => s.empId)).size, sat = new Date(t).getDay() === 6;
+    cells += `<button class="cal-d ${sameDay(t, now) ? 'today' : ''} ${t === sel ? 'sel' : ''} ${sat ? 'sat' : ''} ${sh.length ? 'has' : ''}" data-action="cal-day" data-t="${t}" aria-label="${new Date(t).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}${h ? ', ' + h.dayHeb + ' ' + h.month : ''}${sh.length ? `, ${people} עובדים` : ''}">
+      <b class="num">${d}</b><small>${h ? h.dayHeb : ''}</small>${sh.length ? `<i class="cal-dot">${calAll() ? people : fmtH(hrs)}</i>` : ''}</button>`;
+  }
+  return { html: `<div class="cal-head"><button class="cal-nav" data-action="cal-move" data-d="-1" aria-label="החודש הקודם">›</button>
+    <div class="cal-title"><b>${first.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</b><small>${hebTitle}</small></div>
+    <button class="cal-nav" data-action="cal-move" data-d="1" aria-label="החודש הבא">‹</button></div>
+    <div class="cal-grid">${['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map(x => `<span class="cal-w">${x}</span>`).join('')}${cells}</div>`, sel };
+}
+function calDayHtml(t) {
+  const now = Date.now(), h = hebDate(t), sh = calShifts(t, t + DAY).sort((a, b) => a.start - b.start);
+  const part = s => (Math.min(s.end || now, t + DAY) - Math.max(s.start, t)) / H;
+  const byEmp = new Map(); sh.forEach(s => { if (!byEmp.has(s.empId)) byEmp.set(s.empId, []); byEmp.get(s.empId).push(s); });
+  const total = sum(sh.map(part));
+  return `<div class="cal-day-h"><b>${new Date(t).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</b>${h ? `<small>${h.dayHeb} ב${h.month} ${h.yearHeb}</small>` : ''}</div>
+  ${sh.length ? `<div class="stats"><div class="stat"><span>${calAll() ? 'עבדו' : 'משמרות'}</span><b class="num">${calAll() ? byEmp.size : sh.length}</b></div><div class="stat"><span>סה״כ שעות</span><b class="num">${fmtH(total)}</b></div></div>` : ''}
+  <div class="list">${[...byEmp.entries()].map(([id, list]) => { const e = emp(id); return `<div class="row cal-emp">${avatar(e, 'md')}<div class="row-main"><div class="row-title">${esc(e.name || 'עובד')}${e.guest ? ' <span class="pill pend">ממתין לאישור</span>' : ''}</div>
+    ${list.map(s => `<div class="row-sub num"><span class="cal-span">${fmtT(s.start)}${s.start < t ? ` (${fmtD(s.start)})` : ''} – ${s.end ? fmtT(s.end) + (s.end > t + DAY ? ` (${fmtD(s.end)})` : '') : 'עכשיו'}</span><span>${fmtH(dur(s))} ש׳</span>
+      ${s.status === 'pending' ? '<span class="pill pend">ממתין לאישור</span>' : s.status === 'open' ? '<span class="pill ok">במשמרת</span>' : ''}${s.source === 'request' && s.status === 'approved' ? '<span class="pill acc">אושר ידנית</span>' : ''}</div>`).join('')}</div>
+    <b class="num">${fmtH(sum(list.map(part)))}</b></div>`; }).join('') || `<div class="row muted">${calAll() ? 'אף אחד לא עבד ביום הזה.' : 'לא עבדת ביום הזה.'}</div>`}</div>`;
+}
+function vCal() {
+  const { html, sel } = calMonthHtml();
+  return (guest ? '' : back(calAll() ? 'hours' : 'clock', calAll() ? 'חזרה לשעות' : 'חזרה לשעון')) + `<h2 class="vt">לוח שנה ופירוט שעות</h2>
+  <p class="muted" style="margin:-4px 0 10px">${calAll() ? 'לחיצה על יום מראה מי עבד בו ובאילו שעות.' : 'לחיצה על יום מראה את השעות שלך בו.'}</p>
+  <div class="cal" id="cal-month">${html}</div>
+  <div id="cal-day">${calDayHtml(sel)}</div>`;
+}
+const CAL_ACT = {
+  'cal-day': d => { calDay = +d.t; const m = document.getElementById('cal-month'), x = document.getElementById('cal-day'); if (m) m.innerHTML = calMonthHtml().html; if (x) x.innerHTML = calDayHtml(calDay); haptic(4); },
+  'cal-move': d => { const b = calMonth ? new Date(calMonth) : new Date(); calMonth = new Date(b.getFullYear(), b.getMonth() + +d.d, 1).getTime(); calDay = null; const m = document.getElementById('cal-month'), x = document.getElementById('cal-day'); const r = calMonthHtml(); if (m) m.innerHTML = r.html; if (x) x.innerHTML = calDayHtml(r.sel); }
+};
+
 /* ---------- leisure: the shop's photo gallery, Snake and backgammon ---------- */
 const FUN_VIEWS = ['fun', 'gallery', 'snake', 'bg', 'sudoku', 'duel'];
-const funOk = () => !viewer && !poster;
+const funOk = () => !viewer && !poster && !guest;
 const scoreOf = (game, id = session()) => (S.scores || []).find(s => s.game === game && s.emp === id) || null;
 const dataToBlob = d => { const [h, b] = String(d).split(','), bin = atob(b), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Blob([u8], { type: (h.match(/data:([^;]+)/) || [])[1] || 'image/jpeg' }); };
 const shareDone = r => { if (r === 'saved') toast('הקובץ ירד למכשיר'); };
@@ -3229,7 +3302,7 @@ const FUN_ACT = {
     } catch (e) { toast('השיתוף נכשל. בדקו את החיבור'); }
   },
 };
-Object.assign(ACT, FUN_ACT, SNAKE_ACT, BG_ACT, SUDOKU_ACT, DUEL_ACT);
+Object.assign(ACT, FUN_ACT, SNAKE_ACT, BG_ACT, SUDOKU_ACT, DUEL_ACT, CAL_ACT);
 FORMS['gal-up'] = async (v, f) => {
   if (!galPending || busy) return; busy = true; const list = galPending, btn = f.querySelector('button');
   try {
