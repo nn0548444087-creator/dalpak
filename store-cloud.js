@@ -23,7 +23,7 @@ const MAPS = { itemNotes: 'notes', itemImages: 'images', empPhotos: 'empPhotos',
 const ARRAYS = ['employees', 'shifts', 'inventory', 'drinkUpdates', 'deliveries', 'tasks', 'notifications', 'suppliers', 'orders', 'unavail', 'reels', 'reelComments', 'extras', 'messages', 'sales'];
 // Shown to everyone, never written from this list (each phone writes only its own shifts).
 // The leisure tab (gallery, game scores, backgammon games) is written only through its own functions below.
-const READONLY = { openShifts: 'openShifts', members: 'members', signups: 'signups', gallery: 'gallery', scores: 'scores', bgGames: 'bgGames' };
+const READONLY = { openShifts: 'openShifts', members: 'members', signups: 'signups', gallery: 'gallery', scores: 'scores', bgGames: 'bgGames', wallets: 'wallets', duels: 'duels' };
 const PUBLIC_CATS = ['drinks', 'salads'];
 // Google sign-in inside the Android app goes through the phone's own Google account picker
 // (Google does not allow signing in from inside an app's web view).
@@ -223,7 +223,7 @@ export function createCloudStore(config) {
   }
   function resetState() {
     unsubs.forEach(u => u()); unsubs = []; fresh = {};
-    ARRAYS.forEach(c => S[c] = []); S.members = []; S.signups = []; S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = []; S.gallery = []; S.scores = []; S.bgGames = [];
+    ARRAYS.forEach(c => S[c] = []); S.members = []; S.signups = []; S.grades = {}; S.notes = {}; S.images = {}; S.empPhotos = {}; S.prices = {}; S.catalog = []; S.openShifts = []; S.gallery = []; S.scores = []; S.bgGames = []; S.wallets = []; S.duels = [];
     synced = {}; loadedCols = new Set(); namesSynced = null; S.names = {};
     COLS.forEach(c => synced[c] = new Map());
   }
@@ -260,8 +260,9 @@ export function createCloudStore(config) {
         ...(staffMgr() ? [['logins', query(c('logins'), where('owner', '==', false))]] : []),
         ...(can('staff') ? [all('members'), all('signups')] : []),
         // Leisure: the newest photos (small previews only), everyone's game scores, and this employee's backgammon games.
-        ['gallery', query(c('gallery'), orderBy('ts', 'desc'), limit(300))], all('scores'),
-        ['bgGames', query(c('bgGames'), where('players', 'array-contains', empId))]];
+        ['gallery', query(c('gallery'), orderBy('ts', 'desc'), limit(300))], all('scores'), all('wallets'),
+        ['bgGames', query(c('bgGames'), where('players', 'array-contains', empId))],
+        ['duels', query(c('duels'), where('players', 'array-contains', empId))]];
     specs.forEach(([name, q]) => {
       unsubs.push(onSnapshot(q, { includeMetadataChanges: true }, snap => {
         noteSync(name, snap);
@@ -482,11 +483,31 @@ export function createCloudStore(config) {
       catch (e) { return { error: errText(e) }; }
     },
     // Backgammon between two employees: the one who invites plays white.
-    async bgCreate(opp) {
+    // Coins are kept by the server only. The app reports what happened (a Snake score, a solved Sudoku,
+    // a bet against the computer, a win or a loss) and the server changes the purse.
+    async coinEvent(kind, data = {}) {
+      try { await withTimeout(setDoc(doc(db, 'coinEvents', newId()), { emp: empId, kind, ...data, ts: Date.now() })); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    // Chess and checkers between two employees (duels/{id}); the one who invites is a and plays first.
+    async duelCreate(game, opp, state, stake = 0) {
+      const id = newId();
+      try { await withTimeout(setDoc(doc(db, 'duels', id), { game, a: empId, b: opp, players: [empId, opp], status: 'invite', stake: stake || 0, turn: 'a', state, last: null, ts: Date.now() })); return { ok: true, id }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    async duelUpdate(id, patch) {
+      try { await withTimeout(setDoc(doc(db, 'duels', id), patch, { merge: true })); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    async duelDelete(id) {
+      try { await withTimeout(deleteDoc(doc(db, 'duels', id))); return { ok: true }; }
+      catch (e) { return { error: errText(e) }; }
+    },
+    async bgCreate(opp, stake = 0) {
       const id = newId(), b = {};
       b.pts = Array(24).fill(0); b.pts[23] = 2; b.pts[12] = 5; b.pts[7] = 3; b.pts[5] = 5; b.pts[0] = -2; b.pts[11] = -5; b.pts[16] = -3; b.pts[18] = -5;
       try {
-        await withTimeout(setDoc(doc(db, 'bgGames', id), { a: empId, b: opp, players: [empId, opp], status: 'invite', pts: b.pts, barW: 0, barB: 0, offW: 0, offB: 0, turn: 'w', dice: null, last: null, ts: Date.now() }));
+        await withTimeout(setDoc(doc(db, 'bgGames', id), { a: empId, b: opp, players: [empId, opp], status: 'invite', stake: stake || 0, pts: b.pts, barW: 0, barB: 0, offW: 0, offB: 0, turn: 'w', dice: null, last: null, ts: Date.now() }));
         return { ok: true, id };
       } catch (e) { return { error: errText(e) }; }
     },
