@@ -70,7 +70,7 @@ export function createLocalStore() {
     S.notes = S.notes || {}; S.images = S.images || {}; S.empPhotos = S.empPhotos || {}; S.prices = S.prices || {}; S.catalog = S.catalog || []; S.messages = S.messages || []; S.sales = S.sales || [];
     S.suppliers = S.suppliers || []; S.orders = S.orders || []; S.unavail = S.unavail || [];
     S.reels = (S.reels || []).filter(r => r.type === 'photos' || PARTS.has(r.id)); S.reelComments = S.reelComments || []; S.extras = S.extras || [];
-    S.gallery = (S.gallery || []).filter(p => PARTS.has('g:' + p.id)); S.scores = S.scores || []; S.bgGames = S.bgGames || [];
+    S.gallery = (S.gallery || []).filter(p => PARTS.has('g:' + p.id)); S.scores = S.scores || []; S.bgGames = S.bgGames || []; S.wallets = S.wallets || []; S.duels = S.duels || [];
     try { session = localStorage.getItem(LS_SESSION); } catch (e) { session = null; }
     if (session && session !== 'viewer' && !S.employees.some(e => e.id === session)) session = null;
     S.currentUser = session; persist();
@@ -84,6 +84,17 @@ export function createLocalStore() {
   const lv = a => session === 'viewer' ? 'view' : (m => !m ? 'none' : m.owner ? 'edit' : (m.perms[a] || 'none'))(myMem());
   mgr = false;
   S.openShifts = S.shifts.filter(s => s.status === 'open');
+  // Demo purse: one wallet per employee; when one holds 55% of all the coins everyone goes back to 200.
+  const bal = id => { const w = S.wallets.find(x => x.id === id); return w ? w.coins : 200; };
+  function demoCoins(deltas) {
+    Object.entries(deltas).forEach(([id, d]) => { if (!d) return; const w = S.wallets.find(x => x.id === id), c = Math.max(0, bal(id) + d); if (w) w.coins = c; else S.wallets.push({ id, coins: c }); });
+    const ids = S.employees.filter(e => e.id !== 'news').map(e => e.id), total = ids.reduce((t, id) => t + bal(id), 0), top = ids.slice().sort((a, b) => bal(b) - bal(a))[0];
+    if (ids.length > 1 && total > 0 && bal(top) >= total * 0.55) { const info = S.wallets.find(x => x.id === '_info'); S.wallets = [{ id: '_info', resetAt: Date.now(), by: top, top: bal(top), n: ((info && info.n) || 0) + 1 }]; }
+  }
+  function demoSettle(g, was) {
+    if (was === 'done' || g.status !== 'done' || !g.stake || g.settled || ![g.a, g.b].includes(g.winner)) return;
+    const loser = g.winner === g.a ? g.b : g.a, amt = Math.min(g.stake, bal(loser)); g.settled = true; g.paid = amt; demoCoins({ [g.winner]: amt, [loser]: -amt });
+  }
   const store = {
     mode: 'local',
     get S() { return S; },
@@ -124,10 +135,28 @@ export function createLocalStore() {
     async uploadPhoto({ full, thumb, caption }) { const id = uid(); PARTS.set('g:' + id, full); S.gallery.push({ id, by: session, ts: Date.now(), thumb, caption: caption || '' }); persist(); listeners.forEach(f => f()); return { ok: true, id }; },
     async loadPhoto(id) { return PARTS.get('g:' + id) || null; },
     async deletePhoto(p) { PARTS.delete('g:' + p.id); S.gallery = S.gallery.filter(x => x.id !== p.id); persist(); return { ok: true }; },
-    async saveScore(game, data) { const id = game + '_' + session, cur = S.scores.find(x => x.id === id); if (cur) Object.assign(cur, data, { ts: Date.now() }); else S.scores.push({ id, game, emp: session, ...data, ts: Date.now() }); persist(); return { ok: true }; },
-    async bgCreate(opp) { const id = uid(), pts = Array(24).fill(0); pts[23] = 2; pts[12] = 5; pts[7] = 3; pts[5] = 5; pts[0] = -2; pts[11] = -5; pts[16] = -3; pts[18] = -5; S.bgGames.push({ id, a: session, b: opp, players: [session, opp], status: 'invite', pts, barW: 0, barB: 0, offW: 0, offB: 0, turn: 'w', dice: null, last: null, ts: Date.now() }); persist(); return { ok: true, id }; },
-    async bgUpdate(id, patch) { const g = S.bgGames.find(x => x.id === id); if (!g) return { error: 'המשחק לא נמצא' }; Object.assign(g, patch); persist(); return { ok: true }; },
+    async saveScore(game, data) {
+      const id = game + '_' + session, cur = S.scores.find(x => x.id === id);
+      const merge = (a, b) => { Object.entries(b).forEach(([k, v]) => { if (v && typeof v === 'object' && !Array.isArray(v) && a[k] && typeof a[k] === 'object') merge(a[k], v); else a[k] = v; }); return a; };
+      if (cur) merge(cur, { ...data, ts: Date.now() }); else S.scores.push({ id, game, emp: session, ...data, ts: Date.now() }); persist(); return { ok: true };
+    },
+    // Demo purse: the same rules the server keeps in the real app.
+    async coinEvent(kind, data = {}) {
+      const W = id => { let w = S.wallets.find(x => x.id === id); if (!w) { w = { id, coins: 200 }; S.wallets.push(w); } return w; }, w = W(session);
+      const SD = { easy: 5, medium: 10, hard: 18, expert: 30, daily: 15 }, day = new Date().toLocaleDateString('en-CA');
+      let d = 0;
+      if (kind === 'bet') { d = -Math.min(data.stake || 0, w.coins); w.bet = -d; }
+      else if (kind === 'win') { d = 2 * (w.bet || 0); w.bet = 0; }
+      else if (kind === 'lose') w.bet = 0;
+      else { const raw = kind === 'snake' ? Math.min(30, Math.floor((data.score || 0) / 5)) : kind === 'sudoku' ? Math.max(0, (SD[data.level] || 0) - 3 * (data.hints || 0) - 2 * (data.errors || 0)) : 0, e = w.earn && w.earn.day === day ? w.earn.n : 0; d = Math.max(0, Math.min(raw, 150 - e)); w.earn = { day, n: e + d }; }
+      demoCoins({ [session]: d }); persist(); return { ok: true };
+    },
+    async bgCreate(opp, stake = 0) { const id = uid(), pts = Array(24).fill(0); pts[23] = 2; pts[12] = 5; pts[7] = 3; pts[5] = 5; pts[0] = -2; pts[11] = -5; pts[16] = -3; pts[18] = -5; S.bgGames.push({ id, a: session, b: opp, players: [session, opp], status: 'invite', stake, pts, barW: 0, barB: 0, offW: 0, offB: 0, turn: 'w', dice: null, last: null, ts: Date.now() }); persist(); return { ok: true, id }; },
+    async bgUpdate(id, patch) { const g = S.bgGames.find(x => x.id === id); if (!g) return { error: 'המשחק לא נמצא' }; const was = g.status; Object.assign(g, patch); demoSettle(g, was); persist(); return { ok: true }; },
     async bgDelete(id) { S.bgGames = S.bgGames.filter(x => x.id !== id); persist(); return { ok: true }; },
+    async duelCreate(game, opp, state, stake = 0) { const id = uid(); S.duels.push({ id, game, a: session, b: opp, players: [session, opp], status: 'invite', stake, turn: 'a', state, last: null, ts: Date.now() }); persist(); return { ok: true, id }; },
+    async duelUpdate(id, patch) { const g = S.duels.find(x => x.id === id); if (!g) return { error: 'המשחק לא נמצא' }; const was = g.status; Object.assign(g, patch); demoSettle(g, was); persist(); return { ok: true }; },
+    async duelDelete(id) { S.duels = S.duels.filter(x => x.id !== id); persist(); return { ok: true }; },
     // The demo keeps everything on this phone, so it is always up to date.
     onSync() { },
     syncInfo: () => ({ state: 'live', last: Date.now(), pending: false }),
